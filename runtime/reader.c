@@ -1134,9 +1134,17 @@ static dyn parse_bar(pstate_t *p, dyn h) {
 static int is_var_tok(dyn x) {
   if (!is_tok(x)) return 0;
   dyn v = tok_value(x);
-  return IS_BIGTEXT(v) && !IS_FIXTEXT(v);
-  // Symta's is_var_tok is "is_text and not is_keyword" -- bigtexts
-  // are not keywords (only fixtexts are).
+  // Symta core_.s:222 defines `text.is_keyword = not: $n and $0.is_upcase`.
+  // So `is_var_tok` == is_text && not is_keyword == is_text && (n>0 &&
+  // first char is uppercase). Operationally: identifiers that start
+  // with an uppercase ASCII letter are variables; everything else
+  // (operators like `!`, `+`, lowercase keywords like `if`, `then`,
+  // empty texts, numbers-as-text) is NOT a variable.
+  if (!IS_TEXT(v)) return 0;
+  char *s = text_chars(v);
+  if (!s || !s[0]) return 0;
+  unsigned char c = (unsigned char)s[0];
+  return c >= 'A' && c <= 'Z';
 }
 
 static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
@@ -1371,16 +1379,19 @@ static dyn parse_if(pstate_t *p, dyn sym) {
 //     to [O lhs rhs] (post-reverse form). Return 0 (signals
 //     "GOutput modified, parse_xs loop should exit").
 //
-// This implements Symta's right-associative-via-parse_xs-recursion
-// semantics for and/or chains, with each operand wrapped in a list.
+// Simple recursive port (no LL(1) hack):
+//   - consume the and/or operator
+//   - snapshot current p->go as the LHS list (reversed to forward order)
+//   - call parse_xs to consume the rest of the input as the RHS
+//   - set p->go to [o, lhs, rhs] (the post-reverse form)
 //
-// We DO NOT yet port the LL(1) `:`-delim hack -- that's a fast-path
-// optimisation that lets `X and Y: body` produce `[and [X] [Y]]`
-// + `[: body]` as separate forms rather than recursing into the `:`
-// body. The simpler version produces equivalent semantics by letting
-// parse_xs recursion handle the `:` continuation, but emits a
-// differently-shaped AST. If macroexpand of `case`/`when`/`if` etc.
-// trips on this, port the hack from reader.s:352-361.
+// The LL(1) `:`-continuation hack in Symta (reader.s:352-361) is
+// NOT ported. Without it, `X and Y: body` produces a malformed AST
+// where the `:` body is gobbled into the `and`'s RHS instead of
+// staying as a top-level delim form. The hack requires parse_tokens
+// to do recovery via a `nullary_` synthetic token (reader.s:449-457
+// in parse_tokens itself) which we haven't ported either. See
+// issues.md B8 for the remaining work.
 static dyn parse_logic(pstate_t *p) {
   static int logic_initted = 0;
   static dyn t_and = 0, t_or = 0;
@@ -1413,10 +1424,6 @@ static dyn parse_logic(pstate_t *p) {
   dyn rhs = parse_xs(p, 0);
   arrfree(p->go);
   p->go = saved_go;
-  // Symta: GOutput = [(parse_xs 0) GOutput O] which yields
-  // `[O lhs rhs]` after parse_xs's final GOutput.f reverse.
-  // Our p->go is what parse_xs returns directly (no final reverse),
-  // so write the post-reverse form straight to p->go.
   arrsetlen(p->go, 0);
   arrput(p->go, o);
   arrput(p->go, lhs);
