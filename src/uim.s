@@ -1484,6 +1484,14 @@ cls ftx.WGT //represents one paragraph of text
   adaptInfo!0
   pos_!0.0
   kid_rects![]
+  // Per-widget rendered-text cache. For static (no-cursor, no inline
+  // kid widget) ftx, glyphs are blitted once into an offscreen and the
+  // per-frame cost collapses to one FB.blit. Dynamic-text ftx (fn-
+  // valued val_) still benefits when the lambda returns a stable
+  // result: the smlval parse runs but the glyph loop is skipped.
+  // See ui_speedup.md G7 / ui_profile.log.
+  text_cache!No
+  text_cache_key!No
   =
   case Sz:
     t = $sz = LSZ_TITLE
@@ -1564,6 +1572,26 @@ cls ftx.WGT //represents one paragraph of text
     if no Color: Color = gui().stl_fg
     else Color = Color.as_rgb
   if $dimmed: Color = Color.rgb_mul^|0.50
+  // Pure-text fast path: if there are no inline kid widgets and no
+  // editing cursor, the rendered glyph layout depends only on the
+  // SML + style fields. Cache it as an offscreen and replay as a
+  // single blit. Comparing smlval (deep list eq) handles both
+  // static and lambda-valued text -- a lambda that returns stable
+  // text gets caching for free.
+  if not got $cursor and not $kid0 and W > 0 and H > 0:
+    SVT $smlval
+    Key W,H,Color,$sz,$font,$bold,$shadow,$wrap,SVT
+    if got $text_cache and $text_cache_key >< Key:
+      FB.blit X Y $text_cache
+      ret
+    when got $text_cache: $text_cache.free
+    Cache gfx W H
+    Cache.clear 0xFF000000 //transparent (inverted alpha)
+    $draw2 Cache Color 0 0 W H No 1
+    FB.blit X Y Cache
+    $text_cache = Cache
+    $text_cache_key = Key
+    ret
   $draw2 FB Color X Y W H No 1
 
 @end_draw_kids FB =
