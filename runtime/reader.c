@@ -536,19 +536,58 @@ static dyn parse_term(pstate_t *p) {
   } else if (text_eq_c(type, KW_splice)) {
     // String splice -- value is a list of `symbol`/`()` tokens.
     // Output:
-    //   [(symbol `"` Tok.src 0) @parsed_inner-with-quoting]
-    // where each parsed item gets a preceding `\\` token if it
-    // contains `~` or `?` markers (we skip that nicety for now;
-    // game code rarely uses tilde/question markers inside splices).
+    //   [(symbol `"` Tok.src 0) @quoted-parsed-inner]
+    // where each parsed item whose value contains `~` or `?` gets
+    // wrapped as [\\-token, item]. This is what tells the
+    // compiler to treat e.g. `?` in `"?"` as a literal symbol
+    // rather than the quick-lambda auto-arg.
+    //
+    // Symta source:
+    //   splice |: (token symbol `"` Tok.src 0)
+    //             @V^parse_tokens{(1.any(?(:'~'+'?'))).value
+    //                  =:(token '\\' '\\' Q.src 0) Q}
     dyn inner = parse_tokens_inner(val);
     uint64_t in = LIST_SIZE(inner);
     static dyn quote_text = 0;
-    if (!quote_text) TEXT(quote_text, "\"");
+    static dyn backslash_text = 0;
+    if (!quote_text) {
+      TEXT(quote_text, "\"");
+      TEXT(backslash_text, "\\");
+    }
     dyn head = mk_token(KW_symbol, quote_text,
                         tok_row(tok), tok_col(tok), tok_orig(tok), 0);
-    dyn r; LIST(r, in + 1);
-    LGET(r, 0) = head;
-    for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
+    // For each inner element, decide whether to wrap it.
+    dyn *items = 0;
+    arrput(items, head);
+    for (uint64_t i = 0; i < in; i++) {
+      dyn q = LGET(inner, i);
+      int wrap = 0;
+      if (is_tok(q)) {
+        dyn qv = tok_value(q);
+        if (IS_TEXT(qv)) {
+          char *s = text_chars(qv);
+          if (s) {
+            for (char *p = s; *p; p++) {
+              if (*p == '~' || *p == '?') { wrap = 1; break; }
+            }
+          }
+        }
+      }
+      if (wrap) {
+        dyn bs = mk_token(backslash_text, backslash_text,
+                          tok_row(q), tok_col(q), tok_orig(q), 0);
+        dyn pair; LIST(pair, 2);
+        LGET(pair, 0) = bs;
+        LGET(pair, 1) = q;
+        arrput(items, pair);
+      } else {
+        arrput(items, q);
+      }
+    }
+    int n = arrlen(items);
+    dyn r; LIST(r, n);
+    for (int i = 0; i < n; i++) LGET(r, i) = items[i];
+    arrfree(items);
     parsed = r;
     have_parsed = 1;
   } else if (text_eq_c(type, KW_table)) {
@@ -629,22 +668,23 @@ static dyn parse_term(pstate_t *p) {
       }
       static dyn nullary_sym = 0;
       if (!nullary_sym) TEXT(nullary_sym, "nullary_");
+      // CRITICAL: Symta's parse_unary RETURNS `[nullary_ H]` directly
+      // -- it does NOT cache on H.parsed. Caching would set
+      // H.parsed = [[nullary_ H]] which contains H itself, and
+      // parse_strip then loops on it forever. So return a plain
+      // 2-list, no caching.
       if (is_eol) {
         dyn r; LIST(r, 2);
         LGET(r, 0) = nullary_sym;
         LGET(r, 1) = h;
-        // Cache on tok.parsed.
-        LGET(tok, 6) = (r ? ({ dyn p; LIST(p, 1); LGET(p, 0) = r; p; }) : 0);
-        return tok;
+        return r;
       }
       dyn a = parse_prefix(p);
       if (!a) {
         dyn r; LIST(r, 2);
         LGET(r, 0) = nullary_sym;
         LGET(r, 1) = h;
-        dyn pp; LIST(pp, 1); LGET(pp, 0) = r;
-        LGET(tok, 6) = pp;
-        return tok;
+        return r;
       }
       // Special: H is `-` and A is an int/hex/float token --
       // collapse into a single negated-literal token, matching
@@ -678,13 +718,13 @@ static dyn parse_term(pstate_t *p) {
           }
         }
       }
-      // Default: [H A]
+      // Default: [H A] -- return list directly, NO cache on H.parsed
+      // because H is itself in the list (self-reference would loop
+      // parse_strip).
       dyn r; LIST(r, 2);
       LGET(r, 0) = h;
       LGET(r, 1) = a;
-      dyn pp; LIST(pp, 1); LGET(pp, 0) = r;
-      LGET(tok, 6) = pp;
-      return tok;
+      return r;
     }
     // Not a known type -- push back and return 0.
     p_push_back(p, tok);
@@ -1379,28 +1419,38 @@ static dyn parse_if(pstate_t *p, dyn sym) {
 //     to [O lhs rhs] (post-reverse form). Return 0 (signals
 //     "GOutput modified, parse_xs loop should exit").
 //
-// Simple recursive port (no LL(1) hack):
-//   - consume the and/or operator
-//   - snapshot current p->go as the LHS list (reversed to forward order)
-//   - call parse_xs to consume the rest of the input as the RHS
-//   - set p->go to [o, lhs, rhs] (the post-reverse form)
+// parse_logic with the LL(1) `:`-continuation hack from
+// reader.s:349-362.
 //
-// The LL(1) `:`-continuation hack in Symta (reader.s:352-361) is
-// NOT ported. Without it, `X and Y: body` produces a malformed AST
-// where the `:` body is gobbled into the `and`'s RHS instead of
-// staying as a top-level delim form. The hack requires parse_tokens
-// to do recovery via a `nullary_` synthetic token (reader.s:449-457
-// in parse_tokens itself) which we haven't ported either. See
-// issues.md B8 for the remaining work.
+// After an `and`/`or` operator, look ahead for the first delim
+// op (`:`/`=`/`<=`/`=>`/etc.):
+//   - if no delim, or delim is in CndList (if/then/else/elif):
+//     simple path -- consume the rest of the input as the RHS via
+//     a nested parse_xs.
+//   - else: take only the tokens BEFORE the delim as R, parse them
+//     in isolation, and DON'T consume the delim. The outer
+//     parse_xs will pick up the delim on its next iteration (or
+//     parse_tokens will run the nullary-recovery dance on it).
+//     For `:` specifically the lhs's head pops out of the inner
+//     triple and becomes a sibling -- so the outer `:` form sees
+//     it as its Pref.
+//
+// `Xs[lhs.head]` floats up in the colon case so that
+// `till A or B or C: body` parses as `(: (till (or (A) (or (B) (C)))) (body))`
+// instead of `((or (A till) (or (B) (: (C) (body)))))`.
 static dyn parse_logic(pstate_t *p) {
   static int logic_initted = 0;
   static dyn t_and = 0, t_or = 0;
+  static dyn t_if = 0, t_then = 0, t_else = 0, t_elif = 0;
   if (!logic_initted) {
     TEXT(t_and, "and");
     TEXT(t_or, "or");
+    TEXT(t_if, "if");
+    TEXT(t_then, "then");
+    TEXT(t_else, "else");
+    TEXT(t_elif, "elif");
     logic_initted = 1;
   }
-  // Peek next token: is it `and` or `or`?
   if (p_end(p)) return parse_exclamation(p);
   dyn t = p_peek(p);
   if (!is_tok(t)) return parse_exclamation(p);
@@ -1410,24 +1460,98 @@ static dyn parse_logic(pstate_t *p) {
   }
   // Consume the and/or operator.
   dyn o = p_pop(p);
-  // Snapshot p->go as the LHS list. Symta does `GOutput = GOutput.f`
-  // (reverse) before treating GOutput as LHS, so we reverse on copy.
+  // GOutput.f -- snapshot p->go as forward-order LHS list.
   int gn = arrlen(p->go);
   dyn lhs;
   LIST(lhs, gn);
   for (int i = 0; i < gn; i++) LGET(lhs, gn - 1 - i) = p->go[i];
-  // Recursively call parse_xs to consume the rest. It uses its own
-  // p->go scratch and restores ours on return; we save/restore here
-  // around the call so the recursion can't see our LHS-in-progress.
-  dyn *saved_go = p->go;
-  p->go = 0;
-  dyn rhs = parse_xs(p, 0);
-  arrfree(p->go);
-  p->go = saved_go;
+  // Look ahead for first is_delim_op in remaining input.
+  dyn delim_tok = 0;
+  int found_at = -1;          // position relative to current pop point
+  {
+    int idx = 0;
+    int pn = arrlen(p->pushback);
+    for (int i = pn - 1; i >= 0; i--, idx++) {
+      dyn x = p->pushback[i];
+      if (is_tok(x) && is_delim_op(tok_type(x))) {
+        delim_tok = x; found_at = idx; break;
+      }
+    }
+    if (!delim_tok) {
+      for (uint64_t i = p->gi_pos; i < p->gi_n; i++, idx++) {
+        dyn x = LGET(p->gi, i);
+        if (is_tok(x) && is_delim_op(tok_type(x))) {
+          delim_tok = x; found_at = idx; break;
+        }
+      }
+    }
+  }
+  int use_hack = 0;
+  int delim_is_colon = 0;
+  static dyn t_colon = 0;
+  if (!t_colon) TEXT(t_colon, ":");
+  if (delim_tok) {
+    dyn dv = tok_value(delim_tok);
+    int in_cndlist = text_eq_c(dv, t_if) || text_eq_c(dv, t_then) ||
+                     text_eq_c(dv, t_else) || text_eq_c(dv, t_elif);
+    if (!in_cndlist) {
+      use_hack = 1;
+      if (text_eq_c(dv, t_colon)) delim_is_colon = 1;
+    }
+  }
+  if (!use_hack) {
+    // Simple path: GOutput = [(parse_xs 0) GOutput O], yielding
+    // post-reverse [O lhs rhs] in p->go.
+    dyn *saved_go = p->go;
+    p->go = 0;
+    dyn rhs = parse_xs(p, 0);
+    arrfree(p->go);
+    p->go = saved_go;
+    arrsetlen(p->go, 0);
+    arrput(p->go, o);
+    arrput(p->go, lhs);
+    arrput(p->go, rhs);
+    return 0;
+  }
+  // LL(1) hack: R = take(found_at), parse it separately, leave the
+  // delim in the input stream.
+  dyn *r_arr = 0;
+  for (int i = 0; i < found_at; i++) arrput(r_arr, p_pop(p));
+  int rn = arrlen(r_arr);
+  dyn r_list;
+  LIST(r_list, rn);
+  for (int i = 0; i < rn; i++) LGET(r_list, i) = r_arr[i];
+  arrfree(r_arr);
+  dyn rhs = parse_tokens_inner(r_list);
   arrsetlen(p->go, 0);
-  arrput(p->go, o);
-  arrput(p->go, lhs);
-  arrput(p->go, rhs);
+  if (delim_is_colon) {
+    // GOutput = [[O GO.tail R-parsed] GO.head] (pre-reverse).
+    // Post-reverse: [GO.head, triple].
+    uint64_t ln = LIST_SIZE(lhs);
+    if (ln == 0) {
+      dyn triple; LIST(triple, 3);
+      LGET(triple, 0) = o; LGET(triple, 1) = lhs; LGET(triple, 2) = rhs;
+      arrput(p->go, triple);
+    } else {
+      dyn lhs_head = LGET(lhs, 0);
+      dyn lhs_tail;
+      LIST(lhs_tail, ln - 1);
+      for (uint64_t i = 1; i < ln; i++) LGET(lhs_tail, i - 1) = LGET(lhs, i);
+      dyn triple; LIST(triple, 3);
+      LGET(triple, 0) = o;
+      LGET(triple, 1) = lhs_tail;
+      LGET(triple, 2) = rhs;
+      arrput(p->go, lhs_head);
+      arrput(p->go, triple);
+    }
+  } else {
+    // Non-`:` delim. GOutput = [[O GO R-parsed]] (pre-reverse, 1-wrap).
+    dyn triple; LIST(triple, 3);
+    LGET(triple, 0) = o;
+    LGET(triple, 1) = lhs;
+    LGET(triple, 2) = rhs;
+    arrput(p->go, triple);
+  }
   return 0;
 }
 
@@ -1586,17 +1710,62 @@ static dyn parse_xs(pstate_t *p, int delim_ctx) {
   return out;
 }
 
+// parse_tokens with the nullary-recovery dance (reader.s:449-457):
+//
+//   if parse_xs leaves stuff in GInput:
+//     pop the offending token
+//     if its type isn't in OpsT -> parser_error("unexpected", tok)
+//     else: synthesize a `nullary_ Tok` symbol token, prepend to
+//           input, and concatenate parse_xs's result with a
+//           recursive parse_tokens on the now-prepended input.
+//
+// Used by parse_logic's LL(1) hack -- it leaves the `:` delim
+// in the stream, and the outer parse_xs consumes the `:` form via
+// parse_delim; if `:` ends up at top level (no preceding tokens),
+// the nullary synthetic gets prepended so the `:` form has a Pref
+// to read.
 static dyn parse_tokens_inner(dyn input) {
   pstate_t p;
   p_init(&p, input);
   dyn xs = parse_xs(&p, 0);
-  if (!p_end(&p)) {
+  while (!p_end(&p)) {
     dyn tok = p_pop(&p);
-    if (is_tok(tok) && is_opt(tok_value(tok))) {
-      // Recovery: synthesize a nullary token and re-parse.
-      // (parse_tokens line 449-457 fallback.) For now we just error.
+    if (!is_tok(tok) || !is_opt(tok_type(tok))) {
+      parser_error("unexpected", tok);
     }
-    parser_error("unexpected", tok);
+    // Build a "nullary_ Tok" synthetic symbol token.
+    static dyn nullary_sym = 0;
+    if (!nullary_sym) TEXT(nullary_sym, "nullary_");
+    // .parsed = [[nullary_ Tok]]
+    dyn inner; LIST(inner, 2);
+    LGET(inner, 0) = nullary_sym;
+    LGET(inner, 1) = tok;
+    dyn cache; LIST(cache, 1);
+    LGET(cache, 0) = inner;
+    // Build the synthetic token's value text "(nullary_ <Tok.value>)".
+    char *vs = is_tok(tok) && IS_TEXT(tok_value(tok))
+                 ? text_chars(tok_value(tok)) : "?";
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "(nullary_ %s)", vs ? vs : "?");
+    (void)n;
+    dyn ntext;
+    TEXT(ntext, buf);
+    dyn synth = mk_token(KW_symbol, ntext,
+                          tok_row(tok), tok_col(tok), tok_orig(tok),
+                          cache);
+    // Push synth then the rest back onto p (LIFO pushback) so the
+    // next p_pop reads synth, then tok, then whatever else.
+    // First we'd have to put `tok` back too, then synth above it.
+    p_push_back(&p, tok);
+    p_push_back(&p, synth);
+    dyn more = parse_xs(&p, 0);
+    // Concatenate xs and more.
+    uint64_t xn = LIST_SIZE(xs);
+    uint64_t mn = LIST_SIZE(more);
+    dyn combined; LIST(combined, xn + mn);
+    for (uint64_t i = 0; i < xn; i++) LGET(combined, i) = LGET(xs, i);
+    for (uint64_t i = 0; i < mn; i++) LGET(combined, xn + i) = LGET(more, i);
+    xs = combined;
   }
   p_free(&p);
   return xs;
