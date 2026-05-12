@@ -834,9 +834,18 @@ static dyn parse_suf_loop(pstate_t *p, dyn (*down)(pstate_t*), dyn e) {
   }
   // X.Y where both are ints -> float token, then continue with that.
   if (token_is(o, KW_dot) && token_is(e, KW_int_) && token_is(b, KW_int_)) {
-    char *es = text_to_cstring(tok_value(e));
+    // text_to_cstring uses a shared static buffer (api.sbuf), so a
+    // second call clobbers the first. Snapshot the first into a
+    // local before reading the second.
+    char *raw1 = text_to_cstring(tok_value(e));
+    int el = (int)strlen(raw1);
+    char es_buf[64];
+    if (el >= (int)sizeof(es_buf)) el = (int)sizeof(es_buf) - 1;
+    memcpy(es_buf, raw1, el);
+    es_buf[el] = 0;
+    char *es = es_buf;
     char *bs = text_to_cstring(tok_value(b));
-    int el = (int)strlen(es), bl = (int)strlen(bs);
+    int bl = (int)strlen(bs);
     char *buf = (char*)malloc(el + bl + 2);
     memcpy(buf, es, el);
     buf[el] = '.';
@@ -965,16 +974,29 @@ static dyn parse_bool(pstate_t *p)      { return parse_binary(p, is_bool_op, par
 static dyn parse_blogic(pstate_t *p)    { return parse_binary(p, op_blogic, parse_bool); }
 
 static dyn parse_exclamation(pstate_t *p) {
-  // less GInput.end: when GInput.0^token_is(`!`): ret pop GInput
+  // Symta's parse_excl_loop: left-folds `!` without consuming a
+  // right operand, and WITHOUT appending `_` to the op value:
+  //   parse_excl_loop Ops E =
+  //     | O | parse_op Ops or ret E
+  //     | parse_excl_loop Ops [O E]
+  // Different from binary_loop -- this preserves `Env!` as
+  // `(`!` Env)` instead of `(`!_` Env)`. The empty-table macro
+  // looks for the `!` keyword specifically.
   if (!p_end(p)) {
     dyn t = p_peek(p);
     if (is_tok(t) && text_eq_c(tok_type(t), KW_bang)) {
       return p_pop(p);
     }
   }
-  dyn b = parse_blogic(p);
-  if (!b) return 0;
-  return binary_loop(p, op_excl, parse_blogic, b);
+  dyn e = parse_blogic(p);
+  if (!e) return 0;
+  for (;;) {
+    dyn o = parse_op(p, op_excl);
+    if (!o) return e;
+    // No right operand fetched -- just left-fold [O E].
+    dyn ne; LIST(ne, 2); LGET(ne, 0) = o; LGET(ne, 1) = e;
+    e = ne;
+  }
 }
 
 // ====================================================================
