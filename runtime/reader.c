@@ -1099,30 +1099,29 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
     LIST(empty, 0);
     return empty;
   }
+  // Symta's `ret : parse_xs 0` returns parse_xs result directly --
+  // the `:` is part of `ret`'s colon-line syntax (`ret: X` means
+  // `return X`), not a list constructor. parse_if's `ret:: Sym X.0`
+  // takes the FIRST element of the parse_xs result, which is the
+  // operator symbol for delim-headed forms.
+  #define RET_XS_WRAPPED() return parse_xs(p, 0)
   dyn k = p_peek(p);
-  // unwrap nested lists down to first token
   while (is_list(k) && LIST_SIZE(k) > 0) k = LGET(k, 0);
-  if (!is_tok(k)) return parse_xs(p, 0);
+  if (!is_tok(k)) RET_XS_WRAPPED();
   int k_row = (int)UNFXN(tok_row(k));
   int k_col = (int)UNFXN(tok_col(k));
   int lines_hack = 0;
-  // Symta: `less ORow < Src.0` is "unless body-on-later-row".
-  // So lines_hack fires when body is on the SAME row as ORow (the
-  // `:` token), i.e. when the body is INLINE. In that case if the
-  // body collapses to a single block, parse_offside rolls back to
-  // the original input and falls through to parse_xs, which lets
-  // `else`/`elif` be picked up by the enclosing parse_if.
   if (!(orow < k_row)) {
-    if (expect_eol) return parse_xs(p, 0);
+    if (expect_eol) RET_XS_WRAPPED();
     lines_hack = 1;
   }
   if (text_eq_c(tok_value(k), KW_pipe) ||
       text_eq_c(tok_value(k), KW_colon)) {
-    return parse_xs(p, 0);
+    RET_XS_WRAPPED();
   }
   int s_col = k_col;
   if (ocol != No && (int)UNFXN(ocol) >= s_col) {
-    return parse_xs(p, 0);
+    RET_XS_WRAPPED();
   }
   // Snapshot input position for potential rollback.
   uint64_t s_pos = p->gi_pos;
@@ -1136,7 +1135,7 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
     dyn x = LGET(h, 0);
     dyn y = LGET(h, 1);
     if (is_tok(x) && text_eq_c(tok_type(x), KW_bang)) {
-      if (!is_var_tok(y)) return parse_xs(p, 0);
+      if (!is_var_tok(y)) RET_XS_WRAPPED();
     }
   }
   dyn *zs = 0;
@@ -1184,11 +1183,10 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
     arrfree(ys); ys = 0;
   }
   if (lines_hack && arrlen(zs) <= 1) {
-    // rollback to s_pos
     p->gi_pos = s_pos;
     while (arrlen(p->pushback) > s_pn) arrpop(p->pushback);
     arrfree(zs);
-    return parse_xs(p, 0);
+    RET_XS_WRAPPED();
   }
   // Input = Zs.f.j -- forward, joined (each block is a list of toks)
   dyn *flat = 0;
