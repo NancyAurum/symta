@@ -907,11 +907,84 @@ static dyn parse_suf_loop(pstate_t *p, dyn (*down)(pstate_t*), dyn e) {
       if (!p_end(p)) {
         dyn t = p_peek(p);
         if (is_tok(t) && is_opt(tok_value(t))) {
-          // method-name idiom: X.+  -> [O E T-as-symbol]
+          dyn tv = tok_value(t);
+          // Symta reader.s:282-291: if T.value is `!`, transform to
+          // `:`. Then if T.value is `:`, this is the .:` postfix
+          // colon-line form -- run parse_delim under a fresh GO=[T],
+          // retag T back to its original value, recurse parse_suf_loop.
+          static dyn t_bang = 0;
+          static dyn t_colon = 0;
+          if (!t_bang) { TEXT(t_bang, "!"); TEXT(t_colon, ":"); }
+          int was_bang = text_eq_c(tv, t_bang);
+          if (was_bang) {
+            LGET(t, 0) = KW_colon;
+            LGET(t, 1) = t_colon;
+            tv = t_colon;
+          }
+          if (text_eq_c(tv, t_colon)) {
+            // R = let GOutput [T]: parse_delim 0; GOutput.f
+            dyn *saved_go = p->go;
+            p->go = 0;
+            arrput(p->go, t);  // GOutput initial = [T]
+            // parse_delim now sees `:` as first token. parse_op for
+            // delim picks it up.
+            (void)parse_delim(p, 0);
+            int gn = arrlen(p->go);
+            dyn r; LIST(r, gn);
+            for (int i = 0; i < gn; i++) LGET(r, i) = p->go[i];
+            arrfree(p->go);
+            p->go = saved_go;
+            // R.1 = T.retok(TV) -- create a fresh token with the
+            // ORIGINAL value (so a `!` form recorded as `!`).
+            dyn retv = was_bang ? t_bang : t_colon;
+            dyn retok_tok = mk_token(retv, retv,
+                                      tok_row(t), tok_col(t),
+                                      tok_orig(t), 0);
+            if (LIST_SIZE(r) >= 2) LGET(r, 1) = retok_tok;
+            dyn triple; LIST(triple, 3);
+            LGET(triple, 0) = o;
+            LGET(triple, 1) = e;
+            LGET(triple, 2) = r;
+            return parse_suf_loop(p, down, triple);
+          }
+          // method-name idiom: X.op  (and `=` + keyword pair).
+          // See reader.s:278-298 -- after consuming a `.` or `^`
+          // and finding that the next token is an OpsT operator,
+          // we pop it, retype to `symbol`, and if its value is
+          // `=` we ALSO try to glue the following keyword onto
+          // it so `tok.=src` becomes the single method-name
+          // token "=src" rather than splitting into `=` and `src`.
           (void)p_pop(p);
           LGET(t, 0) = KW_symbol;
+          // `=`+keyword combiner: produces setter-style names
+          // like `=src` / `=value` / `=type`.
+          static dyn t_eq = 0;
+          if (!t_eq) TEXT(t_eq, "=");
+          if (text_eq_c(tok_value(t), t_eq) && !p_end(p)) {
+            dyn k = p_peek(p);
+            if (is_tok(k) && IS_TEXT(tok_value(k))) {
+              char *ks = text_chars(tok_value(k));
+              if (ks && ks[0]) {
+                unsigned char c0 = (unsigned char)ks[0];
+                int is_keyword = !(c0 >= 'A' && c0 <= 'Z');
+                if (is_keyword) {
+                  (void)p_pop(p);
+                  char *kvs = text_chars(tok_value(k));
+                  char buf[128];
+                  int n = snprintf(buf, sizeof(buf), "=%s",
+                                   kvs ? kvs : "");
+                  (void)n;
+                  dyn nv;
+                  TEXT(nv, buf);
+                  LGET(t, 1) = nv;
+                }
+              }
+            }
+          }
           dyn r2; LIST(r2, 3);
           LGET(r2, 0) = o; LGET(r2, 1) = e; LGET(r2, 2) = t;
+          // Symta's `ret [O E T]` returns without continuing the
+          // postfix chain.
           return r2;
         }
       }
@@ -980,11 +1053,17 @@ static dyn parse_prefix(pstate_t *p) {
   }
   dyn pref = parse_prefix(p);
   if (!pref) {
-    // Check for SufBinary following on this row
+    // Check for SufBinary following. Symta uses `/GInput` (pop),
+    // i.e. it CONSUMES the suf-binary token to form the nullary
+    // pair. Without the pop, the outer parse_suf_loop would see
+    // the same token again and apply it as a postfix on the
+    // [O [nullary_ .]] result -- producing `@.0` as
+    // `(. (@ nullary_-dot) 0)` instead of two separate top-level
+    // forms `(@ nullary_-dot)` and `0`.
     if (!p_end(p)) {
       dyn t = p_peek(p);
       if (is_tok(t) && is_suf_binary(tok_value(t))) {
-        // nullary_ at end of GInput
+        (void)p_pop(p);  // /GInput
         static dyn nullary_ = 0;
         if (!nullary_) TEXT(nullary_, "nullary_");
         dyn r; LIST(r, 2); LGET(r, 0) = nullary_; LGET(r, 1) = t;
@@ -1460,11 +1539,13 @@ static dyn parse_logic(pstate_t *p) {
   }
   // Consume the and/or operator.
   dyn o = p_pop(p);
-  // GOutput.f -- snapshot p->go as forward-order LHS list.
+  // Snapshot p->go as the LHS list. Symta's `GOutput.f` reverses a
+  // push-prepended GOutput to forward order. Our arrput is already
+  // forward, so we copy without reversing.
   int gn = arrlen(p->go);
   dyn lhs;
   LIST(lhs, gn);
-  for (int i = 0; i < gn; i++) LGET(lhs, gn - 1 - i) = p->go[i];
+  for (int i = 0; i < gn; i++) LGET(lhs, i) = p->go[i];
   // Look ahead for first is_delim_op in remaining input.
   dyn delim_tok = 0;
   int found_at = -1;          // position relative to current pop point
@@ -1511,7 +1592,7 @@ static dyn parse_logic(pstate_t *p) {
     arrput(p->go, o);
     arrput(p->go, lhs);
     arrput(p->go, rhs);
-    return 0;
+    return No;
   }
   // LL(1) hack: R = take(found_at), parse it separately, leave the
   // delim in the input stream.
@@ -1552,7 +1633,7 @@ static dyn parse_logic(pstate_t *p) {
     LGET(triple, 2) = rhs;
     arrput(p->go, triple);
   }
-  return 0;
+  return No;
 }
 
 static dyn parse_delim(pstate_t *p, int delim_ctx) {
@@ -1573,11 +1654,21 @@ static dyn parse_delim(pstate_t *p, int delim_ctx) {
   int expect_eol = 0;
   if (text_eq_c(tok_value(o), KW_colon)) {
     expect_eol = 1;
-    // case Pref [X@_]: when X.is_token and X.value.is_keyword: ExpectEOL = 0
+    // Symta: `case Pref [X@_]: when X.is_token and X.value.is_keyword:
+    //          ExpectEOL = 0`
+    // is_keyword = NOT(n>0 AND first-char-upcase). So an identifier
+    // that starts with a non-uppercase letter is a "keyword" here.
+    // Identifiers starting with uppercase (variables like OpsT) leave
+    // ExpectEOL = 1, which is critical for the parse_offside rollback.
     if (LIST_SIZE(pref) > 0) {
       dyn x = LGET(pref, 0);
-      if (is_tok(x) && IS_FIXTEXT(tok_value(x))) {
-        expect_eol = 0;
+      if (is_tok(x) && IS_TEXT(tok_value(x))) {
+        char *s = text_chars(tok_value(x));
+        if (s && s[0]) {
+          unsigned char c0 = (unsigned char)s[0];
+          int is_kw = !(c0 >= 'A' && c0 <= 'Z');
+          if (is_kw) expect_eol = 0;
+        }
       }
     }
   }
@@ -1591,7 +1682,7 @@ static dyn parse_delim(pstate_t *p, int delim_ctx) {
   arrput(p->go, o);
   arrput(p->go, pref);
   arrput(p->go, xs);
-  return 0;
+  return No;  // Symta returns No after modifying GO; parse_xs continues.
 }
 
 static int parse_semicolon(pstate_t *p) {
@@ -1680,24 +1771,22 @@ static int parse_semicolon(pstate_t *p) {
 }
 
 static dyn parse_xs(pstate_t *p, int delim_ctx) {
-  // let GOutput []
-  //   parse_semicolon
-  //   named loop:
-  //     while 1:
-  //       X | parse_delim DelimCtx or ret loop GOutput.f
-  //       when got X: push X GOutput
+  // Symta: `X | parse_delim DelimCtx or ret loop GOutput.f`
+  //        `when got X: push X GOutput`
   //
-  // We use a per-call output stack.
+  // Three cases for parse_delim's return:
+  //   * 0      -- nothing parsed, exit the loop.
+  //   * No     -- GOutput was modified in-place (parse_delim hit a
+  //               delim, or parse_logic ran its LL(1) hack). Loop
+  //               CONTINUES; the modified GO is now the new state.
+  //   * value  -- ordinary expression result, push to GO and continue.
   dyn *saved_go = p->go;
   p->go = 0;
   parse_semicolon(p);
   for (;;) {
     dyn x = parse_delim(p, delim_ctx);
-    if (!x) {
-      // parse_delim returned 0 (it pushed to GOutput already and finished
-      // a single delim), or parse_logic returned 0. Either way, break.
-      break;
-    }
+    if (x == 0) break;            // truly nothing more
+    if (x == No) continue;        // GO modified, keep looping
     arrput(p->go, x);
   }
   // GOutput.f -- forward order. Our arrput is already forward.
