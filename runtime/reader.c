@@ -465,6 +465,10 @@ static dyn parse_term(pstate_t *p) {
   dyn val = tok_value(tok);
   dyn type = tok_type(tok);
   dyn parsed = 0;  // the inner parsed-expression list
+  // `parsed` doubles as a "got something to cache" sentinel. But
+  // for an integer literal of 0, FXN(0) == 0 which collides with
+  // the "no parse" value. Track presence explicitly.
+  int have_parsed = 0;
 
   if (text_eq_c(type, KW_escape) || text_eq_c(type, KW_symbol) ||
       text_eq_c(type, KW_text)) {
@@ -485,19 +489,23 @@ static dyn parse_term(pstate_t *p) {
       v = strtoll(s, 0, 10);
     }
     LDFXN(parsed, v);
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_hex)) {
     char *s = text_to_cstring(val);
     long long v = strtoll(s + 1, 0, 16);
     LDFXN(parsed, v);
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_bin)) {
     char *s = text_to_cstring(val);
     long long v = strtoll(s + 2, 0, 2);
     LDFXN(parsed, v);
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_void_)) {
     parsed = 0;  // No
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_parens)) {
-    // `()` -- value is the inner token list. Recurse.
     parsed = parse_tokens_inner(val);
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_brackets)) {
     // `[]` -- [symbol-`[]` @parsed_inner]
     dyn inner = parse_tokens_inner(val);
@@ -508,6 +516,7 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = head;
     for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
     parsed = r;
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_curlyL) || text_eq_c(type, KW_curly)) {
     // `{` / `{}` -- [symbol-`{` @parsed_inner]
     dyn inner = parse_tokens_inner(val);
@@ -518,6 +527,7 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = head;
     for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
     parsed = r;
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_splice)) {
     // String splice -- value is a list of `symbol`/`()` tokens.
     // Output:
@@ -535,6 +545,7 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = head;
     for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
     parsed = r;
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_table)) {
     // `@{}` -- table literal. parse_strip + parse_table + spread.
     dyn ts_raw = parse_tokens_inner(val);
@@ -547,6 +558,7 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = t_at_brace;
     for (uint64_t i = 0; i < kvn; i++) LGET(r, i + 1) = LGET(kvs, i);
     parsed = r;
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_object)) {
     // `${}` -- object literal. Complex: needs `new_fn_` + class
     // conversion. Bail by emitting a placeholder; downstream
@@ -562,6 +574,7 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = t_dollar_brace;
     for (uint64_t i = 0; i < kvn; i++) LGET(r, i + 1) = LGET(kvs, i);
     parsed = r;
+    have_parsed = 1;
   } else if (text_eq_c(type, KW_pipe)) {
     return parse_bar(p, tok);  // already has a parsed-expr structure
   } else if (text_eq_c(type, KW_if_)) {
@@ -631,8 +644,10 @@ static dyn parse_term(pstate_t *p) {
     return 0;
   }
 
-  // Cache parsed on tok.parsed = [parsed].
-  if (parsed) {
+  // Cache parsed on tok.parsed = [parsed]. Use the have_parsed
+  // flag rather than `if (parsed)` because for integer/void/etc.
+  // a legitimate parsed value can be 0 (FXN(0) == 0).
+  if (have_parsed) {
     dyn pp; LIST(pp, 1); LGET(pp, 0) = parsed;
     LGET(tok, 6) = pp;
   }
@@ -742,9 +757,11 @@ static dyn parse_suf_unary(pstate_t *p, dyn (*down)(pstate_t*),
       dyn r; LIST(r, 1); LGET(r, 0) = e;
       return r;
     }
-    // ret:: (parse_suf_loop Down [O E])
+    // ret:: (parse_suf_loop Down [O E]) -- wrap in 1-element list.
     dyn pair; LIST(pair, 2); LGET(pair, 0) = o; LGET(pair, 1) = e;
-    return parse_suf_loop(p, down, pair);
+    dyn inner_result = parse_suf_loop(p, down, pair);
+    dyn wrap; LIST(wrap, 1); LGET(wrap, 0) = inner_result;
+    return wrap;
   } else {
     // Other SufUnary type not in '[' '(' '{' or SufUnaryS.
   }
@@ -752,19 +769,16 @@ static dyn parse_suf_unary(pstate_t *p, dyn (*down)(pstate_t*),
   // The "valid" case for brackets/parens/curly group: parse the inner.
   dyn val = tok_value(o);
   dyn as = parse_tokens_inner(val);
-  // is_delim check on as
   uint64_t an = LIST_SIZE(as);
   int has_delim = 0;
   for (uint64_t i = 0; i < an; i++) {
     if (is_delim_filter(LGET(as, i))) { has_delim = 1; break; }
   }
   if (has_delim) {
-    // wrap as in another list: [as]
     dyn wrapper; LIST(wrapper, 1); LGET(wrapper, 0) = as;
     as = wrapper;
     an = 1;
   }
-  // O.parsed = [O.type]
   dyn ot_pair; LIST(ot_pair, 1); LGET(ot_pair, 0) = tok_type(o);
   LGET(o, 6) = ot_pair;
   // [O E @as]
@@ -772,7 +786,10 @@ static dyn parse_suf_unary(pstate_t *p, dyn (*down)(pstate_t*),
   LGET(full, 0) = o;
   LGET(full, 1) = e;
   for (uint64_t i = 0; i < an; i++) LGET(full, i + 2) = LGET(as, i);
-  return parse_suf_loop(p, down, full);
+  // ret:: parse_suf_loop ... -- wrap result in 1-element list.
+  dyn inner_result = parse_suf_loop(p, down, full);
+  dyn wrap; LIST(wrap, 1); LGET(wrap, 0) = inner_result;
+  return wrap;
 }
 
 static dyn parse_suf_loop(pstate_t *p, dyn (*down)(pstate_t*), dyn e) {
@@ -828,7 +845,16 @@ static dyn parse_suf_loop(pstate_t *p, dyn (*down)(pstate_t*), dyn e) {
     dyn v; TEXT(v, buf);
     static dyn t_float = 0;
     if (!t_float) TEXT(t_float, "float");
-    dyn ftok = mk_token(t_float, v, tok_row(e), tok_col(e), tok_orig(e), 0);
+    // Symta: `F token float V E.src [V.flt]` -- pre-fills the
+    // parsed slot with [V.flt] so parse_strip yields the float
+    // immediately rather than treating "3.14" as a symbol.
+    double dv = atof(buf);
+    dyn flt;
+    LDFLT(flt, dv);
+    dyn parsed_list; LIST(parsed_list, 1);
+    LGET(parsed_list, 0) = flt;
+    dyn ftok = mk_token(t_float, v, tok_row(e), tok_col(e),
+                         tok_orig(e), parsed_list);
     free(buf);
     return parse_suf_loop(p, down, ftok);
   }
@@ -1214,8 +1240,8 @@ static dyn parse_if(pstate_t *p, dyn sym) {
     cnd = parse_xs(&inner, 1);
     p_free(&inner);
   }
-  // Take first element if list
-  if (is_list(cnd) && LIST_SIZE(cnd) > 0) cnd = LGET(cnd, 0);
+  // Symta keeps Cnd as the parse_xs list (e.g. `(X)`) -- don't .0
+  // extract or we lose the wrapping.
   dyn then_, else_;
   if (is_next(p, KW_then)) {
     dyn t = p_pop(p);
@@ -1228,14 +1254,13 @@ static dyn parse_if(pstate_t *p, dyn sym) {
     dyn t = p_pop(p);
     then_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
   }
-  // Else: 0
-  else_ = 0;
+  // `Else: ` -- Symta initialises Else to empty list, not 0.
+  LIST(else_, 0);
   if (is_next(p, KW_elif)) {
     dyn t = p_pop(p);
     // GInput =: T.retok(`else`) T.retok(`if`) @GInput
     dyn else_tok = retok(t, KW_else_);
     dyn if_tok = retok(t, KW_if_);
-    // Push in reverse so they appear in the right order.
     p_push_back(p, if_tok);
     p_push_back(p, else_tok);
   }
@@ -1243,22 +1268,14 @@ static dyn parse_if(pstate_t *p, dyn sym) {
     dyn t = p_pop(p);
     else_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
   }
-  // :Sym Cnd Then Else  (i.e., a 4-element list)
-  // Symta's `[H @Then]` -- Then is a parsed-offside result which is a
-  // list of statements. Same for Else. We take .0 of each as the
-  // top-level expression (matching Symta's `X.0` extraction pattern).
-  dyn then_expr = then_;
-  if (then_ && is_list(then_) && LIST_SIZE(then_) > 0)
-    then_expr = LGET(then_, 0);
-  dyn else_expr = else_;
-  if (else_ && is_list(else_) && LIST_SIZE(else_) > 0)
-    else_expr = LGET(else_, 0);
+  // `:Sym Cnd Then Else` -- 4-element list. Cnd/Then/Else stay
+  // as-is (lists or whatever the inner parsers produced).
   dyn r;
-  LIST(r, else_expr ? 4 : 3);
+  LIST(r, 4);
   LGET(r, 0) = sym;
   LGET(r, 1) = cnd;
-  LGET(r, 2) = then_expr ? then_expr : 0;
-  if (else_expr) LGET(r, 3) = else_expr;
+  LGET(r, 2) = then_ ? then_ : ({ dyn e; LIST(e, 0); e; });
+  LGET(r, 3) = else_;
   return r;
 }
 
@@ -1331,14 +1348,14 @@ static dyn parse_delim(pstate_t *p, int delim_ctx) {
   }
   dyn xs = parse_offside(p, 0, expect_eol,
                           (int)UNFXN(tok_row(o)), No);
-  // GOutput =: Xs Pref O   -- push 3-element to GOutput
-  dyn combined; LIST(combined, 3);
-  LGET(combined, 0) = xs;
-  LGET(combined, 1) = pref;
-  LGET(combined, 2) = o;
-  // Reset GOutput to [combined]
+  // Symta: `GOutput =: Xs Pref O` sets GOutput = [Xs Pref O], and
+  // then parse_xs returns GOutput.f = [O Pref Xs]. We're using
+  // arrput (insertion order, no reverse in parse_xs), so put the
+  // elements directly in the FINAL desired order [O Pref Xs].
   arrsetlen(p->go, 0);
-  arrput(p->go, combined);
+  arrput(p->go, o);
+  arrput(p->go, pref);
+  arrput(p->go, xs);
   return 0;
 }
 

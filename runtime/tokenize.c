@@ -317,6 +317,10 @@ dyn code2text(int c) {
 static dyn mktok(dyn type, dyn value, int pchar, int row, int col, dyn orig) {
   dyn *t = token(type, value, FXN(row), FXN(col), orig);
   LGET(t,2) = code2text(pchar);
+  // gc_alloc doesn't zero-init -- explicitly clear `parsed` slot so
+  // parse_strip's `if P then P.0` doesn't trip on garbage when the
+  // token has no parsed cache.
+  LGET(t,6) = 0;
   return t;
 }
 
