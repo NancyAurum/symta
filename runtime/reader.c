@@ -1123,13 +1123,23 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
   if (ocol != No && (int)UNFXN(ocol) >= s_col) {
     RET_XS_WRAPPED();
   }
-  // Snapshot input position for potential rollback.
+  // Snapshot input position for potential rollback. We capture the
+  // FULL pushback contents (not just the length): the lines_hack
+  // rollback below may fire after the collection loop has consumed
+  // tokens out of pushback, so we need to restore the originals,
+  // not just trim what was added.
   uint64_t s_pos = p->gi_pos;
   int s_pn = arrlen(p->pushback);
+  dyn *s_pb = 0;
+  for (int i = 0; i < s_pn; i++) arrput(s_pb, p->pushback[i]);
+  #define PARSE_OFFSIDE_ROLLBACK() do {                          \
+    p->gi_pos = s_pos;                                           \
+    arrsetlen(p->pushback, 0);                                   \
+    for (int _i = 0; _i < s_pn; _i++) arrput(p->pushback, s_pb[_i]); \
+  } while (0)
   dyn h = parse_exclamation(p);
   // Rollback (Symta restores GInput regardless of H's value).
-  p->gi_pos = s_pos;
-  while (arrlen(p->pushback) > s_pn) arrpop(p->pushback);
+  PARSE_OFFSIDE_ROLLBACK();
   // case H [X Y]: if X^token_is(`!`): less Y^is_var_tok: ret: parse_xs 0
   if (h && is_list(h) && LIST_SIZE(h) == 2) {
     dyn x = LGET(h, 0);
@@ -1183,11 +1193,13 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
     arrfree(ys); ys = 0;
   }
   if (lines_hack && arrlen(zs) <= 1) {
-    p->gi_pos = s_pos;
-    while (arrlen(p->pushback) > s_pn) arrpop(p->pushback);
+    PARSE_OFFSIDE_ROLLBACK();
     arrfree(zs);
+    arrfree(s_pb);
     RET_XS_WRAPPED();
   }
+  arrfree(s_pb);
+  #undef PARSE_OFFSIDE_ROLLBACK
   // Input = Zs.f.j -- forward, joined (each block is a list of toks)
   dyn *flat = 0;
   for (int i = 0; i < arrlen(zs); i++) {
@@ -1445,21 +1457,20 @@ static int parse_semicolon(pstate_t *p) {
   }
   dyn l = parse_tokens_inner(left_list);
   dyn r = parse_tokens_inner(right_list);
+  // Symta sets GOutput = [@R.tail.f L M] or [R L M], then parse_xs
+  // returns GOutput.f (reversed). Our p->go is what parse_xs returns
+  // directly (no reverse), so write the post-reverse form:
+  //   if-branch: [M L @R.tail]
+  //   else:      [M L R]
   arrsetlen(p->go, 0);
-  // Check if R.0^token_is(`;`)
+  arrput(p->go, found_tok);
+  arrput(p->go, l);
   if (is_list(r) && LIST_SIZE(r) > 0 &&
       is_tok(LGET(r, 0)) && text_eq_c(tok_type(LGET(r, 0)), t_semi)) {
-    // [@R.tail.f L M] -- push in reverse, then L, then M
-    dyn r_tail; uint64_t rn = LIST_SIZE(r);
-    for (uint64_t i = rn; i > 1; i--) arrput(p->go, LGET(r, i - 1));
-    arrput(p->go, l);
-    arrput(p->go, found_tok);
-    (void)r_tail;
+    uint64_t rn = LIST_SIZE(r);
+    for (uint64_t i = 1; i < rn; i++) arrput(p->go, LGET(r, i));
   } else {
-    // [R L M]
     arrput(p->go, r);
-    arrput(p->go, l);
-    arrput(p->go, found_tok);
   }
   return 0;
 }
