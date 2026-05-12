@@ -1104,8 +1104,9 @@ type uim W H Root Cursor!host Title!No Size!any NoteLife!10.0 MaxNotes!8:
   show: Es => UIM.adapt_wh
               //if $frame%14 >< 0: No.uim_clear_rect_cache_
               UIM.input Es
-              UIM.render
+              FB UIM.render
               UIM.maybe_screenshot
+              FB //the show loop wants the gfx, not the screenshot side-effect
   when got $fb:
     $fb.free
     $fb = No
@@ -1175,7 +1176,9 @@ ShownNotes []
 @maybe_screenshot =
   less got $screenshot_path: ret
   when $frame << $screenshot_frame: ret
+  less got $fb: ret  //already exited by a previous screenshot tick
   Path $screenshot_path
+  $screenshot_path = No //one-shot; don't re-enter on next loop iteration
   Dir Path.url.0
   if Dir and not Dir.exists: Dir.mkpath
   $fb.save Path
