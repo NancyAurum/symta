@@ -513,5 +513,5 @@ lexical_macro_expand SrcFile Text LexP =
 text.parse Src!'<none>' LexP!No =
 | Text Me
 | when got LexP: Text = lexical_macro_expand Src Text LexP
-| R parse_strip: parse_tokens: add_bars: Text.tokenize(Src)
+| R parse_strip: parse_tokens: add_bars_c_: Text.tokenize(Src)
 | if R.end then [[]] else R.0.tail

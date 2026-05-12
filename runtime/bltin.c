@@ -10,6 +10,7 @@
 #include "ng.h"
 #include "flt16.h"
 #include "fs.h"
+#include "reader.h"
 
 
 #include "prf.h"
@@ -365,6 +366,12 @@ BUILTIN1("text.utf8",text_utf8,C_ANY,o)
 RETURNS(text_to_bytes(o))
 BUILTIN2("text.tokenize",text_tokenize,C_ANY,o,C_ANY,orig)
 RETURNS(tokenize(orig,o))
+
+// C parser surface -- see runtime/reader.c. The Symta reader.s
+// thunks through these so the public `text.parse` keeps working
+// while the parser moves to C piece by piece.
+BUILTIN1("add_bars_c_", add_bars_c_, C_ANY, xs)
+RETURNS(reader_add_bars(xs))
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2268,6 +2275,7 @@ static struct {
   B(hmap_)
   B(sbc_metadata_)
   B(tok_)
+  B(add_bars_c_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)

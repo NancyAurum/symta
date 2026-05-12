@@ -41,11 +41,11 @@ STRIP = $(PREFIX)strip
 CP = cp -fp
 RM = rm -f
 
-SRCS = main.c gc.c ncm.c bltin.c tokenize.c ng.c \
+SRCS = main.c gc.c ncm.c bltin.c tokenize.c reader.c ng.c \
        sif.c fs.c sbc.c sif2sbc.c \
        w64/ctx.c w64/compat.c w64/dlfcn.c w64/mman.c
 
-HDRSB = symta.h common.h ng.h prf.h dh.h fs.h sif.h flt16.h flt16_x86.h
+HDRSB = symta.h common.h ng.h prf.h dh.h fs.h sif.h flt16.h flt16_x86.h reader.h
 
 HDRS = $(addprefix runtime/,$(HDRSB))
 
