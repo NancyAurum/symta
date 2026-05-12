@@ -55,6 +55,55 @@ static dyn make_bar(dyn row, dyn col, dyn orig) {
 }
 
 // ----------------------------------------------------------------------
+// parse_strip -- mirror of reader.s:460-472.
+//
+//   parse_strip X =
+//   | if X.is_token
+//     then | P X.parsed
+//          | R if P then parse_strip P.0 else X.value
+//          | R
+//     else if X.is_list
+//     then | less X.n: ret   X
+//          | Head X.head
+//          | Meta when Head.is_token: Head.src
+//          | Ys map V X: parse_strip V
+//          | when got Meta and Meta.2 <> '<none>': Ys =  meta Ys Meta
+//          | Ys
+//     else X
+//
+// NOTE: the `meta` wrapping in the Symta version constructs a
+// `meta` type instance (`type meta.~ O M: object_!O meta_!M`). We
+// don't replicate that in C -- callers that need source info should
+// wrap the result with the Symta `meta` constructor afterwards.
+// The C version returns the structurally-stripped AST with bare
+// lists.
+// ----------------------------------------------------------------------
+
+dyn reader_parse_strip(dyn x) {
+  if (is_tok(x)) {
+    dyn parsed = LGET(x, 6);
+    if (parsed) {
+      // `parsed` is a list whose 0th element is the parsed form.
+      return reader_parse_strip(LGET(parsed, 0));
+    }
+    return tok_value(x);
+  }
+  if (O_TAG(x) != T_LIST) return x;
+  uint64_t n = LIST_SIZE(x);
+  if (n == 0) return x;
+
+  GC_DISABLE();
+  // Recursively strip each element.
+  dyn out;
+  LIST(out, n);
+  for (uint64_t i = 0; i < n; i++) {
+    LGET(out, i) = reader_parse_strip(LGET(x, i));
+  }
+  GC_ENABLE();
+  return out;
+}
+
+// ----------------------------------------------------------------------
 // add_bars -- mirror of reader.s:30-42.
 // ----------------------------------------------------------------------
 

@@ -372,6 +372,8 @@ RETURNS(tokenize(orig,o))
 // while the parser moves to C piece by piece.
 BUILTIN1("add_bars_c_", add_bars_c_, C_ANY, xs)
 RETURNS(reader_add_bars(xs))
+BUILTIN1("parse_strip_c_", parse_strip_c_, C_ANY, x)
+RETURNS(reader_parse_strip(x))
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2276,6 +2278,7 @@ static struct {
   B(sbc_metadata_)
   B(tok_)
   B(add_bars_c_)
+  B(parse_strip_c_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)

@@ -18,4 +18,11 @@
 // Returns a fresh T_LIST.
 dyn reader_add_bars(dyn token_list);
 
+// reader.s:parse_strip -- walks the token+list AST returned by
+// parse_tokens and unwraps tokens to leave just .value (or the
+// parsed form if .parsed is set). Lists are recursively stripped
+// into fresh T_LIST objects. Does NOT attach source meta (the
+// Symta-level wrapper handles that downstream).
+dyn reader_parse_strip(dyn ast);
+
 #endif
