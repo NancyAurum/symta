@@ -1202,11 +1202,10 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
   arrfree(flat);
   arrfree(zs);
   dyn r = parse_tokens_inner(input);
-  // .f -- reverse (Symta returns R.f at end of parse_offside).
-  // We return r as-is here; the caller (parse_delim) expects the
-  // forward form. The Symta `.f` was needed because parse_xs
-  // accumulated via push (reverse-insertion); our parse_xs uses
-  // arrput so no reverse needed.
+  // Symta `R.f` reverses the parse_tokens result. In Symta this is
+  // needed because parse_xs accumulates via push (which prepends);
+  // .f undoes that to give insertion order. Our parse_xs uses
+  // arrput which is already insertion order, so no reverse needed.
   return r;
 }
 
