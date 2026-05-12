@@ -3,9 +3,9 @@ TARGET = libcinvoke.a
 all: $(TARGET)
 
 clean:
-	del *.o
-	del arch\*.o
-	del libcinvoke.a
+	rm -f *.o
+	rm -f arch/*.o
+	rm -f libcinvoke.a
 
 SRCS = cinvoke.c structure.c hashtable.c arch/gcc_x64_win.c
 

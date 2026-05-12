@@ -15,11 +15,16 @@
 // GMUTEX used to busy-spin on the worker; it's now a no-op. The
 // remaining uses are kept as a marker of "this entry point used to be
 // the sync point", in case we ever re-introduce real parallelism here.
-#define GMUTEX do {} while (0)
+// The original macro ended in a semicolon and most call sites rely on
+// that — they don't write a `;` after GMUTEX. Preserved here.
+#define GMUTEX do {} while (0);
 
 static blit_t blits[1];
 blit_t *blt = blits;
-blit_t *pbl  = blits; //same buffer; the swap is gone
+// `pbl` is also declared `extern ... *volatile pbl` in common.h, where
+// it used to be the worker-thread's read pointer. Keep the volatile
+// qualifier so the declaration and definition agree.
+blit_t *volatile pbl = blits;
 
 //default gamma lookup table (2.2 for sRGB)
 extern gfx_gamma_t dgam;
