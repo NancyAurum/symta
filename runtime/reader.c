@@ -17,6 +17,7 @@
 
 #include "common.h"
 #include "ng.h"
+#include "am.h"
 #include "reader.h"
 
 // ====================================================================
@@ -501,7 +502,11 @@ static dyn parse_term(pstate_t *p) {
     LDFXN(parsed, v);
     have_parsed = 1;
   } else if (text_eq_c(type, KW_void_)) {
-    parsed = 0;  // No
+    // Symta source says `void | No`. `No` is the tagged immediate
+    // MKIMM(T_NO,0), NOT integer zero. Using `0` here would print
+    // the same in some contexts but compares differently under
+    // truthiness checks -- `if 0` is falsy, `if No` is truthy.
+    parsed = No;
     have_parsed = 1;
   } else if (text_eq_c(type, KW_parens)) {
     parsed = parse_tokens_inner(val);
@@ -547,17 +552,27 @@ static dyn parse_term(pstate_t *p) {
     parsed = r;
     have_parsed = 1;
   } else if (text_eq_c(type, KW_table)) {
-    // `@{}` -- table literal. parse_strip + parse_table + spread.
+    // `@{}` -- table literal. Symta evaluates this at parse time:
+    //   Ts = parse_strip(parse_tokens(V))
+    //   result = @t(@ parse_table(parse_strip(Ts)))
+    // i.e. it builds an actual table object whose key/value pairs
+    // are the parsed contents. The downstream compiler bakes the
+    // literal table into bytecode as a constant.
+    //
+    // We mirror that by parsing the inner forms, then calling
+    // amNew() + amSet() to construct a fresh table. The parsed
+    // table goes into tok.parsed so parse_strip returns it as-is.
     dyn ts_raw = parse_tokens_inner(val);
     dyn ts = reader_parse_strip(ts_raw);
     dyn kvs = reader_parse_table(ts);
-    static dyn t_at_brace = 0;
-    if (!t_at_brace) TEXT(t_at_brace, "@t");
+    dyn tbl = amNew();
     uint64_t kvn = LIST_SIZE(kvs);
-    dyn r; LIST(r, kvn + 1);
-    LGET(r, 0) = t_at_brace;
-    for (uint64_t i = 0; i < kvn; i++) LGET(r, i + 1) = LGET(kvs, i);
-    parsed = r;
+    for (uint64_t i = 0; i < kvn; i++) {
+      dyn kv = LGET(kvs, i);
+      if (!is_list(kv) || LIST_SIZE(kv) < 2) continue;
+      amSet(tbl, LGET(kv, 0), LGET(kv, 1));
+    }
+    parsed = tbl;
     have_parsed = 1;
   } else if (text_eq_c(type, KW_object)) {
     // `${}` -- object literal. Complex: needs `new_fn_` + class
@@ -630,6 +645,38 @@ static dyn parse_term(pstate_t *p) {
         dyn pp; LIST(pp, 1); LGET(pp, 0) = r;
         LGET(tok, 6) = pp;
         return tok;
+      }
+      // Special: H is `-` and A is an int/hex/float token --
+      // collapse into a single negated-literal token, matching
+      //   token A.type "[H.value][A.value]" H.src [-A.parsed.0]
+      // Without this, `-3` parses as `[- 3]` (a binary form) which
+      // the compiler tries to call `-` as a function and crashes.
+      if (text_eq_c(tok_value(h), KW_minus) && is_tok(a)) {
+        dyn at = tok_type(a);
+        if (text_eq_c(at, KW_int_) || text_eq_c(at, KW_hex) ||
+            text_eq_c(at, KW_bin)) {
+          dyn ap = tok_parsed(a);
+          if (ap && LIST_SIZE(ap) > 0) {
+            // [-A.parsed.0] -- negate the parsed integer.
+            dyn av = LGET(ap, 0);
+            long long iv = (long long)UNFXN(av);
+            dyn nv; LDFXN(nv, -iv);
+            dyn np; LIST(np, 1); LGET(np, 0) = nv;
+            // Build "-N" string for the new token's value.
+            char *as_str = text_to_cstring(tok_value(a));
+            int alen = (int)strlen(as_str);
+            char buf[64];
+            buf[0] = '-';
+            int copy = alen < 62 ? alen : 62;
+            for (int i = 0; i < copy; i++) buf[1 + i] = as_str[i];
+            buf[1 + copy] = 0;
+            dyn nv_text;
+            TEXT(nv_text, buf);
+            return mk_token(at, nv_text,
+                            tok_row(h), tok_col(h), tok_orig(h),
+                            np);
+          }
+        }
       }
       // Default: [H A]
       dyn r; LIST(r, 2);
@@ -1314,13 +1361,27 @@ static dyn parse_if(pstate_t *p, dyn sym) {
 // parse_logic / parse_delim / parse_semicolon / parse_xs / parse_tokens
 // ====================================================================
 
-// parse_logic w/o the LL(1) hack -- straight delegation.
-// The hack accelerates `case` etc. but isn't needed for correctness.
+// parse_logic -- reader.s:349-362.
+//
+// Symta's logic ports as:
+//   - If next token is NOT `and`/`or`: return parse_exclamation result
+//     (no side effects on GOutput).
+//   - Else: consume the operator. Snapshot current GOutput as the LHS
+//     list. Recursively call parse_xs to consume the rest. Set GOutput
+//     to [O lhs rhs] (post-reverse form). Return 0 (signals
+//     "GOutput modified, parse_xs loop should exit").
+//
+// This implements Symta's right-associative-via-parse_xs-recursion
+// semantics for and/or chains, with each operand wrapped in a list.
+//
+// We DO NOT yet port the LL(1) `:`-delim hack -- that's a fast-path
+// optimisation that lets `X and Y: body` produce `[and [X] [Y]]`
+// + `[: body]` as separate forms rather than recursing into the `:`
+// body. The simpler version produces equivalent semantics by letting
+// parse_xs recursion handle the `:` continuation, but emits a
+// differently-shaped AST. If macroexpand of `case`/`when`/`if` etc.
+// trips on this, port the hack from reader.s:352-361.
 static dyn parse_logic(pstate_t *p) {
-  // First try and/or
-  static op_pred_t logic_pred = 0;
-  // op_blogic handles `&&` `||`; logic-level handles `and` `or`
-  // We need a predicate for `and` / `or`.
   static int logic_initted = 0;
   static dyn t_and = 0, t_or = 0;
   if (!logic_initted) {
@@ -1328,27 +1389,39 @@ static dyn parse_logic(pstate_t *p) {
     TEXT(t_or, "or");
     logic_initted = 1;
   }
-  (void)logic_pred;  // we inline the predicate here
-  // Parse exclamation first
-  dyn e = parse_exclamation(p);
-  if (!e) return 0;
-  // Look for `and` / `or`
-  for (;;) {
-    if (p_end(p)) return e;
-    dyn t = p_peek(p);
-    if (!is_tok(t)) return e;
-    dyn ty = tok_type(t);
-    if (!text_eq_c(ty, t_and) && !text_eq_c(ty, t_or)) return e;
-    dyn o = p_pop(p);
-    dyn rhs = parse_exclamation(p);
-    if (!rhs) {
-      parser_error("no right operand for", o);
-      return 0;
-    }
-    dyn ne; LIST(ne, 3);
-    LGET(ne, 0) = o; LGET(ne, 1) = e; LGET(ne, 2) = rhs;
-    e = ne;
+  // Peek next token: is it `and` or `or`?
+  if (p_end(p)) return parse_exclamation(p);
+  dyn t = p_peek(p);
+  if (!is_tok(t)) return parse_exclamation(p);
+  dyn ty = tok_type(t);
+  if (!text_eq_c(ty, t_and) && !text_eq_c(ty, t_or)) {
+    return parse_exclamation(p);
   }
+  // Consume the and/or operator.
+  dyn o = p_pop(p);
+  // Snapshot p->go as the LHS list. Symta does `GOutput = GOutput.f`
+  // (reverse) before treating GOutput as LHS, so we reverse on copy.
+  int gn = arrlen(p->go);
+  dyn lhs;
+  LIST(lhs, gn);
+  for (int i = 0; i < gn; i++) LGET(lhs, gn - 1 - i) = p->go[i];
+  // Recursively call parse_xs to consume the rest. It uses its own
+  // p->go scratch and restores ours on return; we save/restore here
+  // around the call so the recursion can't see our LHS-in-progress.
+  dyn *saved_go = p->go;
+  p->go = 0;
+  dyn rhs = parse_xs(p, 0);
+  arrfree(p->go);
+  p->go = saved_go;
+  // Symta: GOutput = [(parse_xs 0) GOutput O] which yields
+  // `[O lhs rhs]` after parse_xs's final GOutput.f reverse.
+  // Our p->go is what parse_xs returns directly (no final reverse),
+  // so write the post-reverse form straight to p->go.
+  arrsetlen(p->go, 0);
+  arrput(p->go, o);
+  arrput(p->go, lhs);
+  arrput(p->go, rhs);
+  return 0;
 }
 
 static dyn parse_delim(pstate_t *p, int delim_ctx) {
