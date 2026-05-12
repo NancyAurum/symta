@@ -2435,16 +2435,21 @@ cls pic9.WGT srcSz picname sz!SrcSz btn!0 /*if 1 act as button*/ cut!0: pics
   less SMW and SMH: //2x2 tiling fallback
     CX 0
     CY 0
+    DX 0
+    DY 0
     times I 4:
       GW,GH W/2,H/2
       SW,SH SCDX,SCDY
       G get_pic_sub PicName W!GW H!GH CX CY SW SH Index!I
-      T.blit CX CY G
+      T.blit DX DY G
       if (I+1)%2:
         CX += SW
+        DX += GW
       else
         CX = 0
+        DX = 0
         CY += SH
+        DY += GH
     ret T
   Sz $sz
   CDX,CDY if Sz.is_list: Sz else Sz,Sz
@@ -2454,6 +2459,8 @@ cls pic9.WGT srcSz picname sz!SrcSz btn!0 /*if 1 act as button*/ cut!0: pics
   MH H-2*CDY
   CX 0
   CY 0
+  DX 0
+  DY 0
   times I 9:
     GW,GH I(:0+2+6+8=CDX,CDY;1+7=MW,CDY;3+5=CDX,MH;4=MW,MH)
     SW,SH I(:0+2+6+8=SCDX,SCDY;1+7=SMW,SCDY;3+5=SCDX,SMH;4=SMW,SMH)
@@ -2474,13 +2481,22 @@ cls pic9.WGT srcSz picname sz!SrcSz btn!0 /*if 1 act as button*/ cut!0: pics
         if:
           I(:0+3+6) = GW = 0
           I(:1+4+7) = GW += CDX
+    // Source and destination cursors must be tracked separately.
+    // CX,CY is the SOURCE sub-rect origin in the master PIC, advanced
+    // by source widths SW/SH. DX,DY is the DESTINATION position in
+    // the composed T, advanced by destination widths GW/GH (which
+    // differ from SW/SH when the widget is wider/taller than the
+    // PIC). Earlier versions used CX,CY for both, leaving gaps.
     G get_pic_sub PicName W!GW H!GH CX CY SW SH Index!I
-    T.blit CX CY G
+    T.blit DX DY G
     if (I+1)%3:
       CX += SW
+      DX += GW
     else
       CX = 0
+      DX = 0
       CY += SH
+      DY += GH
   T
 
 @draw FB =
