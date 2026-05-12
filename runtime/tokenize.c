@@ -555,7 +555,14 @@ dyn tokenize(dyn orig, dyn o) {
   R_chars = xs;
   R_off = 0;
   R_last = ' ';
-  R_row = 0;
+  // Row is 1-indexed (line 1 is the first line) but col stays 0-indexed
+  // because reader.s's add_bars uses Col==0 as the "start of line"
+  // marker for inserting top-level `|` separators.
+  //
+  // Project compiles always inject "#line Row+1" via lexical_macro_expand,
+  // so this only mattered for the bare `-f file.s` path -- which used to
+  // be off by one in error messages and stack traces.
+  R_row = 1;
   R_col = 0;
   R_origin = orig;
   R_len = strlen(R_chars);

@@ -580,6 +580,13 @@ say if 'hello': 123 else 456  // prints 123
 
 Any non-zero value is true and triggers `then` clause, while zero would trigger the evaluation of value after `else`.
 
+For multiline if-else, the else is the last statement in the list:
+```
+if X > 0:
+  say "positive"
+  say "and"
+  else say "no"
+```
 
 When either then or else clause is empty, Symta's standard library provides two shorthand macros:
 ```

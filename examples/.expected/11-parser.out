@@ -1,0 +1,21 @@
+parsed 2 form(s):
+  (`=` (fac N) ((`if` ((`><` N 0)) (1) ((`*` N (`()` fac (`-` N 1)))))))
+  (`:` (say) (fac 5))
+
+compound-expression heads:
+  = -> 1
+  fac -> 2
+  if -> 1
+  >< -> 1
+  * -> 1
+  () -> 1
+  - -> 1
+  : -> 1
+  say -> 1
+
+serialized:  (1 (2 3 (4 5)) foo `with spaces`)
+
+table:       @{name!Nancy age!37 city!Amsterdam}
+key access:  Nancy / 37 / Amsterdam
+
+synthesized: (`=` (inc X) (`+` X 1))

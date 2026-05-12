@@ -31,7 +31,7 @@ EXTRA_CFLAGS =
 AS = $(CC)
 ASFLAGS = $(LOC) -Wall
 
-LD = $(CC) -Wl,--stack,10485760
+LD = $(CC) -Wl,--stack,67108864
 # -Wl,-allow_stack_execute
 LDFLAGS = $(LOC) -Wl,--exclude-all-symbols -Wl,--exclude-libs,ALL -L ./cinvoke/lib -lcinvoke
 AR = $(PREFIX)ar

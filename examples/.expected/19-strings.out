@@ -1,0 +1,25 @@
+length:  13
+first:   H
+first 5: Hello
+drop 7:  World!
+
+split: (`` usr local bin symta)
+joined back with ': ' = : usr: local: bin: symta
+dir=src/main/  name=foo  ext=png
+
+Now is a good time to live, really good!
+censor digits: phone XXX-XXXX
+
+parsed: name=Nancy, age=37
+csv: name=alice age=30 job=engineer
+age + 1 = 31
+
+user_full_name -> User Full Name
+
+README has 167 lines, first 3:
+  | # Symta
+  | 
+  | > A list-processing Lisp dialect where one terse line replaces fifty
+
+bytes (9): (87 97 118 101 58 32 104 105 33)
+back:    Wave: hi!

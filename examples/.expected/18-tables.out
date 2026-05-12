@@ -1,0 +1,26 @@
+literal:    @{name!Nancy age!37 city!Amsterdam}
+by .field:  @{lat!52.36999893 lon!4.88999987}
+from list:  @{fr!33 de!49 nl!31}
+
+has age?    1
+has email?  0
+got age?    1
+T1.l =      ((name Nancy) (age 37) (city Amsterdam))
+
+fields:
+  name = Nancy
+  age = 37
+  city = Amsterdam
+
+after edits: @{d!4 b!20 c!3}
+
+stop?(of)  = 1
+stop?(cat) = 0
+
+top 3 words:
+  the: 3
+  quick: 2
+  fox: 2
+
+Nancy's age:  37
+Bernd's city: Berlin
