@@ -1207,19 +1207,22 @@ ShownNotes []
 
 @update_widgets =
   $root.update_r
-  // Only invalidate cached rects if some widget mutated geometry this
-  // frame. Setters call uim_dirty_geom_; resize/show/hide do too. Plus
-  // a 1Hz safety-net flush in case a widget mutates xy_/wh_ directly
-  // without going through the setter. See ui_speedup.md (W1).
-  when No.uim_geom_dirty_ or $frame % $fpsGoal.@60 >< 0:
-    No.uim_clear_rect_cache_
+  // PHASE 3 (W1) was: clear the rect cache only when a widget setter
+  // flipped GeomDirty. The trouble: many widgets mutate $xy_/$wh_
+  // directly during their .update() (bypassing the =xy/=xywh setters
+  // that flip the flag), so the cache went stale and layout broke.
+  // For now: clear every frame as the original code did. The other
+  // perf wins (pic9 compose cache, font cache, hit-test list cache,
+  // disk-cache removal in store.s) still apply. A proper fix is to
+  // either route every direct field write through the setter, or to
+  // hash xy_/wh_ across the tree after update_r and detect changes.
+  No.uim_clear_rect_cache_
   DL $root.draw_list.f
-  // Stash the widget-only subset (filter out the [W] begin markers)
+  // Cache the widget-only subset (filter out the [W] begin markers)
   // so `at XY` can hit-test without rebuilding the tree on every
   // mouse-move event. See ui_speedup.md (W6). DL is already in
-  // reverse-draw-order (.f above), so the cached list points at
-  // the top-most widget first -- which is what we want for
-  // hit-testing.
+  // reverse-draw-order (.f above), i.e. top-most-widget first --
+  // which is what we want for hit-testing.
   $hit_test_list = DL.skip(?is_list)
   DL{Q.rect:[@_]}
 
