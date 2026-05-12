@@ -1,3 +1,4 @@
+use prof
 export gfx
 
 ffi_begin macro gfx
@@ -255,6 +256,7 @@ gfx.fade Amount =
 | Me
 gfx.eraser = gfx_set_blit_eraser $handle
 gfx.blit X Y Src =
+| prof_incr \blit
 | if Src.is_gfx
   then _type gfx Src:
     //_ffi_call \(void ptr int int ptr) FFI_gfx_gfx_blit_ $handle X Y Src.handle

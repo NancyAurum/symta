@@ -1,4 +1,4 @@
-use cls sexp heap gfx font svg rgb cache store
+use cls sexp heap gfx font svg rgb cache store prof
 export uim gui uim_stl bg spc frm ftx knob btn pic slider htabs tabs lay
        chkbx lbox edln edbx drpl msgbx
        pic9 wnd fsview menubar tip
@@ -1079,6 +1079,7 @@ type uim W H Root Cursor!host Title!No Size!any NoteLife!10.0 MaxNotes!8:
   screenshot_path!No   //if set, save the FB to this path and exit
   screenshot_frame!60  //frame on which to take the screenshot
   hit_test_list!No     //widget list used by `at XY`, populated per frame
+  tick_fn!0            //per-frame hook for profilers / test harnesses
   // Per-phase timing — read via uim.t_update_ms / uim.t_draw_ms etc.
   // Useful for ui_speedup work (see Part 9 of ui_speedup.md). Updated
   // every frame; cheap to read.
@@ -1101,11 +1102,13 @@ type uim W H Root Cursor!host Title!No Size!any NoteLife!10.0 MaxNotes!8:
   for Msg NotifyMsgs.f: UIM.notify Msg
   NotifyMsgs = []
   $parse_screenshot_args
+  when prof_pending_tick_fn: $tick_fn = prof_pending_tick_fn
   show: Es => UIM.adapt_wh
               //if $frame%14 >< 0: No.uim_clear_rect_cache_
               UIM.input Es
               FB UIM.render
               UIM.maybe_screenshot
+              UIM.tick  //per-frame hook for profilers / harnesses
               FB //the show loop wants the gfx, not the screenshot side-effect
   when got $fb:
     $fb.free
@@ -1161,6 +1164,13 @@ ShownNotes []
 @key Key = $keys.Key >< 1
 
 @set_title Title = show_set_title Title
+
+// Default per-frame tick — does nothing. Profilers / harnesses set
+// uim.tick_fn to a lambda that gets called each frame after render,
+// useful for state machines that drive the game from outside.
+@tick =
+  Fn $tick_fn
+  when Fn: Fn(Me)
 
 // Headless screenshot mode for golden-image regression tests.
 // Triggered by command-line args: `./go --screenshot=<path> [--screenshot-frame=<N>]`
@@ -1260,9 +1270,18 @@ ShownNotes []
     FB.free
     FB = gfx $w $h
     $fb = FB
+  Profiling prof_enabled
   for W $root.draw_list:
     if W.is_list: W.0.end_draw_kids FB
-    else W.draw FB
+    else
+      if Profiling:
+        T0 clock
+        W.draw FB
+        T1 clock
+        prof_record_widget_draw W T1-T0
+        prof_incr \widget_drawn
+      else
+        W.draw FB
   $draw_cursor FB
   when No.uim_show_timings_: $draw_timings_overlay FB
   FB

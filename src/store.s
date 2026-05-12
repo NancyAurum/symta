@@ -1,4 +1,4 @@
-use gfx svg cache
+use gfx svg cache prof
 export get_pic get_pic_sub add_pic_path
 
 PicPaths ["[main_path]pic/"]
@@ -53,6 +53,7 @@ less CacheFolder.exists: CacheFolder.mkpath
 //FIXME: pic should allow `FilteredId,Filter` param
 //       so user could apply and store arbitrary filtered pics
 get_pic N W!No H!No Life!3.0 =
+  prof_incr \get_pic
   cache_get Life "pic[[N W H]]": =>
     if W><0 or H><0: gfx 0 0
     else
@@ -77,6 +78,7 @@ get_pic N W!No H!No Life!3.0 =
       G
 
 get_pic_sub N W!No H!No SX SY SW SH Index!0 Life!3.0 =
+  prof_incr \get_pic_sub
   cache_get Life "pic[[N W H SX SY SW SH]]": =>
     if W><0 or H><0:
       G gfx 0 0 //happens with pic9

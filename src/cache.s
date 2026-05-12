@@ -1,6 +1,7 @@
 // The purpose of this file is maintaining a simple global cache,
 // Each item has a lifetime. Each time it gets accessed, its life extended
 
+use prof
 export cache_get cache_clean
 
 CacheClock clock
@@ -9,7 +10,13 @@ CacheStamps!
 
 cache_get Life Key RegenF =
   CacheStamps.Key = CacheClock+Life
-  have CacheStore.Key: RegenF()
+  if got CacheStore.Key:
+    prof_incr \cache_hit
+    CacheStore.Key
+  else
+    prof_incr \cache_miss
+    CacheStore.Key = RegenF()
+    CacheStore.Key
 
 cache_clean =
   Now clock //new clock
