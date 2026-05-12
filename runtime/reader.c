@@ -518,6 +518,50 @@ static dyn parse_term(pstate_t *p) {
     LGET(r, 0) = head;
     for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
     parsed = r;
+  } else if (text_eq_c(type, KW_splice)) {
+    // String splice -- value is a list of `symbol`/`()` tokens.
+    // Output:
+    //   [(symbol `"` Tok.src 0) @parsed_inner-with-quoting]
+    // where each parsed item gets a preceding `\\` token if it
+    // contains `~` or `?` markers (we skip that nicety for now;
+    // game code rarely uses tilde/question markers inside splices).
+    dyn inner = parse_tokens_inner(val);
+    uint64_t in = LIST_SIZE(inner);
+    static dyn quote_text = 0;
+    if (!quote_text) TEXT(quote_text, "\"");
+    dyn head = mk_token(KW_symbol, quote_text,
+                        tok_row(tok), tok_col(tok), tok_orig(tok), 0);
+    dyn r; LIST(r, in + 1);
+    LGET(r, 0) = head;
+    for (uint64_t i = 0; i < in; i++) LGET(r, i + 1) = LGET(inner, i);
+    parsed = r;
+  } else if (text_eq_c(type, KW_table)) {
+    // `@{}` -- table literal. parse_strip + parse_table + spread.
+    dyn ts_raw = parse_tokens_inner(val);
+    dyn ts = reader_parse_strip(ts_raw);
+    dyn kvs = reader_parse_table(ts);
+    static dyn t_at_brace = 0;
+    if (!t_at_brace) TEXT(t_at_brace, "@t");
+    uint64_t kvn = LIST_SIZE(kvs);
+    dyn r; LIST(r, kvn + 1);
+    LGET(r, 0) = t_at_brace;
+    for (uint64_t i = 0; i < kvn; i++) LGET(r, i + 1) = LGET(kvs, i);
+    parsed = r;
+  } else if (text_eq_c(type, KW_object)) {
+    // `${}` -- object literal. Complex: needs `new_fn_` + class
+    // conversion. Bail by emitting a placeholder; downstream
+    // macroexpand will likely fail on this but better than silent
+    // wrong AST.
+    dyn ts_raw = parse_tokens_inner(val);
+    dyn ts = reader_parse_strip(ts_raw);
+    dyn kvs = reader_parse_table(ts);
+    static dyn t_dollar_brace = 0;
+    if (!t_dollar_brace) TEXT(t_dollar_brace, "${}");
+    uint64_t kvn = LIST_SIZE(kvs);
+    dyn r; LIST(r, kvn + 1);
+    LGET(r, 0) = t_dollar_brace;
+    for (uint64_t i = 0; i < kvn; i++) LGET(r, i + 1) = LGET(kvs, i);
+    parsed = r;
   } else if (text_eq_c(type, KW_pipe)) {
     return parse_bar(p, tok);  // already has a parsed-expr structure
   } else if (text_eq_c(type, KW_if_)) {
@@ -1014,9 +1058,13 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
   int k_row = (int)UNFXN(tok_row(k));
   int k_col = (int)UNFXN(tok_col(k));
   int lines_hack = 0;
+  // Symta: `less ORow < Src.0` is "unless body-on-later-row".
+  // So lines_hack fires when body is on the SAME row as ORow (the
+  // `:` token), i.e. when the body is INLINE. In that case if the
+  // body collapses to a single block, parse_offside rolls back to
+  // the original input and falls through to parse_xs, which lets
+  // `else`/`elif` be picked up by the enclosing parse_if.
   if (!(orow < k_row)) {
-    // same row as ORow
-  } else {
     if (expect_eol) return parse_xs(p, 0);
     lines_hack = 1;
   }
