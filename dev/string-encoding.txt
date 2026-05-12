@@ -1,0 +1,167 @@
+
+int wbit(uint8_t *o, int p, int s) {
+  int h = p>>3;
+  int l = p&7;
+  o[h] &= ~(1<<l);
+  o[h] |= (s<<1);
+  return ++p;
+}
+
+int wbits(uint8_t *o, int p, int n, int bs) {
+  for (; n > 0; n--) {
+    p = wbit(o, p, bs&1);
+    bs >>= 1;
+  }
+  return p;
+}
+
+
+
+int spec_code(int c) {
+  if (c == ' ') return 0;
+  else if (c == '?') return 1;
+  else if (c == '.') return 2;
+  else if (c == ',') return 3;
+  else if (c == '!') return 4;
+  else if (c == '\n') return 5;
+  return 0xFF;
+}
+
+#define NS_LEN 8
+
+#define NS_LOW 0
+#define NS_CAP 1
+#define NS_NUM 2
+#define NS_SPC 3
+
+int nibstr(uint8_t *o, int b, char *s) {
+  if (!*s) { //empty string?
+    b = wbits(o,b,2,NS_NUM);
+    b = wbits(o,b,4,0xF);
+    return b;
+  }
+  int nchunks = 0;
+  for (; *s; nchunks++) {
+    int c = *s;
+    if (nchunks) {
+      b = wbits(o,b,1,1);
+    }
+    if ( ('a' <= c && c <= 'z')
+      || ('A' <= c && c <= 'Z')
+      ||spec_code(c) != 0xFF)
+    {
+      int type = -1;
+      char *t = s;
+      for (; *t && t-s < NS_LEN; t++) {
+        int c = *t;
+        if ('a' <= c && c <= 'z') {
+          if (type == -1) type = NS_LOW; //first letter is lowercase
+        } else if ('A' <= c && c <= 'Z') {
+          if (type != -1) {
+            break;
+          }
+          type = NS_CAP; //string where first letter is capitalized
+        } else if (spec_code(c) != 0xFF) {
+        } else {
+          break;
+        }
+      }
+      if (type == -1) type = NS_LOW;
+      b = wbits(o,b,2,type);
+      b = wbits(o,b,3,t-s-1);
+      while (s < t) {
+        int c = *s++;
+        int v;
+        if ('a' <= c && c <= 'z') {
+          v = c-'a';
+        } else if ('A' <= c && c <= 'Z') {
+          v = c-'A';
+        } else if (spec_code(c) != 0xFF) {
+          v = spec_code(c)+26;
+        }
+        b = wbits(o,b,5,v);
+      }
+    } else if ('0' <= c && c <= '9') {
+      b = wbits(o,b,2,NS_NUM);
+      b = wbits(o,b,4,c-'0');
+      s++;
+    } else {
+      s++;
+    }
+  }
+  b = wbits(o,b,1,0);
+  return b;
+}
+
+void test_compression() {
+  uint8_t to[256];
+  int sto = nibstr(to, 0, "Hello, World!\n");
+  fprintf(stderr, "%d: %d/%d\n"
+     ,sto, (sto+7)/8, (int)strlen("Hello, World!\n")+1);
+  exit(-1);
+  
+}
+
+
+String Encoding:
+
+Stream starts with a 4-bit length code.
+And 1 bit specifying is a the first char is uppercase.
+Initial mode is 5-bit lowercase chars.
+That mode has special escape codes, transitioning into the digit
+mode (single or streamed) and 7-bit char mode (either single or streamed).
+
+
+'Hello, World!\n'
+
+4 + 1 + 5*7 + 5*7
+Hello, World!
+
+First comes 2-bit value, which specifies the type of the next length-items:
+0: digit (encoded by 4 bit value). If digit is 0xF, the string is empty.
+1: letters (uses 3-bit length, and 5-bit chars string)
+2: capitalized letters (uses 3-bit length, and 5-bit chars string)
+3: word (encoded as 13 bit value)
+
+After the data, comes 1 bit signifying end of string (if not set).
+
+String consits of a stream of chunks. Each chunk can be either char or word.
+First bit of a chunk determines if it is a char or a word chunk
+0:char
+1:word
+
+For a word chunk, the next bit determines if the word is capitalized.
+Then the 13 following bits define the index of the word in a dictionary. Words are alway lager than 3 chars.
+
+For a char chunk, it is a sequence of two 7 bit chars.
+Rationale: usually punctuation marks is delimited by space.
+A single char can be encoded as a word.
+
+Each 7 chunks are prefixed by 3-bit length, determining where the stream ends.
+if length=0x7, then all 7 chunks are used.
+
+After each words two char chunks are expected.
+
+'Hello, World!\n'
+
+2 + 3 + 15 + 10 + 15 + 10 = 55
+
+First 2 bits in the stream specify mode:
+0 = 7 bit chars (old encoding).
+1 = words mixed with 7-bit chars
+2 = words with 5-bit punctuations/lowercase letters
+3 = words and 4-bit digits
+
+A few chars have special meaning:
+0 = end of string
+1 = 4 5-bit lowercase chars
+2 = 5 5-bit lowercase chars
+3 = 6 5-bit lowercase chars
+4 = 7 5-bit lowercase chars
+5 = 8 5-bit lowercase chars
+
+Use english7k dictionary, but break the complex words.
+I.e. protection must be split inot 'protect' and 'ion',
+friendship into friend and ship.
+Use special program which will determine what words can be expressed through
+others.

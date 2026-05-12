@@ -1,0 +1,37 @@
+//we need three vectors: X1, Y1, Z1 of local coordinate system (LCS) expressed //in terms of world coordinate system (WCS). The code below presents how to //calculate three Euler angles based on these 3 vectors.
+
+#include <math.h> 
+#include <float.h> 
+
+#define PI 3.141592653589793 
+/**
+ * @param Xx
+ * @param Xy
+ * @param Xz X1 vector coordinates
+ * @param Yx
+ * @param Yy
+ * @param Yz Y1 vector coordinates
+ * @param Zx
+ * @param Zy
+ * @param Zz Z1 vector coordinates
+ * @param pre precession rotation
+ * @param nut nutation rotation
+ * @param rot intrinsic rotation
+ */
+void lcs2Euler(
+        double Xx, double Xy, double Xz,
+        double Yx, double Yy, double Yz,
+        double Zx, double Zy, double Zz,
+        double *pre, double *nut, double *rot) {
+    double Zxy = sqrt(Zx * Zx + Zy * Zy);
+    if (Zxy > DBL_EPSILON) {
+        *pre = atan2(Yx * Zy - Yy*Zx, Xx * Zy - Xy * Zx);
+        *nut = atan2(Zxy, Zz);
+        *rot = -atan2(-Zx, Zy);
+    }
+    else {
+        *pre = 0.;
+        *nut = (Zz > 0.) ? 0. : PI;
+        *rot = -atan2(Xy, Xx);
+    }
+}

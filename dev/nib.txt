@@ -1,0 +1,297 @@
+While program is running, xor-shift each instruction, which then can be used at some point as unique hash, preventing static analysis, like i.e. to make a jump.
+
+Maybe a brainfuck clone with variable sized pointer move
+and increment would be better? I.e. instead of stack, we have tape.
+Immediate will increment the memory ptr, before storing the value.
+And loop would instead jump to the matching []
+By default segment starts right after the code.
+
+Data stack base is placed right below static data.
+That way can use cheap relative addressing into it.
+
+Memory and expression stack are separate, but fast short opcodes
+to save and load data to and from stack. Return pointers should to be on a separate stack.
+
+
+Opcodes are 4 bit.
+  0:end   - terminate itr/if or return from a subroutine
+            if there is an unclosed loop or if, then end terminates it,
+            otherwise it acts as a return opcode.
+  1:if BODY end
+          - executes body only if value on stack is non-zero
+              if (sp[0]) {BODY}
+              sp += 1;
+            for unclosed ifs, end of file acts as end.
+            `if if` is a special ifz opcode, which does:
+              if (!sp[0]) {sp += 1; BODY}
+  19     - push 4 onto stack
+  1a     - push 5 onto stack
+  1b     - push 6 onto stack
+  1c     - push 7 onto stack
+  2:itr BODY end
+          - iterate
+              for(*--sp = 0; sp[0] < sp[1]; sp[0]++) {
+                --sp;
+                sp[0] = sp[1]
+                BODY
+              }
+              sp += 2;
+            for unclosed loops, end of file acts as end.
+            Note how it duplicates counter for each cycle, assuming it will
+            get consumed.
+            `itr itr` is a special opcode, iterates in reverse direction.
+  29      - push 8 onto stack
+  30      - push 9 onto stack
+  3:call  - goto function, whose nibble address is on stack,
+            offsets is taken from the start of the code segment
+            saves the current IP and SP onto stack.
+            Calls prefixed with sti0 to sti3 are special,
+            0 call: sys  - syscall
+            1 call: ret  - return from a subroutine
+            2 call: jmp  - jump to location in code (from program start).
+            3 call: outs - output string immediate
+  4:ld    - when prefixed by an immediate opcode smaller than 55,
+            otherwise it is get.
+              v = sp[*sp+2]
+              *sp = v
+            `ld ld` is a special case: (pop value)
+                sp += 1
+            `ld ld` is a special case (unp - unpop value):
+                sp -= 1 
+              `0 pop` would be 1.5 byte nop
+              `pop unp` is 2 byte nop
+  4:rd   - writes byte to memory
+              mem[sp[0]] = sp[1]
+              sp += 2
+            if followed by sti2 or sti3, picks the size and type:
+              sti2 - 16-bit
+              sti3 - 32-bit
+  5:st    - when prefixed by an immediate opcode smaller than 55,
+            otherwise it is wr
+                sp[*sp+2] = sp[1]
+                sp += 2 (pops value)
+            `st st` is a special case:
+                sp += 1 (unpops value)
+  5:wr   - reads byte from memory
+              sp[0] = mem[sp[0]]
+           if followed by sti2 or sti3, picks the size of write:
+              sti2 - 16-bit
+              sti3 - 32-bit
+  6:dup   - duplicates item on stack. For example
+              dup add
+            multiplies value by 2 in just 1 byte
+            dup prefixing `ld` or `st` loads/stores using frame pointer
+            instead of sp.
+            When dup is itself prefixed by sti0 to sti3, it acts as flg opcode,
+            which checks if flag is true (flags describes stack top value)
+              if (flags&(1<<sp[0])) sp[0] = ~0 //sets all bits to 1
+              else sp[0] = 0
+            Flags:
+              0: zero  - sp[0] == 0
+              1: odd   - (sp[0]&1)
+              2: sign  - sp[0] < 0
+              3: equal - sp[0] == sp[1]
+            Usage:
+              10 sub
+              0 flg
+              if ... end
+            executes instructions if flag 0 (zero) is true.
+  7:add   - sp[1] = sp[1] + sp[0]; ++sp
+            when prefixed with sti0, acts as a special opcode
+            storing 2 onto stack (used when wr/rd used the 1-nib versions)
+  8:sub   - sp[1] = sp[1] - sp[0]; ++sp
+            when prefixed with sti0, acts as a special opcode
+            storing 3 onto stack (used when wr/rd used the 1-nib versions)
+  9:sti0  - store 0 onto the stack
+  a:sti1  - store 1 onto the stack
+  b:sti2  - store 2 onto the stack
+  c:sti3  - store 3 onto the stack
+  d:sti4  - store 4-bit immediate value.
+            encodes values in the range of [10:25]
+  e:sti25 - store upto 25-bit immediate value onto the stack
+            sti25 is guided by 2-bit length fields and 1-bit sign field.
+            operand gets 25 added to it,
+            so 5-bit number actually has range of [25:56].
+            length:
+                0 - 5-bit
+                1 - 9-bit
+                2 - 17-bit
+                3 - 25-bit
+            Tannenbaum discovered that most programs only
+            require 13 bits for constants. So these should be enough.
+            putN should be handled transparently by the assembler,
+            so user could just enter a number
+  f:ext   - extended opcode
+
+Extended opcodes:
+  0:sti32 - store 32-bit value onto the stack
+  3:in    - *--sp = *src
+            trn controls src type and if it should be incremented
+            By default it is bound to stdout.
+  4:out   - *dst = *sp++
+            trn controls dst type and if it should be incremented
+  5:trn   - sets up a transfer operation, controlling how in and out work.
+            its loads src and dst addresses from stack.
+            value on the stack determines how in and out operate.
+            Bit 0 controls if stack should be popped on out
+              * 0 - stack is popped (default)
+              * 1 - and stack is not popped.
+                    that allows easy memzero and counter.
+            Next 3 bits determine the increment direction
+              * 0 - both dst and src are incremented (default)
+              * 1 - don't increment/decrement
+              * 2 - increment src and decrement dst
+              * 3 - decrement src and increment dst
+              * 4 - increment src
+              * 5 - increment dst
+              * 6 - decrement src
+              * 7 - decrement dst
+            Next 2 bits represent what addresses being loaded present.
+            Next 2 bits selects ram type for each destination
+              * 0 memory
+              * 1 stdin/stdout (default)
+            Remaining bits are free to be implemented by user
+  6:not   - bitwise not
+  7:and   - bitwise and
+  8:or    - bitwise or
+  9:xor   - bitwise xor
+  a:shl   - shift left
+  b:shr   - shift right
+  c:mul   - multiplication
+            when prefixed with sti1, acts as divsion
+  d:cnd   - conditional
+            if (sp[0]) sp[2] = sp[1]
+            sp += 2;
+  e:
+  f:
+  f:ext
+
+
+;print integers from 0 to 10 (2.5 bytes)
+  10      ;2 - set the number of iterations
+  itr     ;1 - loop increments current memory location (0 by default)
+  out     ;2 - output current count
+  ;;loop end is implicitly defined by the end of file
+
+;print hello world 10 times (10 bytes)
+  10          ; 2-nib
+  itr         ; 1-nib
+  outs        ; 2-nib
+  'Hello, World!\n' ; 60 bits
+  ;;again, loop is implicitly terminated by the end of file
+
+3 + 2 + 7*5 + 3+2 + 7*5 + 3   = 60 bits  (7.5 bytes)
+
+The code can be rewritten:
+10 loop outs 'Hello, World!\n'
+
+;add 7 to values in memory (4 bytes)
+;assumes user picked proper trn direction,
+;loaded addresses, and pushed iterations number
+itr    ;4-bits
+in     ;8-bits
+7      ;8-bits
+add    ;4-bits
+out    ;8-bits
+
+;memcpy N bytes from src to dst (2.5 bytes)
+loop   ;4 uses user supplied size and initial value (or 0 if stack is small)
+in     ;8
+out    ;8
+
+
+
+String Encoding:
+
+First comes 2-bit value, which specifies the type of the next length-items:
+0: digit (encoded by 4 bit value). If digit is 0xF, the string is empty.
+1: word (uses 3-bit length, and 5-bit chars string)
+2: capitalized word (uses 3-bit length, and 5-bit chars string)
+3: special character (encoded by 4 bit value)
+
+After the data, comes 1 bit signifying end of string (if not set).
+
+
+
+Encoding for the 5-bit chars:
+0-25: a,b,c,...,z (26 chars)
+0: ' '
+1: '?'
+2: '.'
+3: ','
+4: '!'
+5: '\n'
+
+0 - 4-bit
+1 - 8-bit
+2 - 12-bit
+3 - 16-bit
+
+
+When resolving addresses, we should compile each instruction, beside puts,
+individually, and then determine the length of the jump.
+
+
+- Use nib for DRM:
+  - User pays for a personal license key, encoded as
+    an encrypted bytecode program.
+  - The key will include user name and a seed unique for that user.
+    Leaked keys could be discarded by the new game versions, by their hash.
+    Again the check for black listed keys is encoded by a nib module.
+  - Such key system will incetivize user to buy several keys,
+    since each key will offer different features.
+  - Demo version will have just the demo key.
+  - The code should never be in a non-encrypted form in memory.
+  Use stack based language, because it allows for the smallest
+  code size.  Use the nibble code (4-bit opcodes), nib-code for short.
+  Bits 0, 1 and 2, of the instruction encode the opcode
+  While bit 3 is called mode-bit, is used to disambiguate opcode
+  or is just a part of operand. '+' before opcode indicates that bit.
+  When some opcode is going to be used many times, allow redefining it.
+  Memory are adressed relative to origin (which is 0 by default),
+  but can be redefined using cod and dat instructions.
+       0: put1  - push 1-bit immediate value.
+       1: put5  - push 5-bit immediate value onto the stack
+                  encodes values in the range of [2:34]
+       2: put19 - push upto 19-bit immediate value onto the stack
+                  put17 is guided by 2-bit length fields
+                  0 - 7-bit
+                  1 - 11-bit
+                  2 - 15-bit
+                  3 - 19-bit
+                  Tannenbaum discovered that most programs only
+                  require 13 bits for constants. So these should be enough.
+                  putN should be handled transparently by the assembler,
+                  so user could just enter a number
+       3: ext   - extended instruction
+     8+3: bic   - branch and increment, if below:
+                   if(sp[1] < sp[2]) {
+                     ++sp[1]; //increment count
+                     pc = sp[0]; //jump
+                     sp += 1; //pop branch destination;
+                   } else {
+                     sp += 3; //pop counter, range and destination
+                   }
+       4: dup   - duplicates the top value on the stack
+     8+4: pop N - brings Nth operand to the top of the stack, swapping
+                  it with the current top. If N is 0, remove the top operand.
+       5: neg   - inverts the sign of a value on the stack
+     8+5: shl   - bitwise-shift left
+       6: add   - add top operands on stack
+     8+6: sub   - subtracts top operands on stack from the operand below it.
+       7: ld    - loads a byte from the address on stack
+     8+7: st    - stores a byte to the address on stack
+
+  Extended instructions:
+       1: shr   - bitwise-shift right
+       2: rdo   - redefine opcode (takes 4-bit immediate as the opcode id).
+                  It will impede compiling opcodes to the host architecture,
+                  but complicate reverse engineering as well.
+       3: dat   - use value on stack as the origin for all the data references
+       4: cod   - use value on stack as the origin for all the code references
+       5: put32 - push 32-bit immediate value onto the stack
+       6: in    - inputs integer, saving it to the stack top
+       7: out   - outputs integer from the stack top
+       8: ins   - insputs a string, storing its address to the stack
+       9: outs  - prints a string pointed at by the address on stack
+       a: jmp   - jumps to address

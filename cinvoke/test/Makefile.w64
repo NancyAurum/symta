@@ -1,0 +1,21 @@
+SHARED = lib.dll
+
+all: $(SHARED) runtests.exe ntest.exe
+
+clean:
+	del lib.o
+	del $(SHARED)
+	del runtests.exe
+	del ntest.exe
+
+lib.o: lib.c
+	gcc -Wall -DCINVOKE_BUILD -DARCH_GCC_X64_WIN -c lib.c -o lib.o
+
+$(SHARED): lib.o
+	gcc -fpic -shared lib.o -o $(SHARED)
+
+runtests.exe: runtests.c $(SHARED) ../lib/libcinvoke.a
+	gcc -Wall -DCINVOKE_BUILD -DARCH_GCC_X64_WIN -o runtests runtests.c -L../lib -I../lib -lcinvoke
+
+ntest.exe: ntest.c ../lib/libcinvoke.a
+	gcc -Wall -DCINVOKE_BUILD -DARCH_GCC_X64_WIN -o ntest ntest.c -L../lib -I../lib -lcinvoke

@@ -1,0 +1,70 @@
+Feedback from the Spell of Mastery development.
+
+Symta Language Handicaps:
+- A lot of method applications have form of "$get(skill).list"
+  Think of a synaic sugar, like $get?skill.list
+- Compilation errors should be differentiated from compiler errors,
+  and use our own reporting function, which wont invoke the
+  useless stack trace of compiler internals.
+- `float.round` produces floating point number. Have iround, to produce `int` instead. Same for `floor` and `ceil`.
+- txt_input leaks memory when modifying the text
+- Aligned division, like `(Upk+1)/2` is used frequently. Makes since to supply special sugar for it. Say `Upk%%2`
+- gfx library has a bug, with gamma, when a transparent object is drawn over a non-transparent one. Likely because of some race condition. 
+- Ideally stuff like PlayerSerFields should be marked at the time type field gets declared. More general out of the box serialization system wont hurt. Then there could be pre-generated getter/setter list ready for the serializer.
+- Optional type namespaces, when a need arises to say several types with the same name. These namespaces should not be manadatory, since they are intended only for large projects, developed by differen people.
+- _.getter and _.setter get methods for the base class, instead of actual object.
+- `getters_` and `setters_` could be optimized and fast, because `methods_` returns every single method, including inherited from `_`
+- Widgets should have cursor related stuff, like over and pressed, inside of the base.
+- dlg should use widget's `cx` and `cy` (container x,y), which should be relative to dialog or some other container.
+- Cursor should be per widget based, with one default. Any widget can override the cursor of its child widgets.
+- Any widget should be able to block all other widgets below it inside diaglogue layout, without the hacks with spacers.
+- There should be a way to hide any widget without the `hidden` type wrapper hack.
+- msgbox: memory leak pitfall when user pases newly created lambda. Inability to free lambda is a frequent problem with GUI code. In addition, there is no way to take method reference together with its object.
+- Comparison allowing `[]<123` is a wrong idea. Consider introducing speical comparison operation for cases when such comparison is needed.
+- method self call leads to segmentation fault
+- better syntax for type.`=member`. Consider implementing `.=` operator.
+- A way to distucture list Xs by keys or functions. Something like:
+    @[key1/Val1 key2/Val2] = Xs
+  Make sure it is also applicable to hashtable.
+- defining flags variable should be as simple as flags{0-active 7-dirty} - that should auto produce all getters and setters.
+- In message_box show_message `click` can potentially leak memory, if user creates lambda each time. The text can also be leaking memory, although it cn be lambda too.
+- Hidden widgets should be replaced with a placeholder having the same size, otherways layout gets broken.
+- Ensure `say (-1).x` and `say (#7FFFFFFFFFFFFFFF).x` work properly.
+- `~` should act as shorthand for `case`.
+- A way to specify macros in the file using them, so the compiler would auto create the <filename>__m.s file
+- $overlay should be available for all widgets. Parent type must provide some data fields.
+- List.init{OtherList} needs better syntax. Something like `<==`.
+- The foremost handicap is the absence of proper enheap API and allocation syntax. I.e. no way to properly manage resources, like completely feeing graphic files, when they aren't be used anymore.
+- fxn doesn't work with push
+- Currently building Spell of Mastery requires loading respective files and DLL libraries being present. That is annoying and prevents cross compilation.
+- No proper API for manually allocating types in shared memory.
+- `get_gui{}.exit` could be more naturally written as just `get_gui.exit`. That is especially useful when we create object just to a call a single method on it. Like `current_folder.list_files`, instead of `current_folder{}.list_files`
+- No local macros, which would be available only for a given file.
+- _.textify_ is being called on class, instead of unit. Get rid of it, use just as_text instead.
+- A way to introduce several variables inited to 0 or other value. Like say R G B A = 0
+- `times` macro should have 2 argument form, when there is no need for a count var.
+- We frequently have code such as:
+   | BsDead = Bs.keep{?0<<$turn}
+   | BsAlive = Bs.skip{?0<<$turn}
+  Dividing list into two halves. Provide some method:
+   | BsDead,BsAlive = Bs.divide{?0<<$turn}
+  Or even better:
+   | BsDead,BsAlive = Bs.bins{?0<<$turn}.ovals
+  Where $bins returns a hash table based using function F results as keys, while ovals converts it output to list, orders it by keys and returns values.
+- Many methods return void or some unrelated value, yet in many cases we want to have the object passed further in `.` pipeline, so introduce an operator like `G = gfx{W H}./clear{Color}` that will pass further not the method's result, but the original object (Gfx in our case). That would also make pipeline more explicit, compared to the C++'s approach of returning the object itself.
+- A way to X,Y += DX,DY. I.e. destructive multivar assignment.
+- do-while loop, to avoid needless `_label again`.
+- A work around for case `$LongAndExpensiveExpression.field` where $LongAndExpensiveExpression can be No or 0, and we still need to provide a dummy with a `field`. Maybe a syntatic sugar like `$LongAndExpensiveExpression.~(Default)field`, would do as default for a field?
+- objects allocated on heap with autopointer cells.
+- "when A and B: C" should give warning when `:` is missing.
+- `Text.lines{}{...}` is a little confusing and verbose. Consider operator `.{}` for that.
+- `parse_int Default Text` points that we need more robust standard library number parsing utilities.
+- Better getter and setter syntatic sugar.
+- Operators `.><` and `.<>` as shorthands for skip and keep. Parens could be used for internal `<` and `>`: Skip .
+- Some file, like common.s, that would be included by default into every other file. Such file would incldue common constants, like TILE_WIDTH.
+- Stuff like `Tile.lay <= Tile.lay.tail` really needs some sugar solution.
+- Allow to specify name of the output executable file and entry point file, other than main. That way we can produce several executable files in the same dir from the same source code base. I.e. we could have sprite sheet dumper utility without touching the main game exe.
+- `got@@it` leads to potential errors, because when `it` gets removed upstream, downstream references would be treated as literal symbols. It also introduces confusion.
+- Don't use abort, because it involves windows debugger, that is pretty annoying.
+- No way to quickly introduce an efficient inplace field on a type, like unit, propagating it to save-file.
+- GUI: mouse entering and leaving widget

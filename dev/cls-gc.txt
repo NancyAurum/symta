@@ -1,0 +1,26 @@
+ECS and memory management
+
+One thing evaded me was how one should manage entities in a robust ways.
+Obvious approach is for every entity to keep an unordered set of the components in use.
+And then explicitly calling free() on the dead entities.
+Most implementations do that.
+Yet now every access has to go through that components set.
+And free() will leave dead ids in it's wake.
+And some entity could have sent message to a dead entity.
+And we got shared data, onto which every part of code depends.
+So our entities are now forced to reside on same computer and run in same thread.
+Something we wanted to avoid initially.
+That was the reason I went digging the old Thief source code in hopes of getting ideas.
+
+What I discovered is that the systems themselves should manage their memory.
+Purging memory for freed/unreachable ids.
+If the systems are in charge, we can do that in a phased way.
+
+The hardest part now is making GC calling finalizes on the unreachable ECS indices.
+
+So yeah, to free entities we need a list of unreachable entities, built by GC.
+The we can run all systems, filtering their entities against the list.
+Like everything with GC that can be done in multiple threads and incrementally.
+
+Apparently that is the only solid solution here.
+All other ways to manage memory will lead to architectural hell sooner of latter.

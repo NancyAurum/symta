@@ -1,0 +1,964 @@
+* In addition to the `!!` cls fields,
+  we need similar fields whose presence is explicitly recorded in a list
+  of additional fields.
+  I.e. add it the isps list (instance supplied parts)
+
+* The `or` and `and` must check for the left-most item being non-keyword, so
+  we could replace
+
+    T  | Target or XYZ
+
+  with
+  
+    T Targer or XYZ
+
+
+* list and text ++ should do advance the pointer.
+  `/` should be doing something different
+  That will make it a tad easier to port C/C++ code
+  and for C/C++ users to learn the language
+
+* int's unary * should reference the cls entity at that id.
+
+* +typename and -typename will open a scope,
+  where instead of defining functions, we define typename's methods.
+  and all references to global vars result into accessing the
+  type's fields.
+
+* SBC_MCALL opcodes can be further optimized by resolving
+  the method ids at runtime.
+  But that can increase the code size, since raw method ids can be over 16-bit
+
+* Special GID-packed list formats, instead of allocating actual lists.
+  These will also need to support tail
+  Think about how the will be handled by fxn.
+  Maybe the cell itself could be imitate a list?
+
+* symta init_ procedures should be placed into init.c
+
+
+* Text's "[...]" needs better formatting. Maybe re-use python syntax?
+
+
+* Research better NFI implementation
+
+* Error message `couldn't find reader for ./src/go.s`
+  is a bit confusing. Instead it should be
+    ./src/go.s: uses missing module `reader`
+
+
+* Things like 9 in
+    when _ne (_tag B) 9: B = B.l //convert B to _list_
+  inside the core_.s should used common include file,
+  which would reside under src/ folder
+
+- Allow stubs to eval into user specified function.
+  That we way we could write
+    `cell.cell = stub_ &identity_`
+  Instead of:
+    `cell.cell = Me`
+  And we will be able to further optimzie stuff like
+    `cell.`+` N = fxn Me + N`
+
+- Allow writing
+    for U $site.units_get X,Y,PrevZ: U.move X,Y,Z
+  instead of
+    for U $site.units_get(X,Y,PrevZ): U.move X,Y,Z
+
+- "add_method: redefining int.`list`"
+  should point to the location of previous definition
+  
+- Expand match doesn't check input to be correct leading to
+  ().tail: list is empty
+
+- mex_error should expose the name of the currently executing macro
+
+
+- `X Y Z Value` is suprefluous, since we can as well do `X<Y<Z Value`,
+  which also supports lists. So just keep it for funcalls,
+  I.e. `X Y(Y Z Value)`
+
+- get rid of macro.s mtx; what it did is now handled with rows
+
+- Code like `Socrates! man mortal`, which initialize Socrates to a table
+  with keys `man` and `mortal` being set to 1, which also does `setNo 0`
+
+- The `list.bag` should do setNo to 0
+
+
+- `if H < 0: | &W,&H adapt_wh G W H` should work without `|`
+
+- Instead of `|` implement `@:`, which will basically open a new scope
+
+- Hastable printing is broken.
+
+- Hashtables should use meta fields to store the default value.
+
+- `each` keyword should support expressions like `each(tokenizer.ptr)`
+
+
+- `X Y Z = 0` should assign each of X Y and Z to 0
+
+- rename `sortBy` to just `by`
+
+
+- for and while loops need a `stash/hoard/collect` keyword,
+  so we can have code like
+    for N Numbers: if N.is_odd: stash N
+  It will be more useful in code like
+    In: "abc def ghi jkl mno"
+    cls tokenizer ptr end token
+    for Me each(tokenizer.ptr):
+      End $end
+      if $ptr >< End: | $strip ptr; pass
+      $token = @text: while $ptr<End:
+        C In[$ptr++]
+        if C><' ': done
+        stash C 
+    for Me each(tokenizer.token): stash $token
+
+
+- `for` and `while` should handle the `collect` keyword or clct or coll
+  replaces push, promoting a more readable solutions to the problems like
+  the below code can be made more efficient by using heap
+  /*
+  https://leetcode.com/problems/the-skyline-problem/
+  Input: buildings = [[2,9,10],[3,7,15],[5,12,12],[15,20,10],[19,24,8]]
+  Output: [[2,10],[3,15],[7,12],[12,0],[15,10],[20,8],[24,0]]
+  */
+  Input: [2 9 10] [3 7 15] [5 12 12] [15 20 10] [19 24 8]
+  Output:
+  Open!
+  CurId MaxY -1
+  for X,Y,Id,End Input.i{[@?1 ?0]}{[?0 ?2 ?3 0],[?1 ?2 ?3 1]}.j.sortBy(?0):
+    less End:
+      Open.Id = Y
+      if MaxY < Y:
+        [Id Y](:&CurId,&MaxY)
+        push X,Y Output
+      pass
+    Open.del Id
+    less Id><CurId: pass
+    [-1 -1](:&CurId,&MaxY)
+    less Open.n: | push X,0 Output; pass
+    Open.l.maxf(?1)(:[&CurId &MaxY])
+    push X,MaxY Output
+  say Output.f
+
+
+- Support for proper 64bit numbers in a boxed form.
+
+
+* FIXNUM should auto convert to dyn
+  also rename FIXNUM to FXN and UNFIXNUN to UFX
+
+- O_CODE for list is still unused.
+  We can use it for metadata
+
+- Metadata could be maintained as a set of linked entities,
+  whose content gets updated on GC.
+
+- `@pop_goal = &$goal_act,&$goal,&$path pop $goals`
+  fails
+
+
+- .path.to.a.file can be implemented in symta as a shorthand for get,
+   which will return a file based of its type. By default it should work without extensions.
+
+
+- symta compliation cycle should be automated.
+  that way I could check 100 times that compiler can produce a working
+  version of itself.
+
+- core_.s has issue with compiling `R!` in `list.div F =`
+
+- do we really need `()` when args use `?` lambdas?
+
+- `use ui` should auto expand into `ui/m`, if there is no ui.s
+
+- `for` and `map` easy checks for last element
+
+- There is a bug with parsing
+    cls ctest.WGT(o=abc,w=auto,h=auto): ftx =
+  Stuff after `:` gets lost
+
+
+- Allow for stuff like:
+    case View.key edit_fine_xy: 1 =
+      X,Y View.viewToSitePixels(View.mice_xy)
+      M.fxyz <=: X Y M.fxyz.2
+
+
+- The Cs{sym}, Cs{?sym} and Cs{sym} really need to be optimized
+  into basic map loop. Same with Cs{&sym} and Cs{?^sym}
+
+- group should really by just `g`, since it is used a lot
+
+- type shouldn't require `=` body
+
+- - A way to check external flags in `case`, so it could be
+  `if` when really required
+
+- rowz should allow variable mapping, so later
+  rows could reference the row before
+
+- macro processor doesn't allow spaces in default argument values
+
+- Gauge needs a separate gauge.s
+GaugeTbl 0
+
+int.gauge Name F =
+  less GaugeTbl: GaugeTbl = !
+  S clock
+  R F()
+  GaugeTbl.Name += clock()-S
+  R
+
+int.update_gauge =
+  //say 'Gauged:'
+  //for K,V GaugeTbl.l.sortBy^1.f: say "[K] took [V*1000.0] ms"
+  GaugeTbl = 0
+
+
+- ret from a quoted `lbox.'=test' X = ret` results into an error
+
+- `retif: f A`, which works like
+     T f A
+     if T: ret T
+  It should allow for `retif got: f A`
+
+
+- Also fix: lbox.`=test` X = ret
+
+- Allow `lbox.=offset NO =`
+
+- Something akin to (in-package :package-name) from Common Lisp
+  That would allow us temporarity switch to a different namespace
+
+- FFI build scripts should write ffi files directly into symta/ffi
+
+- A way to specify default value for unbound accesses
+  i.e. something like Xs[""!!I] instead of `Xs[!I](No="")`
+
+BUGS:
+- symta source code should have .t extension, also for trans
+
+- Stack trace shout drop heading zeroes from addresses
+
+- Code like `@wgt.input E =` crashes ssa_cstring on tbl.`.` access
+
+- Closure issues:
+    F | let_ ((I 0)) (_fn (X) |say I+ ; X)
+    say L{F}
+  isn't equivalent to
+    say L{| let_ ((I 0)) (_fn (X) |say I+ ; X)}
+  in the later case the closure dies and I gets reset to 0
+
+- `_fn (X) X` at any place in top level toplevel, `;` or `|` produces:
+    refidx got dummy!
+    203070f  closure dummy f__185 0
+
+- Multimethod declaration is broken, since `;` got lower priority
+
+- Better text.rand, which will use hash table with increments,
+ so counters will be per id.
+ 
+
+- Errors in string reader should reference the location of the
+  string start as well as the location of the error inside of the string
+  otherwise unclosed strings will lead to confusion
+
+
+Stack Trace:
+  0x1000172e0:list.tail:0,0,builtin
+  0x12482dcfc:expand_match:185,39,/Users/macbook/Documents/git/symta/src/macro.s
+
+
+- optimize core_.s with fxn
+
+ROADMAP:
+- Generational GC notes:
+  - Addresses now actually change, so we can't easily use them as
+    say hashtable keys.
+  - Generational gc can still guarantee realtime performance,
+    if there are enough generations. if each next older generation
+    is 2 times slower to gc, then with 16 generations entire 32-bit address
+    space should be allocable. just make sure really old generations are
+    never GCed, if we have not enough time for that.
+  - One major problem with the generational GC is some objects, like the open
+    files, which can persist for enough cycles to be considered permanent and
+    moved into the permanent generation. So instead of a permanent root
+    generation, we need the explicitly permanent objects as such. We can no
+    longer hold pointers to objects, since they can become invalid at any
+    moment, not just when the function returns.
+    As of now the problem is solved by pre-allocating such objects and reusing
+    them.
+
+- Convert Symta to use generational GC:
+  - Implement dynamically resizeable heap, so we will take only
+    as much memory as we need.
+    That can be implemented either by changing the upper heap to grow downwards
+    and remapping empty pages on the go, or by copying everything and doubling
+    size.
+  - GC can be optimized by checking for at the interpreter level
+    i.e. after each Nth method call or jump.
+  - printing should disable gc()
+    so as_text will produce proper Me^address.x
+  - Closure captures the entire argument lists, even if some args are unused.
+    Not only does that waste memory, but also leads  to subtle and
+    hard to debug memory leaks..
+    Divise a better closure scheme.
+  - theap must stay, because of TG_DIRTY flags.
+    These cant be stored inside the heap itself, since we don't
+    know what is object and the cost of parsing 64-bit values instead of 1-bit
+    flags.
+  - Runtime should have a set of builtin tests to ensure GC works as intended.
+    I.e. for each generations size, do a number of allocs of different types.
+    including views
+  - CONS could turn into normal list on GC or on get/set.
+  - we need a gc_raw array, which would allow holding any type of data.
+  - by malloc'ing the api_t, we can attach a dynamic array, like pgmod
+    to its end.
+  - When we are out of memory, it is possible to allocate new,
+    larger generation with malloc, but it will really complicate the theap0
+    heap0 and pgmod use. Proper implementation would reserve a page range
+    and then dymalically add pages to its end.
+  - Page tables can also be used to replace size,
+    if each generation gets a page sized allocation pools for smaller objects.
+    That change is mandatory, if we want to host integers that way.
+  - While walking the stack frames, we have to min/max the pointer location
+    we have relocated. That way we wont have to walk entire stack for each gen.
+    Then we will also have to save the max location since the last GC.
+  - Both heaps growing towards center can be accomplished by redefining
+    the api_t.alloc pointer during the generation switch. But it will create
+    problems with the "INSIDE_GENERATION" check
+  - Oldest generation may use malloc and free for larger objects,
+    since objects are unlikely to be moved.
+  - Finalizer pointer can reside inside gc_obj_head_t.code
+    But something like the lifts list will be needed for finalizers.
+    Or at least a page table.
+  - Collecting garbage without a pause, would require providing a temporary
+    generation for the running thread, which is being collected.
+  - Growing heaps. That would allow for lightweight threads.
+    And most references to heap are done through hgp anyway.
+
+
+- Issues:
+  - `list.clear` and other list modification will result in modification
+     to views. That is intended functionality, and should be known to user.
+
+SBC interpreter:
+- More convenient Symta execuable behavior:
+  - starting it without argument should invoke REPL,
+    unless there is main.sbc inside lib/. In that case run it.
+  - any argument would be treaded as the main.s file,
+    which gets compiled under lib/main.sbc
+- Proper API to handle SBC files. I.e. sbc load, and sbc free.
+  SBC free would be hard to do after SBC's code get's referenced by the running program.
+- Instead of exporting symbols as a list in Symta, we can expose them inside the sbc file as a table.
+- Module unloading. When there are no closures refernecing the module,
+  it can be purged. Would require enumerating all closures somehow.
+- A way to pack several .sbc files inside a single module file.
+  Design an archive format, which can also be used for SoM resources.
+- SBC file should be loaded at once. That way it can be easily freed.
+- SBC file must include the list of exported symbols. As well as the list
+  of referenced files. That way symta modules can be distributed in
+  compiled form.
+- There should be more robust import scheme,
+  not depending on the order or the number of symbols.
+  On load it can also check calls to have correct number of arguments.
+- Re-implement the native dll compilation.
+  It should be done from the raw SBC.
+- Current closure environment capture is very inefficient and leaky.
+  Instead each argument could be its own cell.
+
+MODULE SYSTEM:
+- Think how to deal with the _rt exported code, which is used only by
+  compiler. Maybe bt putting it into a separate builtin package?
+
+Transition to 32-bit pointers:
+  - First replace uintptr_t with uint64_t or an equivalent type,
+    which is guaranteed to be always 64-bit
+  - We need tags, but can't have 5-byte values, since many architectures
+    don't allow unaligned access, while keeping tags in a separate 1-byte
+    array would incur two memory accesses, and require very tricky code
+    to copy both the value and the tag on stack, while it will be kept as a
+    64-bit value anyway. Even more problems result from the requirement to
+    reimplement fixtext and doubles. 64-bits are simply mandatory.
+    Therefore the best solution is to use 64-bit fixnums even on 32-bit systems.
+  - FIXNUM are mandatory, since replacing them with memory accesses will incur
+    heavy penalty, while `if` depends on them being open coded,
+    with fixnum 0 being 0
+  - Instead of void, use dyn everywhere. And dyn should be defined as
+    uint64_t.
+
+
+- Minor optimizations:
+  - Optimize parser to expect only the symbols inside the token
+    stream. Ensure it goes inside the [],(),{} list values
+    Parse can be optimized by first checking tokens list for complexity
+    linking into parse only the used operators.
+  - Spell of Mastery should target 32-bit system with 16Mb RAM (typical specs for 1997 game). The absolute maximum should be 32Mb RAM (PS2 memory size).
+  - Stuff like `'9'.code` could be optimized at compile time.
+  - Xs{X=F(X)} could use the local `map`, instead of function.
+  - Better and more efficient hash table, which wont waste space,
+    and wont require specifying `-size` everywhere.
+  - Keywords arguments should be sorted by name, before passing.
+    That way the can be mapped quickly. It also makes sense to pash their
+    hash ids, isntead of the text itself.
+    That could conflict with calls like, where @ contains unsorted keywords.
+      `wclass Me K @T.list.join`
+  - Only each 10th allocation could be calling actual gc_alloc, at least
+    when the size is know to be small.
+  - 'hgp->theap[((void**)r - hgp->heap)] |= TG_OBJECT;' is no longer
+    required.
+  - gc_alloc `h->hgi = hgp->id` is required only when we are allocating inside
+    the gc, since zeroth generation has zero id, while the memory is already
+    zeroed.
+  - O_HDR can avoid O_PTR by subtracting T_DATA, together with the head offset.
+  - does bad_call really need the text argument, or it can use the stack
+    trace?
+  - We can optimize gc_head_t by replacing code with 18-bit index into
+    function table, and moving hgi to theap. That way header will be just 64-bit
+    instead of 128-bit. The size cen be reduced further
+    (i.e. by moving size into the page), but it has to be
+    64-bit, since we need a place to leave the "moved" link,
+    while GCin the content.
+
+Build System:
+  - Makefile can be generated with NCM.
+
+Minor issues/refactoring:
+  - api_t should really be called thr_t, since it mostly holds thread state.
+  - Rename TYPE_ID to TYPE_TAG
+  - dbg should be a symta.h api macro, otherwise it is unavailalbe when
+    environment is damaged.
+  - Refactor runtime, placing type/method related stuff into type.c,
+    gc() related stuff into mem.c, and builtin methods into builtin.c
+  - Factor out GC into a separate struct gc_t, together with heap and
+    all related stuff. That would allow testing outside of Symta runtime.
+
+Bugs:
+- longjmp doesn't handle GC_ENABLE/GC_DISABLE
+  the the gc_enable counter should be saved into jmp_state
+  or maybe just set it to 0
+- printing self referencing hashtable crashes the runtime
+  we really need depth limit
+
+Misc:
+- Command line version of symta, where unknown lowercase variables
+  will be mapped to OS commands, returning special async
+  objects, which can read and/or converted to string.
+- For ~vars should provide a way to retrieve the statement's value too.
+- Add `~` vars to ? lambdas outside of {} and ()
+- Tacit programming related stuff, like push and pop, in between `.`
+  as well as introducing variables inside expression
+    _(A+B)*_ = (A+B)^_*_ = (A+B)*(A+B)
+    [0:9]^_{?*?}^(:X=:@X@_)
+    Y [0:9]; Y{?*?}^(:X=:@X@Y)
+- Use optimized matcher tables, so spectoks wont be required.
+  I.e. use full tables only when here are more than one string
+  or when string has special operators.
+  Use lower 2 bits of the address to store tail type.
+  But first check how many bytes we consume with the current tables.
+- Rewrite the parser in C
+- The `push X Xs` and `ret Xs.flip` is slower than the `Xs = [X Xs]` collection.
+  There is some heavy slowdown with list.pre lists
+- Big text should have 0 at the end after creation. That way it can be passed
+  to C functions as is, speeding up string processing.
+- ncm_process_ doesn't properly report errors.
+- dlsym should get prototype string and return actual callable function
+  Because the current system we use is uber fragile.
+- `&Fn @Args` should work as normal funcall
+- `bp` macro, which will stop execution and starts REPL interpreter,
+   which will have a command to continuing execution after break point
+- Support for `;.` - i.e. for using the previous statement is input:
+    Xs.keep F;.map: X => X*2
+- unzip could take a number of function arguments. That way it can unzip
+  more advanced lists
+- `GCDEF(gc_list)` could use O_SIZE instead of LSIZE, which encodes the
+  size into fixnum.
+- Some way to index elements from the ends of the array.
+- get rid of `when` (replace it with if)
+- `hard_list` should be called `array` instead.
+- push and pop used really a lot, therefore deserve shorthands
+- `else if` (on the same line) should be considered an error,
+  because the following gets misparsed
+    if 1 then
+    else if 1 then
+      say 2
+      say 3 4 5 6
+    else
+  There `if` body gets misparsed as (say 2 say 3 4 5 6)
+
+- Some shortcut for lambas like `F = A B => A*C+B`, because `|` requires
+  a long indent.
+- fxn should preserve meta_
+- Use <: and :> for shift left and shift right.
+- A way to break the method chain, returning some defaul value.
+  I.e.
+      | LI PrevSlb.slab_layer
+      | when LI: LI.label.done_editing
+  Could be rewritten as
+      PrevSlb.slab_layer.@0.label.done_editing
+- Since `$field = Value` now sets the field to a value, instead
+  of adding methods, we need a special version for
+  adding methods to previously define type.
+  Maybe something like `.method = expr`?
+- File get/set should use `init` method.
+- Halt should allow optional return value.
+- It makes sense for Symta or at least the macros-processor
+  to support the 0x hex numbers. Since that allows including the same file
+  into both Symta and C/C++ code.
+- NCM should have syscall for saving the macro processed result. I.e.:
+  #(dump FILENAME)
+- Builtin package filesystem, which could override the normal filesystem,
+  while the normal filesystem could override the pakcage one.
+- Both the number arguments and the macro format are know at compile,
+  so argument checking can be a bit more robust, or we can
+  make function application without the argument serve as a curry.
+  As well as allow calling functions without braces, if we parse right to left:
+    sin sqrt 2.0
+  Of course such approach prevents the use of function names as symbols,
+  and introduces a lot of confusion.
+
+File Manager:
+- There must be a robust way to access the runtime exports from the FFI modules.
+  I.e. if FFI module has isymta routine,
+  it gets called with the struct contaiing pointer to api_t
+  a number of function pointers.
+- Ensure SAF files can have arbitrary data prefixed.
+  Save entire file size in the header.
+- unmounting
+- get_work_folder should be handled as mount. i.e. `.` mount
+  and resolving it would be just getting the mount base.
+  Ensure it doesn't conflict with '..'. I.e. it must be followed by
+  '/' or 0.
+- A way to override files inside archive (i.e. by a patch or use mod).
+- Files inside SAF can have "serialized" flag, using get on them would return
+  deserialized form.
+- Check if saf files can be appended or embedded into exe executables.
+  That would allow creating monolithic symta executables.
+- Share single handle between accesses, and close that handle
+  on the next file open/close, unless it was used the last minute.
+  Also free the archive.
+- A way for Symta code to setup get_file callback for specific mounts.
+
+FFI:
+- FFI can be greatly optimized:
+  consider creating ffi_ compiling the function on load from the prototype
+  That will return pointer.
+- Consider using the same system as builtins for ffi.
+  That would remove need for nonsense like gfx_
+  Yet it will make it more difficual to cross compile,
+  when ffi dlls are not readily present.
+- ffi_load could create an SBC function by itself, without relying on macros.
+- Typical FFI modules should be placed to the project folder by user.
+  under the ffi/ folder. Together with accompanying .s files
+  That way they could be distributed and compiled independently of Symta.
+  FFI related Symta files should be keep with them too.
+  Think about the dependent dll files, which sometimes could not be
+  found on Windows, which looks inside the working directory
+  while on OSX they are inside the framework folder.
+  These must be in the same folder the libary which uses them.
+  LOAD_WITH_ALTERED_SEARCH_PATH
+
+
+REPL:
+- Handle \ escapes.
+
+
+GRAND SYMTA REDESIGN:
+- On constructs like 
+    when AllUnlocked: or Icon $enterSiteIcons1:
+  Symta compiler fails without proper error,
+  because there is no left operand to or:
+    list tail: list is empty
+    bad call: () `tail`
+    Stack Trace:
+      0x101a41150:list.tail:0,0,builtin
+      0x122e1f310:parse_logic:300,12,/Users/macbook/Documents/GitHub/symta/src/reader.s
+      0x122e21490:parse_delim:315,12,/Users/macbook/Documents/GitHub/symta/src/reader.s
+      0x122e245e0:parse_xs:333,9,/Users/macbook/Documents/GitHub/symta/src/reader.s
+
+
+
+- Hash table should have default return value.
+
+- sin, cos, sqrt and other math stuff should be functions, not methods.
+
+- Add all the object creating and miscellaneous functions to No
+  that way these functions could be used without using thesse files.
+
+- Parser is sill very slow and a major bottle neck.
+  It needs to be token driven and rewritten int C
+  possibly using YACC.
+
+- Instead of cons-lists, consider growable queue lists,
+  which can be prepended and popped from both sides.
+  Think how they will be shared after modification.
+  I.e. it will require to make a copy of the entire list,
+  if the underlying list was already extended through some unrelated pointer.
+
+- There is some bug where cons lists are really slow.
+  In addition push and pop are really inconvenient with then pushing elements
+  at the start and push item being the first argument, which prevents
+  `:`.
+
+- Special hashtable which uses addresses as keys.
+  That would allow to implement compiler metadata in a very robust way.
+  It would as well allow adding properties to arbitrary objects, without
+  introducing any integer index for joining.
+  Still the hashtable should no prolong the objects life.
+  If object is dead, then the associated metadata is dead too.
+
+- Release symta version should keep .sbc files inside src/
+  That way they wont have to be compiled each time.
+
+- int.lsb method for masking the least significant bits
+
+- .h files which should be embeddedable inside associated .sbc
+
+- Determine where the core source code files should go to make interpreter
+  happy. Should these be auto-installed when eval is used?
+
+- `host.each_frame_fn = &fn_var` doesn't appear to work.
+   `=` handles such funcalls as method definitions.
+
+- Exception handling and scripts are currently broken.
+  Likely because how setjmp is being used.
+  btland does `_lget K`, but _setjmp return an object
+  btjump() inside bltin.c indeed returns a LIST
+  which LONGJMP doesn't do
+
+- Where do we init api_t.error_handler?
+
+- on expasnsion drop lists inside layV push down the list below it.
+
+- txt_edit text should not extend beyond
+  something like scissors hierarchy
+
+
+- There should be several builtin modules, so that use will avoid cluttering
+  space. For example, math.s could include sin, cos, etc..
+
+- PI,PI2 should be part of math.h
+
+- sqrt,sin/cos/atan2 should be functions, not methods.
+
+
+- take/drop should with lists with lists of any size, without giving error.
+  otherwise there will be a need for duplicate functions, like upto and wout 
+
+- `symta` should treat file arguments passed to it as scripts to execute
+  while folders would be treated as projects. That way `-f` could be omitted.
+
+- Get rid of `then.`
+
+- src/ui_*.s files really clutter the folder. Allow moving them into ui/ folder
+  then they could be used "use ui/widgets". It should also be possible to
+  package them, and to have packages inside of packages.
+
+
+- Java-style interfaces can provide very fast polymophism, replacing expensive method lookup with an interface lookup. interface is basically an ordered list of methods implementing specific behavior. once interface got resolved, its can be used quickly. there can be special interface extraction points, which return an interfaced entity.
+
+
+- While transitioning to the new object system, retain the old one, so the transition could be done gradually.
+
+
+- More convenient way to access fields by name, like in. Same way we need a pointer to a method
+  | CVLay = voxviewlay Me cv 256 256 //create_viewport cv
+  | $cv <= CVLay.vp
+  | FVLay = voxviewlay Me fv 256 256 //create_viewport fv
+  | $fv <= FVLay.vp
+  | SVLay = voxviewlay Me sv 256 256 //create_viewport sv
+  | $sv <= SVLay.vp
+  | TVLay = voxviewlay Me tv 256 256 //create_viewport tv
+  | $tv <= TVLay.vp
+
+- Multiassignment expressions like
+    | NPs,NParts,NRoot = $place_bridge_root{Parts}
+    | Ps <= NPs
+    | Parts <= NParts
+    | Root <= NRoot
+  need syntatic sugar, since some returned variables have to be assigned.
+  Something like the following will do.
+    | NPs!,NParts!,NRoot! = $place_bridge_root{Parts}  
+
+- The following code produces segfault becasue `base` is not declared.
+    type object.$base{ui} fv
+    | $base <= 123
+  
+  Should be just error.
+
+- move ffi_alloc/ffi_free into runtime
+
+- rgb.s needs fxn, so any file including rgb.s should also include fxn
+
+- `let` doesn't work with object fields
+
+
+- `times Y G.h: times X G.w: ...` needs some macro, since it is used everywhere. `times Y G.h X G.w: ...` extension should be fine.
+
+- large objects, like arrays should initially be allocated on heap, with stack having special "live objects" place, keeping the record of external moving objects. So they wont be trashing stack. After object gets returned, it `live` flag is set to 0, and if it remains 0, get it gets freed, without moving it to the destination level.
+
+- Fix stack traces access for functions like `bad`.
+
+- `when 123: and 456: say hello` leads to reader error.
+
+- "at (49 0 `./src/wai.s`): EOF in string" like errors need to report the beginning of the string too.
+
+- Inside method any non-macro funcall should be interpreted as method calls, while `$` should do the opposite - call normal functions. Member names and accesses should use uppercase letters. Alternatively, the `text-as-symbol` idea can be excanged in for member accesses. Ensure there will be some way to access same named method arguments. Implement it as a separate compilation path for modules explicitly asking for it. At first the new syntax should be enabled explicitly.
+
+- After the build process is complete, for some reason some files have their date set into future. But that also happens with usual make. Intrdouce some tracking code to investigate when and why it happens, and to retouch them in that case.
+
+- gui.s: widget.items conflicts with user names, and isn't very descriptive. widget.parts would be a better name.
+
+- Most code editors count lines from 1, but Symta prints from 0. That is not okay.
+
+- proper serializable interface, allowing to serialize any item.
+  Make sure it properly remaps ids.
+
+
+
+- Consider `Path to@some@field! NewValue` as an alternative to "Path.to.some.field! NewValue". Also think of some no `.` syntax free for array access in stream, it should also allow free form writing. Maybe something like `Xs get_array A B @@calc array index`?
+
+
+- Consider postfix parentheses juxtapostion: `$m1(A B)m2(C D)field`, instead of `$m1(A B).m2(C D).field`. Drawback to that approach is that we need to keep opening brack on previous line, when splitting the expression into several lines. So it doesn't eliminate the need for `.`
+
+
+- Instead of `Object.init{NewValue}`, use `Object!! NewValue` syntax.
+
+- `Xs{&fun}` should always mean map, unless `Xs` is lower case or `&Xs`
+
+- Better syntax for hash-table: `#[key1=12; key2=34]` should do. It would also support list elements: #[key1=12; keyXs:a b c; key2=34].
+
+- Think about creating special context, inside which bitwise operators be represented using usual C/C++ operators, basic ops.
+
+
+
+- Simple macros should be declared as \MacroName = Value
+
+- `int.float` gets used a lot, so it makes sense using shorter name, such as `int.flt`
+
+- in addition to `fxn`, there should be `flt` macro, which could be included inside fxn to override the arithmetics operators used. The rationale for such macros, is that they are much easier to implement and local in in effect, so variables themsevles could be rebinded.
+
+- Simpler way to pass array of floats to an FFI function.
+
+- A way to access outer scope declaration of the same name.
+
+- Stuff like Xs{"[?]"}.text{","} is frequently used to generate C tables. Maybe text can convert non-text elements itself? Will it prevent some current or future optimizations?
+
+
+- Analize, if it makes sense to define `!` as inplace set: `!X+1` is `X+=1`. What about lower case vars?
+
+- A way to do computation inside instantly garbage collected scope.
+
+- cons and view based lists don't appear to be used that much. It would be a good idea to make cons-list an explicit data struct, which could not be prefixed with usual list. They can probably be replaced with usual explicit stack, so `push X Xs` would be just `Xs <= [X Xs]`, while converting it to list would be just a matter of calling `Xs.list`, nos `cons`. `view` would be harder, because we need fast tail, but view lists are much faster than cons anyway. That way we could use [X!Xs], instead of push, if `!` gets defined as inplace set.
+
+
+- Stuff like
+    | Xs = []
+    ...
+    | push X Xs
+  
+  Is used frequently. It can be shorthanded with locally decalred macro:
+    | col xs
+    ...
+    | xs X
+  
+  It would also work nicely with `:`
+
+
+- atan2 (man atan2)
+
+- get rid of list.suf in core.s
+
+- A quick way to find object index given the array and an object.
+  It could just subtract array base address from the object's address.
+  I.e. special .has for arrays.
+
+- Formatted printing array can be more succinct than `for I,C Counts.i: say: "["[I]".pad{-3 0}]: [C]"`.
+
+- Lexer doesn't properly parse exponentiated floats, like 1e-20f
+
+- X**2 should auto-expand into X*X.
+
+- Min doesn't work with floats. Its fxn decl should be triggered only when inside fxn.
+
+- The `@` should be auto-added to macros starting with `|`
+
+- Some math constant macros like PI and MIN_FLOAT=0.0000000001 are a must.
+
+- The manual memory management can be achieved by first allocating on stack, and then moving the object to malloced space. As long as it is out of heap, the moved object will be treated as usual object. Watch for lifting, because items reference only by heap based structures don't get lifted properly.
+
+
+- Consider:
+    L Xs.locate F
+    Xs.L = 0
+  It is a bit verbose.
+  It can be made more succinct by two ways:
+   - by introducing `place` or `pointer` object, which could be assigned to directly. In case of Xs it would combine both Xs and the position inside it. That is inefficient because the object is almost always known above.
+   - Better solution would be treating `=` when applied to method call with arguments as a location. I.e
+       Xs.locate F = 0
+     Should be treaten as:
+       L Xs.locate F
+       Xs.L = 0
+    Same with Xs.locate(F)++
+
+
+- `not ` takes 4 characters, but used very frequently. Use C's `!`. It would also help making it a part of single expression. The `!` would also work nice with inside `and` line (`!` A and `!` B).
+- Code like `say Map.w,Map.h` appears frequently, especially when inspecting an object at console. Can it have a shorthand like `say Map.w?h` or `say Map.w~h`? Ensure it can be assigned a list of values just as well.
+- The transformation of `?item` into `?.item` could be done by the parser.
+- Additional lambda sugar: `(X => !X.type)` as `&{!?type}`.
+- whole program symbol macros, similar to C/C++ enums, that would allow using integers instead of symbols.
+- bigtext can be speed by storing a hash for each text. That way comparison can be much faster. Maybe even moving bigtext to special table of hashes, so all similar the same string could be merged as a single. A counter would likely be needed.
+- Provide flt macro, similar to fxn.
+- For functions, `:` duplicates `|`, so it would be more useful for it to always as act uniformly as it does for macros.
+- homebrew malloc, because system provided allocates stuff at improper addresses
+  and we want to mmap new stuff at lower pages.
+- expressions like `$anim<>idle` can really be optimized, because $anim would most likely be a literal string.
+- most method calls just access member items, therefore it makes sense to store at call site direct indices into objects.
+- fixtext uses 3-bit tag field (all other tags are 2-bit) and has some free unused bits. Explore this.
+- `expand_dup` should have shortcut to produce items, something like `pass Item`
+- `list.has Item` returns 1 if list contains item, otherwise 0 
+- `table.has Key` returns 1 if table contains Key, otherwise 0 
+- No real need for '' quotes, because their role is completely covered by "". The free `'` could be reused for stuff like `Object'xs{X=>X+1}` instead of `Object.xs{}{X=>X+1}`. Although using {} for mapping instead of indexing was a bad idea. Consider changing it back to indexing with help of compiler detecting such call sites. Using `$UpperCaseName` and `Object.UpperCaseName` for indexing is really non-unintuitives, and disallows using `$Xs{X=>X+1}` and `Object.Xs{X=>X+1}`. It also makes harder translate global vars to member vars. So it would be much better to use `'` for indexing.
+- It is useful to treat stuff like get_main in `get_main.img{"ui_[F]"}` as a function call, instead of string
+- `list.tkeep` and `list.tskep` like:
+     list.tskip T F = $skip{E => T.has{(F E)}}
+  would allow writing:
+     Es.tskip{Cs{[?1 1]}.table ?cell}
+  instead of:
+     | Flt = Cs{[?1 1]}.table //filtering table
+     | Es = Es.skip{E => Flt.(E.cell)><1}
+- move gfx/gui stuff into different packages.
+- There are too many `when A><B: C` forms in any program. Consider introducing shorthand notation: A? B: C
+- We write `A.Lore,A.Mana,A.Cool <= U.cost`, instead of
+  | Lore,Mana,Cool = U.cost
+  | A.lore <= Lore
+  | A.cost <= Mana
+  | A.cool <= Cool
+  Although there is probably not enough use cases to justify introducing this sugar
+- Introduce `symta -i <folder>` command, that would populate target folder with src/main.s and other files required for Symta's package, like readme.txt and license.txt. Otherwise user may get confused on how to structure the project.
+- consider treating `@m1{A B} @m2{C D} foo A B` as `foo{A B}.m2{C D}.m1{A B}`
+- Consider allocating separate buffer for data that gonna get lifted a lot. Consider having pools of these buffers for small objects and mallocing for large objects. Also consider allocating large objects out of stack, holding only references to them. That way lifting could be greatly reduced.
+- Calling non-existing method gives wrong `name` for that method.
+- list.apply and list.apply_method should really be runtime calls, followed by MCALL. That may open ways to speedup them. Replace list.apply_method with _redirect, which will simply redirect method call to other object. Check out expand_block_item_method
+- ensure type_method_t->fn gets properly lifted, before get_method's result is cached.
+- SUBTYPE and SET_TYPE_PARAMS should be tables, passed to init tables.
+- change void* and uintptr_t to uint64_t, typedef'ed as u64
+- `get_` and `set_` methods, based on cached `methods_` list
+- optimize build dependencies being recompiled when not required.
+  ensure to check export list. Alayws recompile for macro deps, but dont for unchanged function export list or classes
+- Compiler generates a lot of stack variables for `case` matchers, which can lead to C's stack overflow with TCC, that is unable to optimize stack allocations. Optimize generated code to reuse stack variables.
+- fix OOP so that `type child.parent` would check that parent has no data fields.
+- reuse `!` for list splicing python style
+- methods `list.e` and `hard_list.e` don't appear to be used that much, rename the to each
+- optimize and fix ssa_form, so that will report wrong number of arguments
+- optimize No, by initing it to a well known memory location
+- only symbols referenced inside of a closure should be allocated on heap.
+- inline C-code
+- inline optimizations for arithmetic and comparions operators, array size and array indexing
+- a way to reference some memory location
+- lexical targets for for optimizations in Spell of Mastery
+  1670: =
+  1291: `:`
+  1268: <=
+  724: when
+  470: -
+  413: Me
+  420: +
+  354: type.method ... = ... (around 2 kilobytes)
+  324: arg/Value ([^a-zA-Z.][a-z][A-Za-z]*/)
+  299: if/then/else
+  256: less
+  237: and (can be replaced with && or `et`)
+  167: .0 and .head
+  162: ?
+  123: got
+  116: not
+  96: `else if` (replace with elif)
+  89: size
+  83: or (can be replaced with -- or `an`)
+  54: f{Arg} ({[A-Ba-b0-9]\+}')
+  54: push
+  53: ^
+  41: &
+  40: !.*+1
+  32: type.`!method`
+  33: drop
+  24: take
+  21: pop
+  19: tail
+  15: !it
+  13: arg/(Expr)
+  5: ??
+  4: lead
+  1: ->
+- Xs.head = *Xs
+  Xs.tail = Xs++
+  Xs.drop{N} = Xs+N
+  Xs.take{N} = Xs%N
+- a way to define a block, such that all methods inside of it belong to some class
+  +point
+  `+` A B = ...
+  -point
+- Consider using  `*` to access the head element: *Xs would be the same as Xs.head or Xs.0. Currently *Xs is unused. Xs.0 and Xs.head are used 180 times in Spell of Mastery. Stuff like  `Xs.(Ys.0)` could be rewritten to `Xs.*Ys`.
+- `pop` is relatively inefficient, so should be replaced by pointer
+- `done` and `pass` for `dup` and `map` macros, where these keyword will yield alternative value or skip value.
+- recompile dependent modules only when exports list changes
+- Proper file interface with catching, representing files as usual lists:
+  file{Name}.utf8
+  file{Name}.get{Offset Length}
+  file{Name}.list
+  file{Name}.Offset <= Byte
+- types should allow keywords initing fields by default; rethink the whole keywords syntax; because lowercase letter type constructor already conflicts with lowercase letter in function calls. I.e. make keywords to be uppercase
+- proper documentation for non-local return
+- Array slicing (could be implemented through a{} calling different method when used with `:`). Currently SoM has 192:28 proportion of List.Index to List.(expr). Consider Python's approach
+  a[start:end] # items start through end-1
+  a[start:]    # items start through the rest of the array
+  a[:end]      # items from the beginning through end-1
+  a[:]         # a copy of the whole array
+  a[start:end:step] # step through array (usable with any of the above)
+  a[-1]    # last item in the array
+  a[-2:]   # last two items in the array
+  a[:-2]   # everything except the last two items
+- optimize `ssa losure`, which is not required in most cases.
+- More-efficient hash tables, because K.hash%Bs.size is known to be arithmetic expression
+- `:` should work inside of `{}`
+- "case C" and `when C` should require `:`, otherwise it is too confusing.
+  Alternatively `and` and `or` should have usual binary op syntax, otherwise they are too confusing
+- Move all these "static uint8_t b__16335[]" into separately loadable string table to speedup compilation
+  That will also make it possible to localize the application, without recompiling it.
+- fast arithmetics, when all arithmetic operands being checked for FIXNUM at call site
+- inline insertion of C/C++-style code, interfacing with FFI, which in the end could be used to reimplement runtime.c
+- a way to quickly set all object fields to 0
+- a way to disable CHECK_NARGS for production code
+- expand_match should not do is_list, when called fron lambda arglist matching, as it is known to be is_list
+- messages like `couldnt match args list`, should be part of runtime, or maybe _core
+- SYMTA_DEBUG should be defined by compiler, based on command line options; watch for already compiled dependencies. Everything should be recompiled from scratch, when such option changes.
+- api->method could probably be replaced with get_meta
+- when jumps goes over variable introduction, notify user
+- array fields should provide special `!`, which uses init, instead of allocating new memory.
+- list of all functions that use specific function
+- unless export table changes, no recompilation of dependent files should be required
+- a way to simply include other symta file directly, as part of macro facility. I.e. `include` should be macro
+- better way to read items from byte arrays. Also consider bit arrays
+- symbols starting with digit, like `4players`, should be printed with "``" quotes
+- tab character in text breaks parser
+- `when 123: 456;` gives parser error "bad call: () `.` 0", under parse_semicolon
+- `when got!it Expr: process it` should work with if
+- confusing and non uniform absence of  `:` in `when Condition | action`
+- rename `leave` to `lift, that is shorter and better describes what is being done to value. We are lifting control and result value back to the caller.
+- unknown variable at top level doesn't provide location, just "unknown:0,0: undefined variable `XYZ`"
+- a way to declare argument type for fast field access and to avoid `Me=type` comments
+- Source location in stack traces. So when a wrong method on `No` object gets called, we can get the location immediately.
+- proper heap allocation, instead of enheap, allowing moving any type to heap.
+- enheap related stuff should be part of runtime to maximize efficiency
+- the `_.enheap` returns base type, instead of returning derived type object; provide a way to access complete object inside called method
+- Dynamic malloc and free, when say "P = freeable: point X Y" allocates point inside of inside of user provided pool. There should be an easy way to move existing object into pool and from pool.
+- proper I/O streams, so that output of underlying could be redirected or suppressed.
+- Networking
+- some potential problems with class inheritance, like no base class data fields: adding `items` field in widget leads to subtle error
+- variables are exported by value, instead of by reference, so they cannot be modified

@@ -1,0 +1,19 @@
+all:
+	cd lib && $(MAKE) -f Makefile.osx
+	cd test && $(MAKE) -f Makefile.osx
+	cp -f lib/arch/gcc_x64_osx.h lib/cinvoke-archspec.h
+
+install:
+	install -d /usr/local/include
+	install -d /usr/local/lib
+	install lib/cinvoke.h lib/cinvoke-arch.h lib/cinvoke-archspec.h \
+		/usr/local/include
+	install lib/libcinvoke.a /usr/local/lib
+
+uninstall:
+	rm -f /usr/local/include/cinvoke.h /usr/local/include/cinvoke-arch.h \
+		/usr/local/include/cinvoke-archspec.h /usr/local/lib/libcinvoke.a
+
+clean:
+	cd lib && $(MAKE) -f Makefile.osx clean
+	cd test && $(MAKE) -f Makefile.osx clean

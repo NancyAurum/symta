@@ -1,0 +1,864 @@
+Why ECS?
+
+
+
+ENTITY IMPLEMENTATION TIERS
+_________________________________________________________________
+
+Tier 0: no entity, everything is global
+-----------------------------------------
+
+float rabbit_xyz[3];
+float plant0_xyz[3];
+float plant1_xyz[3];
+float plant2_xyz[3];
+
+void update_entities(entity_t *entities) {
+  update_plant(plant0_xyz);
+  update_plant(plant1_xyz);
+  update_plant(plant2_xyz);
+  update_rabbit(rabbit_xyz);
+}
+
+void visualize_entities() {
+  visualize_plant(plant0_xyz);
+  visualize_plant(plant1_xyz);
+  visualize_plant(plant2_xyz);
+  visualize_rabbit(rabbit_xyz);
+}
+
+
+Notes:
+* The most common entity organization of the 70ies and 80ies.
+* Very efficient, easy to implement and maintain,
+  when we have just a few entities.
+* Favoured by people who've just began programming,
+  but really can be used by anyone, since it just works for many tasks.
+  For example, MSDOS used it process floppy drives.
+
+
+Tier 1: disjoint structs
+-----------------------------------------
+
+struct plant_t {
+  int       visual;   //visual representation
+  float     size;     //space around xyz it occupies
+  float     weight;
+  float     age;
+  branch_t *branches;
+  leave_t  *leaves;
+};
+
+struct animal_t {
+  int       visual;  //visual representation
+  float     size;    //space around xyz it occupies
+  float     weight;
+  float     age;
+  float     speed;
+  ai_t      agency;
+  int       species; //id of the species this animal belongs to
+  limb_t   *limbs;
+};
+
+typedef union {
+  plant_t  *plant;
+  animal_t *rabbit;
+  event_t  *event;
+} event_operand;
+
+//since plants and rabbits need to affect each other,
+//they communicate by the mean of events.
+//i.e. event rabbit456 ate plant123
+//     event plant123 poison rabbit456
+struct event_t {
+  float         age;
+  int           event_type;
+  event_operand event_origin;
+  event_operand **event_arguments;
+};
+
+plant_t  *plants;
+animal_t *animals;
+event_t  *events;
+
+void update_entities(entity_t *entities) {
+  update_plants(plants);
+  update_animals(animals);
+  update_events(events);
+}
+
+void visualize_entities(entity_t *entities) {
+  visualize_plants(plants);
+  visualize_animals(animals);
+}
+
+Notes:
+* This organization is basically the evolved Tier 0, and appears when
+  there are too many plants and rabbits get other animal species
+  to accompany them.
+* Works well when the structs have drastically different code processing them.
+  Yet it quickly falls apart as soon as entities become related to one another.
+  I.e. we already have to define event_operand union, and we will
+  have to duplicate common code among visualize_plants and visualize_animals.
+  And the visualization code has no way to sort entities by their distance
+  from camera, without introducign some temporary super structure.
+
+
+
+Tier 2: one huge messy struct
+-----------------------------------------
+
+enum {E_PLANT, E_ANIMAL, E_EVENT, E_TOTAL} etype_t
+
+typedef struct plant_t   plant_t;
+typedef struct animal_t  animal_t;
+typedef struct event_t   event_t;
+
+//All entities of the same class share static data,
+//like default speed and weight.
+struct entity_t *entity_types[E_TOTAL];
+
+struct entity_t {
+  int        refc;   //number of references to this entity.
+  float      xyz[3];
+  etype_t    type;   //type of the entity
+  int        visual; //index of the visual representation this entity
+  float      size;   //space around xyz it occupies
+  float      weight;
+  float      age;
+  float      speed;
+  ai_t       agency;
+  int        species; //id of the species if the entity is an animal
+  limb_t    *limbs;
+  branch_t  *branches;
+  leave_t   *leaves;
+  int        event_type;
+  entity_t  *event_origin;
+  entity_t **event_arguments;
+};
+
+
+#define TYPEOF(e) ((e)->type)
+#define IS_VISUAL(e) (TYPEOF(e) != E_EVENT)
+
+void update_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    switch(TYPEOF(entity)) {
+      case E_PLANT: ...
+      case E_ANIMAL: ...
+      case E_EVENT: ...
+      default: fatal("Unsupported entity type=%d", TYPEOF(entity));
+    }
+  }
+}
+void visualize_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    if (IS_VISUAL(entity)) visualize_entity(entity);
+}
+
+
+Notes:
+* The most common entity organization of the late 80ies and 90ies.
+* It is not very efficient, but easy to implement and maintain,
+  when the program logic is not overly complex.
+* Additional data can be attached through an internal or external hashtable.
+
+
+
+Tier 3: typed union struct
+-----------------------------------------
+
+enum {E_PLANT, E_ANIMAL, E_EVENT, E_TOTAL} etype_t
+
+typedef union state_t state_t;
+
+typedef struct plant_t   plant_t;
+typedef struct animal_t  animal_t;
+typedef struct event_t   event_t;
+
+//All entities of the same class share static data,
+//like default speed and weight.
+struct state_t *entity_types[E_TOTAL];
+
+struct entity_t {
+  int      refc;   //number of references to this entity.
+  float    xyz[3]; //every entity has a position, allowing
+                   //re-using the same state between otherwise static entities
+  state_t *state;  //state corresponding to the entity type
+                   //Initially points to entity_types[type]
+                   //which gets copied on modification.
+};
+
+struct state_t {
+  etype_t type;   //type of the entity
+  int     refc;   //number of entities referencing this state
+  union {
+    plant_t  plant;  //stationary form of life without any agency to drive it
+    animal_t animal; //mobile form of life with an agency controlling it
+    event_t  event;  //information stationary or moving between the entities
+  } data;
+};
+
+struct plant_t {
+  int       visual;   //visual representation
+  float     size;     //space around xyz it occupies
+  float     weight;
+  float     age;
+  branch_t *branches;
+  leave_t  *leaves;
+};
+
+struct animal_t {
+  int       visual; //visual representation
+  float     size;   //space around xyz it occupies
+  float     weight;
+  float     age;
+  float     speed;
+  ai_t      agency;
+  int       species; //id of the species this animal belongs to
+  limb_t   *limbs;
+};
+
+struct event_t {
+  float      age;
+  int        event_type;
+  entity_t  *event_origin;
+  entity_t **event_arguments;
+};
+
+#define TYPEOF(e) ((e)->state->type)
+#define IS_VISUAL(e) (TYPEOF(e) != E_EVENT)
+
+void update_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    switch(TYPEOF(entity)) {
+      case E_PLANT: ...
+      case E_ANIMAL: ...
+      case E_EVENT: ...
+      default: fatal("Unsupported entity type=%d", TYPEOF(entity));
+    }
+  }
+}
+
+void visualize_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    if (IS_VISUAL(entity)) visualize_entity(entity);
+}
+
+
+Notes:
+* This is the most prevalent entitity structure of the 00ies.
+* Compared to the `one huge messy struct` approach we have duplicated
+  a lot functionality across several similar structs.
+  So while taking less memory and being more efficient,
+  the code is now harder to implement and maintain.
+  Usually developers employ some helper utilities to maintain the hierachy of
+  entity states.
+* Such entity structure is memory efficient and can be used in 16bit software.
+  For 8bit programs, type switching is too inefficient
+  and the entities array wont fit in a single 256 byte segment.
+  So 8 bit developers are forced to keep each entity in a personal table,
+  intended for just that type, basically introducing the systems from ECS,
+  without introducing the components.
+* Kludges are employed to apply the same codepath to different types.
+  For example, IS_VISUAL entities are expected to have visual_t first.
+  Sometime entity_t.type embeds some bit flags to identify what is present
+  inside state.
+  That turns it into an informal poorly specified components list.
+* A form of dynamic typing is introduced, where type+state is a CVariant.
+  In a dynamically typed language, where switching on type is a thing,
+  this code will be more readable. Since we wont need etype_t.
+  In languages with OOP one will be hiding the `switch (entity->type)`
+  under a vtable call.
+  In pure C people will move these `case` into separate functions,
+  and then doing
+    update_entity_table[TYPEOF(entity)]
+  or even
+    entity->state->update(entity)
+  The entity classes could be either hardcoded or loaded from DLLs.
+  For example, Serious Sam engine did the DLL loading trick.
+  Some OOP systems do inheritance entity_t -> state_t -> animal_t -> rabbit_t
+  Other OOP implementations do the template/generic instatiation
+    entity_t < state_t < animal_t <rabbit_t> > > 
+  Each approach opens its unique can of worms.
+* All entities, even E_EVENT, have to include xyz even if they are
+  not placed in the world.
+* Instances of entity_t don't include an entity_id.
+  Instead their addresses is used to reference them.
+  Sometimes people add metadata, like name or expiration_time to such entities,
+  by hashing their ids into an external table.
+  Then there is some system going through the table, freeing expired entities.
+  That serves as a poor man's database system.
+
+Tier 4: components list struct.
+-----------------------------------------
+
+struct entity_t {
+  int *components; //the list of components defining this entity
+};
+
+void update_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    for (int j = 0; j < alen(entity->components); j++) {
+      int component = entity->components[j];
+      update_phase[component](entity);
+    }
+  }
+}
+
+void visualize_entities(entity_t *entities) {
+  for (int i = 0; i < alen(entities); i++) {
+    entity_t *entity = &entities[i];
+    for (int j = 0; j < alen(entity->components); j++) {
+      int component = entity->components[j];
+      visualization_phase[component](entity);
+    }
+  }
+}
+
+
+
+
+Notes:
+* This structure began gaining momentum in 00ies, when Dungeon Siege
+  developers made a presentation popularized it.
+  Become common in 2010ies.
+  Most popular approach today.
+* Components of the same type could be held in the same table and processed
+  at once.
+
+
+
+
+Tier 5: single integer id entity struct
+-----------------------------------------
+
+typedef int entity_t; //yup! it is just an integer now.
+
+table_t **tables;
+
+
+void do_phase(int phase_id) {
+  for (int i = 0; i < alen(tables); i++) {
+    if (!tables[i].phase[phase_id]) continue;
+    foreach_key(entity_id, tables[i])
+      tables[i].phase[phase_id](entity_id);
+  }
+}
+
+void update_entities() {
+  do_phase(PHASE_INPUT);      //user input, time tick, random numbers, network
+  do_phase(PHASE_REACT);      //react to PHASE_INPUT and other entities
+  do_phase(PHASE_UPDATE);     //apply PHASE_REACT data resolving any conflicts
+                              //to produce the new program state
+  do_phase(PHASE_OUTPUT);     //network, log files, etc...
+  do_phase(PHASE_VISUALIZE);  //visualize whatever requires that
+  do_phase(PHASE_UNALLOC);    //free refc==0 entities
+}
+
+
+Notes:
+* Disovered in 1990ies by Looking Glass, while development of
+  the logic heavy games, Thief and System Shock.
+  This approach began gaining momentum only in 2010ies, due to
+  the software becoming exceeding complex.
+  Now it is moving outside of the realm of video games.
+* While it may appear inefficient, since accessing an entity
+  through a hashtable is indeed inefficient, we can have archetypes for which
+  entity ids could be used as a direct address inside their component segments.
+  Now we don't have to store these ids themselves, just their range.
+  Therefore the approach is viable even for 8bit software.
+* We don't have etype_t table, since the entity is completely defined
+  by its components.
+* In the example implementation each component corresponds to a system.
+  Such uniformity simplifies several aspects:
+  * attaching system to an entity is as easy as adding a component.
+  * serialization can be done by just runing the PHASE_SERIALIZE
+  * freeing can be done by the PHASE_UNALLOC
+  But usually that is not the case.
+  Many implementations allow systemless components.
+* Most implementations have a component listing all the components used by
+  the entity.
+  That is an antipattern, incurring huge runtime cost,
+  while its main use is freeing an entity instanly is a very bad idea,
+  since the systems have no time reacting to the entity being freed.
+  THe proper way to free an entity is add a adding `freed` component,
+  and then allowing each component to destruct itself during the PHASE_UNALLOC.
+* ECS is not a silver bullet, since it trades simplcity and safety for the
+  flexibility and manageability. It is also inherently dynamic,
+  therefore impenetrable to static type analysis or catching runtime errors.
+  Outside of archetypes, it can be hard for users to grasp the entities nature.
+  Since we literally make anything possible.
+  So Tiers 0, 1 and 2 are still well suited for smaller projects.
+  ECS does eradicate the NULL pointer access errors, the processed entities
+  are guaranteed to have specific components.
+
+
+
+
+Glossary:
+* Archetype - a unique combination of component types.
+              basically a static prototype, used to construct new entities,
+              or to supply default values.
+* Entity - a unit of data organized for processing.
+* Entity ID - a unique numeric identifier, corresponding to each entity.
+* Phase - an individual stage in the data processing pipeline.
+- Relation - a dynamically created component, which consisting
+             of relation name and the relation object.
+             Basically ComponentTables["[Relation]_[What]"].[EntityId] != NULL
+* System - a function taking appropriate entities as input to produce,
+           updating relevant components.
+* Tag - a component without a value.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+How efficient is ECS?
+
+-----------------------------------------
+
+
+
+Well, we all know that doing
+
+  struct agent_t {
+    int guid;
+    int type;
+    bool is_ally;
+    bool is_herbivore;
+    ...
+  }
+
+Is a really bad idea, since the bools will waste a lot of memory and to doing
+analytical operations (i.e. listing all matching objects) you have to go through
+every object. So even if the struct is heavily packed into a bit stream, and
+your CPU has bit unpacking support, it is still super memory intensive.
+
+Now storing separate columns allows packing bools as actual bits.
+Therefore ECS reduces the memory requirement to store the same data.
+
+There is of course the question of mapping from, the agent_t.guid to
+the bit, when only part of the agents have these field.
+That mapping is probably the hardest part about ECS or columnar DBs generally.
+But it is solvable with a page table and allocating guids for specific types
+in blocks.  Then the lookup comes down to something like:
+
+  uint64_t index = guid - min;
+  return index < size ? data[index] : NIL;
+
+Yet since allocation happens in blocks, we can pack adjanced bits with
+1d version of a sparse voxel tree. Voila! We have less than 1 bit per field!
+It is also possible to iterate over all these items without going through
+a huge bit array. I.e. if you allocated 1024 carnivores in a row, you've just
+compressed 1024 bits into 1!
+
+Although implementing such trees efficiently is non-trivial and requires
+unrolling the recursion. Yet that is probably the most efficient way to
+implement set theoretic structures in your program, and games are all about
+set theoretic relationships. So it is a core data structure, you have to
+implement in the best way possible. And ECS opens a way to do that.
+
+
+
+
+
+
+
+
+
+
+
+
+
+ECS and Events Scripting or Message Passing
+-------------------------------------------
+ECS: Component Modification Outside of It's System
+While it is possible to do
+
+  Component[Id] = Value
+
+such anonymous unordered modification unfortunately breaks the abstraction and desyncs the modifications from the system. Furthermore, component tables are more efficient without random access.
+
+Apparently the right thing is sending messages, which have both source (the system sending the message) and destination (the system receiving the message). And the system under the receiving system has to declare in advance what messages it accept. That way the system itself could lookup the messages table for each id. I.e. we may have just a bare list of poisoned entities ids, and then the healer entity sends a "heal" message. to a specific entity, the poison system seeing such message will simply remove the messaged id from processing.
+
+Now that heal message can be an entity itself, if we want messages to be first class objects. One can implement messages as special components , which get cleared every cycle. In addition, we can have broadcast messages, like say `free` message, signalling that the entity id is now freed. That gives some time for the systems to stop processing it.
+
+We can also have reactive declarations such as:
+poison:    message(self venom 1)
+heal:      prune(poison)
+freed:     prune(_everything_)
+player_ai: message(each_owned_agent follow_plan_of self)
+
+System pruning have to be inserted before the system execution.
+Global removal should have special counter.
+Main issue with such approach is running pruner for large number of mostly
+static objects, like tiles, every cycle. That is very expensive.
+So we need a samerter way to run.
+Possible solutions:
+- Limiting the number of prunes per cycle.
+  Will need a trick for a huge `tile` hash table, which can get new tile
+  each cycle.
+- Explicitly check every freed object against being a tile.
+
+Message passing promotes running systems in parallel and potentially on different machines.
+
+But yeah, maintaining a message buffer can be expensive.
+
+TLDR: OOP vs ECS is a bit more than the AoS vs SoA dilemma.
+
+
+
+- In the Dark Engine, "script is a piece of code that is placed
+  on an object to do something when certain things happen to that object."
+
+  Act/React (Stimulus/Receptron):
+  A very important point is that scripts can send messages to other objects.
+  For example, the StdButton script will send the message TurnOn down
+  its ControlDevice links to any linked object.
+  A lot of the standard scripts will respond to the TurnOn message by activating
+  themselves – for example, a door (StdDoor) will open, a light (AnimLight)
+  will turn on, and an emittertrap (TrapTweqEmit) will fire.
+  Many of these scripts will also respond to the TurnOff message
+  by deactivating.
+  There is no special meaning to these two messages (TurnOn and TurnOff) –
+  rather, they are a standard interface that was used by Looking Glass when
+  the made the scripts. Technically, the messages could as easily have been
+  named Bob and James, and as long as all the scripts were written to work
+  with these messages instead, it would have made no difference (though it
+  would have been very messy and unintuitive). A script can use whatever script
+  messages it pleases, though there will also need to be a script listening for
+  that message (it can be the same script) for it to be useful.
+
+  https://www.ttlg.com/forums/showthread.php?t=112228
+
+
+
+  Scripts are stored in script modules (.osm files), which are basically
+  a library of classes and functions written in C++ and compiled into
+  a dynamic-linked library (.dll). You need to load the script module
+  file into your mission (using the script_load command) before you can use
+  any of the scripts that it contains.
+
+
+  the Act/React system (also known as stim and response or source and
+  receptron), in which interactions between entities are modeled via abstract
+  stimuli (like “Fire” or “Stun”) that can induce a particular response in
+  each entity they reach, allowing for an emergent web of interactions to
+  be built between objects without specifying it explicitly in code.
+  Hence, a fire spell and an incendiary grenade can both generate the same
+  type of fire stim and thus induce the same response in a target
+  which is vulnerable to it without separately coding the “fire”
+  interaction on both sources. 
+  https://rosodudemods.wordpress.com/2020/04/27/devblog-3-system-shock-2-modding-with-newdark/
+
+
+
+Efficiency concerns of ECS
+It may appear that using ECS for very fine grained objects, like individual particles and voxels, can be less efficient than a structs. Or if we can use ECS for say 8bit microcontroller. After all, a uniform ECS component asks for some form of a sparse vector, like say an open addressing hash table, which includes both entity id and optional component value.
+
+Yet we forget that we have full control over entity id ranges layout. For example, we can allocate ids between 0 and N to be particles. Given that we don't even need a component table. The particle system just goes from 0 to N, updating the particles x,y,z. And allocating an entity itself is as easy as incrementing and index. Additionally, if ids are inside specific ranges, their lists can be further compressed. I.e. if we have 16 players, we need 4 bits to reference a player in your `owned_by` component.
+
+Now separate voxels are usually highly compressed as an octree, which has local attribute tables, similar to component tables. So we need a different system to process them and query their X,Y,Z coords. But again, as long as we don't access the entity's fields directly, we don't have any efficiency issues. Otherwise we indeed have to do
+
+is_voxel(id) ? get_voxel_xyz(id) : get_sparse_xyz(id)
+
+
+
+And lets be honest, properly coded octree has nothing in common with OOP, since it is processed in a similar fashion to ECS systems (it is expensive to do single voxel operations on octrees, but cheap to do say erase half of its voxels). I think one can implement an octree, albeit not super efficiently, using a pure ECS system, with the reserving id ranges method. Although we can encounter id shortage quickly due to the massive amount of ids the voxel models can consume. At least with 32bit ids.
+
+Furthermore, on a 8bit systems (i.e. NES's 6502), we have 256 byte segments, so we can't just store a linear list of objects. The system itself invites us splitting our object across multiple segments. Maybe that is the reason inexperienced people managed to implement complex game logic in 6502 assembly, but struggle to do that with C++/Java/C#/Rust after reading all these Uncle Bob's clean code books?
+
+TLDR: stay away from OOP, if you want efficient software that can run fast even on NES.
+
+
+https://www.gamedeveloper.com/design/the-entity-component-system---an-awesome-game-design-pattern-in-c-part-1-
+
+In my humble opinion systems are "closed environments". That is, they do not take ownership of entities nor components. They do access them through independent manager objects, which in turn will take care of the entities and components life-cycle.
+
+This raises an interesting question: how do entities, components and systems communicate with each other, if they are more or less independent of each other? Depending on the implementation the answer differs. As for the implementation I am going to show you, the answer is event sourcing[6]. Events are distributed through an “Event-Manager” and everyone who is interested in events can listen to what the manager has to say. If an entity or system or even a component has an important state change to communicate, e.g. "position changed" or "player died", it can tell the “Event-Manager”. He will broadcast the event and all subscriber for this event will get notified. This way everything can be interconnected.
+
+
+The author also proposes a game to test ECS
+https://www.gamedeveloper.com/design/the-entity-component-system---bountyhunter-game-part-2-
+
+
+Data Oriented Design
+https://www.dataorienteddesign.com/dodbook/
+
+
+
+
+
+In my case multiple reasons to employ ECS:
+0. It is an R&D project, to see if the classic OOP can be completely replaced with ECS for all purposes. After all, I'm working on a next generation language.
+1. Entities model even terrain cells. At the same time my language runs on top of a bytecode interpreter, so I need it to be as efficient as possible. I.e. components and systems which auto attach to entities in specific id range.
+2. Flexibility is absolutely mandatory for the game. The goal is to provide foundation for something that is very hard to implement in traditional OOP. Basic example: any static terrain tile could be turned into a moving platform, which can as well go into the multiverse directions. Terrain cells and entities could also map into a virtual array of hashes instead of components, but optionally their randomness could be overridden (i.e. to create a probability anomaly where cells can phase into a multiverse). That implies no predefined entity types, just an integer id.
+3. A trivial to implement multi-threading, since ECS systems in the same phase can be split across threads. 
+4. ECS promotes isolation of concerns, and it is easy to reason about it, since systems are mostly purely functional (i.e. Positions.map: XYZ => XYZ+Entity.velocity), the only difference is that ECS maps supply implicity entity's id argument, and pass it to the the output. Compared to OOP, which is a spaghetti mess of convoluted objects modifying state of each other. I.e. like it is easier to reason about keep, map and fold in separation, as of a pipeline, than when they are convoluted into a single operation. So if you find functional programming easier than massive for loops, you will like ECS too.
+
+TLDR: learn some Lisp/Scheme, before doing ECS. Lisp will help you grasping the basic ideas behind ECS.
+
+
+Cheney GC and ECS
+I'm using Cheney's semispace algorithm, where spaces are dynamic in size and organized as a stack of generations over the heap. So it is not immediately obvious how one can efficiently collect an entity, since it is split among tables, which will all go into the oldest generation.
+
+As of now my idea is creating a list of reachable ids in the collected generation, which gets used as a filter against the list of all ids in the current generation. The resulting unreachable ids are queued to be freed from table. That is basically how you implement GC finalizers.
+
+In case of a large number of fine grained entities, like particles, it is very inefficient to keep a list of ids, but we can exploit the fact that newly allocated ids increase sequentially, and in general keep the generation's id list sorted, with compressed ranges. It is also required to have a range of ids kept as reachable. I.e. for all the tilemap cells.
+
+Such technique indeed allows us to completely supplant the classic objects with the ECS ones. It should be especially useful in places like compiler, where say a parsed SEXP has different kinds of metadata (its origin file, macro expansion, etc...).
+
+I remember being fascinated by the database Lisp idea ever since I began designing Lisp interpreters. In fact one of my very first Lisp implementations ran on top of TSQL with stored procedures ( https://pastecode.io/s/0xcvazqq ). Yet only now I realized how it can be done efficiently enough and what possibilities it truly opens if done properly, by making difficult processing a cakewalk, in addition to seamlessly integrating PLANNER/Prolog like capabilities, where you can just go over the every single instance of some predicate.
+
+TLDR: "Any sufficiently complicated Lisp program contains an ad-hoc, informally-specified, bug-ridden, slow implementation of Prolog."
+
+
+Spacetime DB on the ECS being a restricted case of SQL
+https://spacetimedb.com/blog/databases-and-data-oriented-design
+Once we break it down this way, it’s pretty easy to see that the ECS model is just the relational model with the following restrictions:
+1. There is an entity table with a single unique id column.
+2. All other tables must have a unique, foreign key reference to the entity id.
+   I.e. we can't have components without an entity.
+   We must introduce a dummy entity for each component.
+   We can't have several instances of the same component per entity.
+   Single isntance implies we are forced to keep our data normalized.
+3. Systems (aka queries) must execute on every entity they match, every "frame".
+4. Systems may only execute and operate on INNER JOIN queries on the entity id.
+   I.e. we can only join components of the same entity, in an unordered way.
+   We can't efficiently query by say date or sequential number.
+
+
+Query logic
+https://ajmmertens.medium.com/why-it-is-time-to-start-thinking-of-games-as-databases-e7971da33ac3
+
+
+Since with ECS the number of entities having a component could stay the same inside one or more heap generations, we can try computing a perfect hash function. That will require keeping a machine code block for each component table, then writing the xor constants into it.
+
+
+
+Implementing Arrays with ECS
+To implement an array of N items we first allocate an entity for it.
+Now add component `array`, with the value `N` to that entity.
+Then we just add `N` to the id counter.
+Presto! We now have an array of N void entities.
+They don't even consume any memory, as long as we don't add components to them.
+Such arrays are similar to the C/C++ arrays.
+And they do support array of arrays, as long as each row get properly sizing.
+You can implement a playfield or a framebuffer grid that way, exposing raw pixels.
+The main issue is that offsets begin from 1.
+One solution is adding id, but that will make the `array` holding entity unreachable.
+And the array will get deallocated on GC.
+It also doesn't have bounds checks in the raw form.
+So I'm still brainstorming on the best way to use it as Symta's core list structure.
+But once it is ready, Symta's compiler code will be so much cleaner.
+No more hacks with wrapping metadata around SEXPs for sure.
+It makes sense for the ids to grow downwards, since that
+way we can assemble previously allocated ids into an array, without a
+separate counter.
+Such array can also hold pointer entities, which just point to other entities.
+That way we can set entity values.
+
+Insane stuff.
+
+
+The main pitfall is that hashtable elements order depends on the entity ids, so if the same sub-system run on two different computers in a lock-step mode, but the entities have different ids (i.e. server doesn't need a visualization system and the associated entities, like camera). Now if two entities get processed in different order (say two units trying to move into the same cell), we have a racing condition, despite the lock-step. There are several possible solutions:
+1. Reserving id range for the shared entities.
+2. Implementing a hashtable, which can list elements in the order they got added, basically a hashtable which indices into a table where entities can have any order.
+3. Allow hybrid components, where some tables are B tree based.
+4. Sorting by id every time we want to process entities without race conditions.
+5. Implement a movement resolution system, independent of order. I.e. the first system runs, and second system could be checking if any two of the moved entities share a cell id, and resolve the collision.
+
+The 1st is the fastest, but the 5th is the most robust, since we explicitly acknowledge the possibility of collisions and move their logic into a system separate from movement. I.e. we can allow a unit with higher momentum to squash or displace the smaller one.
+
+The UUID generation schemas is a huge topic in itself:
+https://www.youtube.com/watch?v=a-K2C3sf1_Q
+
+Usually it is solved by having enough bits and introducing an id space layout, which includes author, made_by, type tag and the serial generation method. Kind of like a bar code plus serial on a product.
+
+
+Rethinking the Symta's Runtime
+Apparently I was doing pointer tagging thing incorrectly the whole time.
+I did stole the fixnum idea from Lisp/Haskell.
+But that was pretty much all.
+For example, I had the closure storing it's size inside the object on heap.
+That incurred performance penalty even for the functions having no closure.
+Yet it is useful to have fixnums with custom types.
+So the right thing is allocating a type tag range for functions.
+After all, a program can't have more than a million functions.
+Now we can either have it point to the area of memory with functions.
+Or to a pointer vector. Without any heap overhead.
+Generally, most tagged pointers, like entities, don't need a heap object.
+I.e. most of my functions are not closures.
+With entities I just temporarily bring them to existence as a specific type.
+Which then gets dropped after the processing is done.
+Going through a heap object creation is super inefficient.
+The difference between 6 FPS and 60 FPS
+
+TLDR: preparing runtime for transitioning to ECS.
+
+
+
+ How ECS differs from multithreading?
+Rewriting your program into ECS opens it for parallel processing, but in an unusual manner.
+
+Consider a task of counting the occurrences of word "needle". In ECS it will look like
+
+In: "abc def ghi needle jkl mno"
+
+cls reader ptr end word count!!0
+
+$read_word =
+  if $ptr >< End:
+    $ptr = No
+    pass
+  ...
+
+place_readers_on_input In
+
+Total 0
+while ecs_has reader.ptr:
+  foreach reader.ptr: $read_word
+  foreach reader.word: if $word >< needle: $count+
+  fold_each reader.count:
+    Total += $count
+    $count = 0
+
+say "The word `needle` occurred [Total] times"
+
+
+
+We have reader class, which is used to instantiate reader entities, which are placed around input.
+Then we have two system phases:
+The first one reads words;
+The second one checking if any of the word is needle.
+
+Each of these phases can be spread among multiple threads.
+But the phases themselves must be sequential.
+
+In normal multithreading, we will instead have several reader threads, each going out of sync with another. And it can be expensive to keep them in sync, to debug them and to switch CPUs between them, since thread has a lot of state. So ECS favors many threads running in parallel and processing humongous amount of data, which can be loaded quickly from secondary storage. Think GPU cores.
+
+Same way, you apply SIMD horizontally as opposed to vertically. So during blitting, instead of loading colorDst_rgba and colorSrc_rgba two pixels into two registers, and then blending them, you will load colorsDst_rrrrrrrr and colorsSrc_rrrrrrrr for 8 pixels into two registers, and then do the same for gggggggg. In other words, you can make use of SIMD registers of very large sizes, not just 128bit item ones.
+
+
+ECS and a "Single" Entity
+
+What if we have a single entity, like say a parser or a compiler processing a single unit of code?
+
+The problem arises already when we try to use several tokenizers on the same text file, since for small files it has no effect and for large files on say a sequential access storage, like optical or magnetic disk, we seeking time is too expensive. to read from different parts of the file at the same time.
+
+Well, we can split that single entity into a conveyor of entities running in a single phase, each processing single part of code, while still being in lock-step with one another.
+
+I.e. entity A reads tokens, entity B parses them into SEXPs, while entity C compiles the SEXPs to bytecode.
+
+But each entity could have different frequency of per phase updates. I.e. entity A could read several tokens at once to keep the buffer filled.
+
+No complex or expensive synchronization primitives required. We can have A_ready, B_ready, C_ready ints, set by the entities, and the phase repeats once they are all 1. And even all three entities run on the same CPU core, we can still get the benefits of both incremental processing and the memory locality, than if we instantly pass token to the parser.
+
+Obviously we can combine this vertical approach with the horizontal one (several conveyors processing several input streams). But the difference is that we a see a single entity as multiple entities.
+
+The approach does fail with badly arranged data. For example C99 tokenizer (lexer) needs feedback from the parser to properly read the tokens. That is actually believed one of the 3 main flaws of C99, the other two being aliased memory access and undefined behavior (as opposed to the machine define behavior).
+
+
+Red–black tree allow insert/delete in O(1).
+
+
+
+
+Going through the old code one will notice the use of the so called "bitplanes".
+For example in
+https://archive.org/download/Grand_Monster_Slam_Source/MONSTER.S
+
+they store Nth bit from each pixel as part of a stream of Nth bits of all pixels.
+And the modern style pixels were called "chunky" back then.
+
+You may wonder why would one ever do that?!!
+
+There were several good reasons:
+1. By storing image as a set of bitplanes, we can discard lower bits to save on memory. Or for example we can keep only the lowest bits for the entities far away from the camera, making them dim and less detailed, while at the same time scaling them is cheaper. That is without creating a mipmapped version. Basically a free frequency filter. That also allowed games to fit inside the arbitrary memory size and to work with variety of graphic cards (one could use just a single bitplane on a monochrome card or when CPU was slow).
+2. Erasing entire screen requires going only over the alpha plane.
+3. No need to store the alpha values for non-transparent images.
+4. Color data can have smaller resolution than the alpha data, meaning we can preserve the outline while compressing the colors.
+5. We can compress some of the bitplanes using a primitive and very efficient algorithm, like RLE. Chunky pixels would require arithmetic coding to be compressed that well. Generally, if you want to compress some data, I suggest first breaking it into bitplanes, since it gives free arithmetic coding.
+
+All that made perfect sense on the memory and computation constrained systems. And makes even more sense on the modern systems. For example, if you store alpha separately, you can edit it separately. I.e. the erase brush doesn't have to go through color pixels. And if you increment the lower bitplanes, you don't have to go into higher ones unless the increment overflows. And the fact modern systems are still planar, since normal maps and specular data are stored separately from the diffuse colors. The idea of bitplanes vs chunky pixels is very similar to the idea of ECS vs chunky OOP.
+
+
+
+
+Apparently the right way to implement relations is the by creating a relation table dynamically and adding there all ids satisfying the relation:
+
+https://ajmmertens.medium.com/building-games-in-ecs-with-entity-relationships-657275ba2c6c
+
+Basically we do
+
+  ComponentTables["[Relation] [What]"].[EntityId] != NULL
+
+For example
+
+  ComponentTables["is mortal"].[Socrates] != NULL
+
+In SQL people usually introduce secondary keys for that.
+
+But yeah, that requires very efficient and adaptive hash table implementation, since we can have millions of relations, having just a few elements each. I.e. doing unordered_map<int,int> won't cut it.
+
+= Rabbit eats 2 apples
+    ComponentTables["eats apples"].[Rabbit.id] = 2
+if true Rabbit eats N apples: say 'Rabbit indeed eats [N] apples'
+
+Or in general:
+ComponentTables["[Relation] [What]"].[EntityId] != NULL
+
+
+= Debtor owes 1000 dollars Creditor
+  ComponentTables["owes dollars [Creditor.id]"].[Debtor.id] = 1000
+
+
+That allows us to answer questions like:
+* what X eats
+* who eats apples and how many?
+
+It will also have to maintain the list of all `owes` tables.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

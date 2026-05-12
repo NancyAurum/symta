@@ -1,0 +1,10 @@
+Microsoft
+Windows will use RCX, RDX, R8 and R9 for the first four integer or pointer arguments. XMM0, XMM1, XMM2 and XMM3 are used for floating point arguments. Additional arguments are passed via the stack (right to left).
+
+An integer or pointer return value will be returned in RAX. Floating point return will be in XMM0.
+
+
+System V (OSX)
+System V operating systems will use RDI, RSI, RDX, RCX, R8 and R9. XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6 and XMM7 will be used to pass floating point parameters. RAX will hold the syscall number. Additional arguments are passed via the stack (right to left).
+
+Return values are sent back via RAX.
