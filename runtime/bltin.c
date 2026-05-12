@@ -1177,11 +1177,14 @@ dyn token_(dyn type, dyn val, dyn row, dyn col, dyn orig) {
   OBJECT(r, T_TOK, 7);
   LGET(r,0) = type;
   LGET(r,1) = val;
-  //LGET(r,2) = 0; //pchar
+  LGET(r,2) = 0; // pchar -- gc_alloc returns dirty memory; callers
+                 // that set slot 2 to something meaningful overwrite,
+                 // but a token whose .pchar is never set must read 0.
   LGET(r,3) = row;
   LGET(r,4) = col;
   LGET(r,5) = orig;
-  //LGET(r,6) = 0; //parsed
+  LGET(r,6) = 0; // parsed -- same reason. The tok_ varargs builtin
+                 // overwrites this with caller-supplied parsed value.
   return r;
 }
 
