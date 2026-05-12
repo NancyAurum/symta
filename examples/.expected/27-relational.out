@@ -1,0 +1,10 @@
+what does nancy do? (lisper `sex worker`)
+what did bernd betray? (reason)
+who betrayed heterosexuality? (nancy)
+who is smart? (lisper)
+
+nancy is (closure): (lisper `sex worker` smart)
+bernd is (closure): (hater stupid)
+
+who is smart (closure): (lisper nancy)
+who is stupid (closure): (hater bernd)

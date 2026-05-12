@@ -1,0 +1,11 @@
+freq table size: 18
+total codes: 18
+first 8 codes (shortest):
+  'n' -> 01
+  'u' -> 11
+  ' ' -> 101
+  'd' -> 001
+  'a' -> 1001
+  'r' -> 0001
+  'g' -> 00001
+  'l' -> 10001
