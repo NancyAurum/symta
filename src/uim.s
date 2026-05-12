@@ -1215,9 +1215,11 @@ ShownNotes []
     No.uim_clear_rect_cache_
   DL $root.draw_list.f
   // Stash the widget-only subset (filter out the [W] begin markers)
-  // so that `at XY` doesn't have to rebuild the draw list per mouse
-  // move event. See ui_speedup.md (W6). Invalidates implicitly with
-  // the draw list (every frame).
+  // so `at XY` can hit-test without rebuilding the tree on every
+  // mouse-move event. See ui_speedup.md (W6). DL is already in
+  // reverse-draw-order (.f above), so the cached list points at
+  // the top-most widget first -- which is what we want for
+  // hit-testing.
   $hit_test_list = DL.skip(?is_list)
   DL{Q.rect:[@_]}
 
@@ -1307,15 +1309,15 @@ ShownNotes []
   0
 
 @at XY =
-  // Walks the cached hit-test list (populated by update_widgets) in
-  // reverse draw order. Falls back to $root.at if the cache is cold
-  // (every frame before the first draw — `uim.input` runs once before
-  // the first `uim.render` populates $hit_test_list). See W6.
+  // Walks the cached hit-test list (populated by update_widgets in
+  // reverse-draw-order, i.e. top-most-widget first). Falls back to
+  // $root.at if the cache is cold (`uim.input` runs once before the
+  // first `uim.render` populates the cache). See ui_speedup.md (W6).
   Ws $hit_test_list
   less got Ws:
     ret $root.at^XY(0+1.dimmed=$dummy)
   Hit 0
-  for W Ws.f:
+  for W Ws:
     if XY.in W.rect and W.solid and W.includes XY:
       less W.wpath.any(?restricts_input(W XY)):
         Hit = W
