@@ -1306,10 +1306,10 @@ ShownNotes []
 @at XY =
   // Walks the cached hit-test list (populated by update_widgets) in
   // reverse draw order. Falls back to $root.at if the cache is cold
-  // (the first frame and any frame where the tree hasn't been drawn
-  // yet). See ui_speedup.md (W6).
+  // (every frame before the first draw — `uim.input` runs once before
+  // the first `uim.render` populates $hit_test_list). See W6.
   Ws $hit_test_list
-  less Ws:
+  less got Ws:
     ret $root.at^XY(0+1.dimmed=$dummy)
   Hit 0
   for W Ws.f:
