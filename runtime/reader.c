@@ -732,60 +732,65 @@ static dyn parse_suf_unary(pstate_t *p, dyn (*down)(pstate_t*),
 }
 
 static dyn parse_suf_loop(pstate_t *p, dyn (*down)(pstate_t*), dyn e) {
-  for (;;) {
-    dyn o = parse_suf_op(p);
-    if (!o) return e;
-    dyn r = parse_suf_unary(p, down, e, o);
-    if (r) { e = r; continue; }
-    // r=0 means parse_suf_unary returned 0 (no suf_unary applies).
-    dyn b = down(p);
-    if (!b) {
-      // No right operand. Handle '.' / '^' special-case from
-      // reader.s:278-298 (rarely-exercised dot/caret continuation
-      // with operator-as-name). Conservatively: parser_error.
-      // Many real programs hit this path with method-name idioms
-      // like X.+ ; for now, push back and return.
-      if (token_is(o, KW_dot) || token_is(o, KW_caret)) {
-        // try the deeper handling: look at next token
-        if (!p_end(p)) {
-          dyn t = p_peek(p);
-          if (is_tok(t) && is_opt(tok_value(t))) {
-            // method-name idiom: X.+  -> [X . +]
-            (void)p_pop(p);
-            LGET(t, 0) = KW_symbol;  // change type to symbol
-            // if next is `=` and tk-after is keyword, glue
-            // (skipped -- rare).
-            dyn r2; LIST(r2, 3);
-            LGET(r2, 0) = o; LGET(r2, 1) = e; LGET(r2, 2) = t;
-            return r2;
-          }
+  // Mirror of reader.s:272-304. NOT iterative -- the recursive case
+  // is inside parse_suf_unary or in the binary-suffix fallback.
+  //
+  //   parse_suf_loop Down E =
+  //   | O | parse_suf_op or ret E
+  //   | R parse_suf_unary Down E O
+  //   | if R: ret R.0           // R is always a single-element list
+  //                             // wrapping the final value
+  //   | B | Down()
+  //   | less B:
+  //     | ... `.` / `^` method-name idiom or parser_error ...
+  //   | less O^token_is('.') and E^token_is(int) and B^token_is(int):
+  //     | ret: parse_suf_loop Down [O E B]
+  //   | V "[E.value].[B.value]"
+  //   | F token float V E.src [V.flt]
+  //   | ret: parse_suf_loop Down F
+  dyn o = parse_suf_op(p);
+  if (!o) return e;
+  dyn r = parse_suf_unary(p, down, e, o);
+  if (r) return LGET(r, 0);
+  // parse_suf_unary returned 0 -- O is a binary suffix (`.` / `^` / `->`).
+  dyn b = down(p);
+  if (!b) {
+    if (token_is(o, KW_dot) || token_is(o, KW_caret)) {
+      if (!p_end(p)) {
+        dyn t = p_peek(p);
+        if (is_tok(t) && is_opt(tok_value(t))) {
+          // method-name idiom: X.+  -> [O E T-as-symbol]
+          (void)p_pop(p);
+          LGET(t, 0) = KW_symbol;
+          dyn r2; LIST(r2, 3);
+          LGET(r2, 0) = o; LGET(r2, 1) = e; LGET(r2, 2) = t;
+          return r2;
         }
       }
-      parser_error("no right operand for", o);
     }
-    // float-via-dot? X.Y where both are ints -> rebuild as float token
-    if (token_is(o, KW_dot) && token_is(e, KW_int_) && token_is(b, KW_int_)) {
-      char *es = text_to_cstring(tok_value(e));
-      char *bs = text_to_cstring(tok_value(b));
-      int el = (int)strlen(es), bl = (int)strlen(bs);
-      char *buf = (char*)malloc(el + bl + 2);
-      memcpy(buf, es, el);
-      buf[el] = '.';
-      memcpy(buf + el + 1, bs, bl);
-      buf[el + bl + 1] = 0;
-      dyn v; TEXT(v, buf);
-      static dyn t_float = 0;
-      if (!t_float) TEXT(t_float, "float");
-      dyn ftok = mk_token(t_float, v, tok_row(e), tok_col(e),
-                           tok_orig(e), 0);
-      free(buf);
-      e = ftok;
-      continue;
-    }
-    dyn r2; LIST(r2, 3);
-    LGET(r2, 0) = o; LGET(r2, 1) = e; LGET(r2, 2) = b;
-    e = r2;
+    parser_error("no right operand for", o);
+    return 0;
   }
+  // X.Y where both are ints -> float token, then continue with that.
+  if (token_is(o, KW_dot) && token_is(e, KW_int_) && token_is(b, KW_int_)) {
+    char *es = text_to_cstring(tok_value(e));
+    char *bs = text_to_cstring(tok_value(b));
+    int el = (int)strlen(es), bl = (int)strlen(bs);
+    char *buf = (char*)malloc(el + bl + 2);
+    memcpy(buf, es, el);
+    buf[el] = '.';
+    memcpy(buf + el + 1, bs, bl);
+    buf[el + bl + 1] = 0;
+    dyn v; TEXT(v, buf);
+    static dyn t_float = 0;
+    if (!t_float) TEXT(t_float, "float");
+    dyn ftok = mk_token(t_float, v, tok_row(e), tok_col(e), tok_orig(e), 0);
+    free(buf);
+    return parse_suf_loop(p, down, ftok);
+  }
+  dyn r2; LIST(r2, 3);
+  LGET(r2, 0) = o; LGET(r2, 1) = e; LGET(r2, 2) = b;
+  return parse_suf_loop(p, down, r2);
 }
 
 static dyn parse_suf(pstate_t *p) {
@@ -923,54 +928,487 @@ static dyn parse_exclamation(pstate_t *p) {
 // when text.parse is using the Symta path; this code only runs once
 // we flip the switch in reader.s.
 
+// ====================================================================
+// parse_bar -- reader.s:87-97.
+//
+//   parse_bar H =
+//   | C H.src.1
+//   | Zs:
+//   | while not GInput.end:
+//     | Ys:
+//     | while not GInput.end and GInput.0.src.1 > C: push GInput^pop Ys
+//     | push Ys.f^parse_tokens Zs
+//     | when GInput.end: ret   [H @Zs.f]
+//     | X GInput.0
+//     | less X^token_is('|') and X.src.1 >< C: ret   [H @Zs.f]
+//     | pop GInput
+//
+// Gathers indented sub-blocks separated by `|` tokens at column C
+// (the column of the leading `|`). Each block is parsed by recursing
+// into parse_tokens_inner. Returns [H @blocks].
+// ====================================================================
+
 static dyn parse_bar(pstate_t *p, dyn h) {
-  (void)p; (void)h;
-  parser_error("parse_bar not yet ported", h);
-  return 0;
+  int c = (int)UNFXN(tok_col(h));
+  dyn *zs = 0;
+  for (;;) {
+    if (p_end(p)) break;
+    // Collect Ys = tokens with col > c (the block body).
+    dyn *ys = 0;
+    while (!p_end(p)) {
+      dyn t = p_peek(p);
+      if (!is_tok(t)) break;
+      int tc = (int)UNFXN(tok_col(t));
+      if (tc <= c) break;
+      arrput(ys, p_pop(p));
+    }
+    dyn yslist;
+    int yn = arrlen(ys);
+    LIST(yslist, yn);
+    for (int i = 0; i < yn; i++) LGET(yslist, i) = ys[i];
+    arrfree(ys);
+    dyn parsed = parse_tokens_inner(yslist);
+    arrput(zs, parsed);
+    if (p_end(p)) break;
+    dyn x = p_peek(p);
+    if (!is_tok(x)) break;
+    if (!text_eq_c(tok_type(x), KW_pipe)) break;
+    if ((int)UNFXN(tok_col(x)) != c) break;
+    (void)p_pop(p);  // consume the next `|`
+  }
+  int zn = arrlen(zs);
+  dyn r;
+  LIST(r, zn + 1);
+  LGET(r, 0) = h;
+  for (int i = 0; i < zn; i++) LGET(r, i + 1) = zs[i];
+  arrfree(zs);
+  return r;
 }
 
-static dyn parse_if(pstate_t *p, dyn sym) {
-  (void)p; (void)sym;
-  parser_error("parse_if not yet ported", sym);
-  return 0;
-}
+// ====================================================================
+// parse_offside -- reader.s:369-411.
+// Indentation-sensitive block parser. Collects same-col-or-deeper
+// tokens, splitting at same-col occurrences (auto-bar) into separate
+// statements, then parse_tokens on the result.
+// ====================================================================
 
-static dyn parse_logic(pstate_t *p) {
-  // For now, skip the Symta-side optimization that hacks LL(1)
-  // via GInput.locate(...). Just fall through to parse_exclamation.
-  return parse_exclamation(p);
+static int is_var_tok(dyn x) {
+  if (!is_tok(x)) return 0;
+  dyn v = tok_value(x);
+  return IS_BIGTEXT(v) && !IS_FIXTEXT(v);
+  // Symta's is_var_tok is "is_text and not is_keyword" -- bigtexts
+  // are not keywords (only fixtexts are).
 }
 
 static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
                           int orow, dyn ocol) {
-  (void)p; (void)type; (void)expect_eol; (void)orow; (void)ocol;
-  // Not ported yet.
-  return 0;
+  if (p_end(p)) {
+    dyn empty;
+    LIST(empty, 0);
+    return empty;
+  }
+  dyn k = p_peek(p);
+  // unwrap nested lists down to first token
+  while (is_list(k) && LIST_SIZE(k) > 0) k = LGET(k, 0);
+  if (!is_tok(k)) return parse_xs(p, 0);
+  int k_row = (int)UNFXN(tok_row(k));
+  int k_col = (int)UNFXN(tok_col(k));
+  int lines_hack = 0;
+  if (!(orow < k_row)) {
+    // same row as ORow
+  } else {
+    if (expect_eol) return parse_xs(p, 0);
+    lines_hack = 1;
+  }
+  if (text_eq_c(tok_value(k), KW_pipe) ||
+      text_eq_c(tok_value(k), KW_colon)) {
+    return parse_xs(p, 0);
+  }
+  int s_col = k_col;
+  if (ocol != No && (int)UNFXN(ocol) >= s_col) {
+    return parse_xs(p, 0);
+  }
+  // Snapshot input position for potential rollback.
+  uint64_t s_pos = p->gi_pos;
+  int s_pn = arrlen(p->pushback);
+  dyn h = parse_exclamation(p);
+  // Rollback (Symta restores GInput regardless of H's value).
+  p->gi_pos = s_pos;
+  while (arrlen(p->pushback) > s_pn) arrpop(p->pushback);
+  // case H [X Y]: if X^token_is(`!`): less Y^is_var_tok: ret: parse_xs 0
+  if (h && is_list(h) && LIST_SIZE(h) == 2) {
+    dyn x = LGET(h, 0);
+    dyn y = LGET(h, 1);
+    if (is_tok(x) && text_eq_c(tok_type(x), KW_bang)) {
+      if (!is_var_tok(y)) return parse_xs(p, 0);
+    }
+  }
+  dyn *zs = 0;
+  dyn *ys = 0;
+  // BSrc: [Src.row Src.col-1 Src.orig]
+  dyn bsrc_row = tok_row(k);
+  dyn bsrc_col; LDFXN(bsrc_col, k_col - 1);
+  dyn bsrc_orig = tok_orig(k);
+  while (!p_end(p)) {
+    dyn x = p_peek(p);
+    if (is_tok(x)) {
+      int col = (int)UNFXN(tok_col(x));
+      if (col < s_col) break;
+      dyn v = tok_value(x);
+      if (text_eq_c(type, KW_if_) && text_eq_c(v, KW_then)) break;
+      if (col == s_col && arrlen(ys) > 0 &&
+          !text_eq_c(v, KW_pipe) && !text_eq_c(v, KW_else_) &&
+          !text_eq_c(v, KW_elif) && !text_eq_c(v, KW_then)) {
+        // less Type >< 'if': auto-bar insert.
+        // (We preserve the original Symta behaviour exactly, even
+        // though the broader B7 discussion would prefer different
+        // semantics. Don't touch without flipping B7.)
+        if (!text_eq_c(type, KW_if_)) {
+          dyn bar = make_bar(bsrc_row, bsrc_col, bsrc_orig);
+          int yn = arrlen(ys);
+          dyn block;
+          LIST(block, yn + 1);
+          LGET(block, 0) = bar;
+          for (int i = 0; i < yn; i++) LGET(block, i + 1) = ys[i];
+          arrput(zs, block);
+          arrfree(ys); ys = 0;
+        }
+      }
+    }
+    arrput(ys, p_pop(p));
+  }
+  {
+    dyn bar = make_bar(bsrc_row, bsrc_col, bsrc_orig);
+    int yn = arrlen(ys);
+    dyn block;
+    LIST(block, yn + 1);
+    LGET(block, 0) = bar;
+    for (int i = 0; i < yn; i++) LGET(block, i + 1) = ys[i];
+    arrput(zs, block);
+    arrfree(ys); ys = 0;
+  }
+  if (lines_hack && arrlen(zs) <= 1) {
+    // rollback to s_pos
+    p->gi_pos = s_pos;
+    while (arrlen(p->pushback) > s_pn) arrpop(p->pushback);
+    arrfree(zs);
+    return parse_xs(p, 0);
+  }
+  // Input = Zs.f.j -- forward, joined (each block is a list of toks)
+  dyn *flat = 0;
+  for (int i = 0; i < arrlen(zs); i++) {
+    dyn block = zs[i];
+    int bn = LIST_SIZE(block);
+    for (int j = 0; j < bn; j++) arrput(flat, LGET(block, j));
+  }
+  int fn = arrlen(flat);
+  dyn input;
+  LIST(input, fn);
+  for (int i = 0; i < fn; i++) LGET(input, i) = flat[i];
+  arrfree(flat);
+  arrfree(zs);
+  dyn r = parse_tokens_inner(input);
+  // .f -- reverse (Symta returns R.f at end of parse_offside).
+  // We return r as-is here; the caller (parse_delim) expects the
+  // forward form. The Symta `.f` was needed because parse_xs
+  // accumulated via push (reverse-insertion); our parse_xs uses
+  // arrput so no reverse needed.
+  return r;
 }
 
 // ====================================================================
-// parse_delim / parse_semicolon / parse_xs / parse_tokens
-// (skeleton; finish in follow-up)
+// parse_if -- reader.s:58-85.
 // ====================================================================
+
+static int is_next(pstate_t *p, dyn type) {
+  if (p_end(p)) return 0;
+  dyn t = p_peek(p);
+  return is_tok(t) && text_eq_c(tok_type(t), type);
+}
+
+static dyn parse_if(pstate_t *p, dyn sym) {
+  int o_col = (int)UNFXN(tok_col(sym));
+  dyn ocol_dyn; LDFXN(ocol_dyn, o_col);
+  if (is_next(p, KW_colon)) {
+    dyn t = p_pop(p);
+    if (!text_eq_c(tok_type(t), KW_colon)) {
+      parser_error("missing `:` for", sym);
+      return 0;
+    }
+    dyn x = parse_offside(p, 0, 0, (int)UNFXN(tok_row(sym)), ocol_dyn);
+    // ret:: Sym X.0
+    if (is_list(x) && LIST_SIZE(x) > 0) {
+      dyn r; LIST(r, 2);
+      LGET(r, 0) = sym;
+      LGET(r, 1) = LGET(x, 0);
+      return r;
+    }
+    dyn r; LIST(r, 1);
+    LGET(r, 0) = sym;
+    return r;
+  }
+  // gather RawHead = tokens until end / : / then
+  dyn *raw = 0;
+  while (!p_end(p)) {
+    if (is_next(p, KW_colon) || is_next(p, KW_then)) break;
+    arrput(raw, p_pop(p));
+  }
+  dyn raw_list;
+  int rn = arrlen(raw);
+  LIST(raw_list, rn);
+  for (int i = 0; i < rn; i++) LGET(raw_list, i) = raw[i];
+  arrfree(raw);
+  // Cnd = let GInput RawHead: parse_xs 1
+  dyn cnd;
+  {
+    pstate_t inner;
+    p_init(&inner, raw_list);
+    cnd = parse_xs(&inner, 1);
+    p_free(&inner);
+  }
+  // Take first element if list
+  if (is_list(cnd) && LIST_SIZE(cnd) > 0) cnd = LGET(cnd, 0);
+  dyn then_, else_;
+  if (is_next(p, KW_then)) {
+    dyn t = p_pop(p);
+    then_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
+  } else {
+    if (!is_next(p, KW_colon)) {
+      parser_error("missing `:` for", sym);
+      return 0;
+    }
+    dyn t = p_pop(p);
+    then_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
+  }
+  // Else: 0
+  else_ = 0;
+  if (is_next(p, KW_elif)) {
+    dyn t = p_pop(p);
+    // GInput =: T.retok(`else`) T.retok(`if`) @GInput
+    dyn else_tok = retok(t, KW_else_);
+    dyn if_tok = retok(t, KW_if_);
+    // Push in reverse so they appear in the right order.
+    p_push_back(p, if_tok);
+    p_push_back(p, else_tok);
+  }
+  if (is_next(p, KW_else_)) {
+    dyn t = p_pop(p);
+    else_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
+  }
+  // :Sym Cnd Then Else  (i.e., a 4-element list)
+  // Symta's `[H @Then]` -- Then is a parsed-offside result which is a
+  // list of statements. Same for Else. We take .0 of each as the
+  // top-level expression (matching Symta's `X.0` extraction pattern).
+  dyn then_expr = then_;
+  if (then_ && is_list(then_) && LIST_SIZE(then_) > 0)
+    then_expr = LGET(then_, 0);
+  dyn else_expr = else_;
+  if (else_ && is_list(else_) && LIST_SIZE(else_) > 0)
+    else_expr = LGET(else_, 0);
+  dyn r;
+  LIST(r, else_expr ? 4 : 3);
+  LGET(r, 0) = sym;
+  LGET(r, 1) = cnd;
+  LGET(r, 2) = then_expr ? then_expr : 0;
+  if (else_expr) LGET(r, 3) = else_expr;
+  return r;
+}
+
+// ====================================================================
+// parse_logic / parse_delim / parse_semicolon / parse_xs / parse_tokens
+// ====================================================================
+
+// parse_logic w/o the LL(1) hack -- straight delegation.
+// The hack accelerates `case` etc. but isn't needed for correctness.
+static dyn parse_logic(pstate_t *p) {
+  // First try and/or
+  static op_pred_t logic_pred = 0;
+  // op_blogic handles `&&` `||`; logic-level handles `and` `or`
+  // We need a predicate for `and` / `or`.
+  static int logic_initted = 0;
+  static dyn t_and = 0, t_or = 0;
+  if (!logic_initted) {
+    TEXT(t_and, "and");
+    TEXT(t_or, "or");
+    logic_initted = 1;
+  }
+  (void)logic_pred;  // we inline the predicate here
+  // Parse exclamation first
+  dyn e = parse_exclamation(p);
+  if (!e) return 0;
+  // Look for `and` / `or`
+  for (;;) {
+    if (p_end(p)) return e;
+    dyn t = p_peek(p);
+    if (!is_tok(t)) return e;
+    dyn ty = tok_type(t);
+    if (!text_eq_c(ty, t_and) && !text_eq_c(ty, t_or)) return e;
+    dyn o = p_pop(p);
+    dyn rhs = parse_exclamation(p);
+    if (!rhs) {
+      parser_error("no right operand for", o);
+      return 0;
+    }
+    dyn ne; LIST(ne, 3);
+    LGET(ne, 0) = o; LGET(ne, 1) = e; LGET(ne, 2) = rhs;
+    e = ne;
+  }
+}
 
 static dyn parse_delim(pstate_t *p, int delim_ctx) {
   (void)delim_ctx;
-  return parse_logic(p);
+  dyn o = parse_op(p, is_delim_op);
+  if (!o) return parse_logic(p);
+  // Pref = GOutput.f -- in Symta the output stack so far gets
+  // included as the LHS of the delim form. We use p->go.
+  int gn = arrlen(p->go);
+  dyn pref;
+  if (gn > 0) {
+    LIST(pref, gn);
+    for (int i = 0; i < gn; i++) LGET(pref, i) = p->go[i];
+    arrsetlen(p->go, 0);
+  } else {
+    LIST(pref, 0);
+  }
+  int expect_eol = 0;
+  if (text_eq_c(tok_value(o), KW_colon)) {
+    expect_eol = 1;
+    // case Pref [X@_]: when X.is_token and X.value.is_keyword: ExpectEOL = 0
+    if (LIST_SIZE(pref) > 0) {
+      dyn x = LGET(pref, 0);
+      if (is_tok(x) && IS_FIXTEXT(tok_value(x))) {
+        expect_eol = 0;
+      }
+    }
+  }
+  dyn xs = parse_offside(p, 0, expect_eol,
+                          (int)UNFXN(tok_row(o)), No);
+  // GOutput =: Xs Pref O   -- push 3-element to GOutput
+  dyn combined; LIST(combined, 3);
+  LGET(combined, 0) = xs;
+  LGET(combined, 1) = pref;
+  LGET(combined, 2) = o;
+  // Reset GOutput to [combined]
+  arrsetlen(p->go, 0);
+  arrput(p->go, combined);
+  return 0;
 }
 
 static int parse_semicolon(pstate_t *p) {
-  (void)p;
+  // Find the first `|` or `;` token in remaining input.
+  static dyn t_semi = 0;
+  if (!t_semi) TEXT(t_semi, ";");
+  int found_at = -1;
+  dyn found_tok = 0;
+  // Look in pushback (reverse order) then gi.
+  int pn = arrlen(p->pushback);
+  for (int i = pn - 1; i >= 0; i--) {
+    dyn t = p->pushback[i];
+    if (is_tok(t)) {
+      dyn ty = tok_type(t);
+      if (text_eq_c(ty, KW_pipe) || text_eq_c(ty, t_semi)) {
+        found_at = -1 - i;  // negative encoding for pushback index
+        found_tok = t;
+        break;
+      }
+    }
+  }
+  if (!found_tok) {
+    for (uint64_t i = p->gi_pos; i < p->gi_n; i++) {
+      dyn t = LGET(p->gi, i);
+      if (is_tok(t)) {
+        dyn ty = tok_type(t);
+        if (text_eq_c(ty, KW_pipe) || text_eq_c(ty, t_semi)) {
+          found_at = (int)(i - p->gi_pos);
+          found_tok = t;
+          break;
+        }
+      }
+    }
+  }
+  if (!found_tok) return 0;
+  // If it's a `|`, do nothing (Symta returns 0).
+  if (text_eq_c(tok_type(found_tok), KW_pipe)) return 0;
+  // Otherwise it's `;` -- split.
+  // L = parse_tokens(GInput.take(P))
+  // R = parse_tokens(GInput.drop(P+1))
+  // GInput = []
+  // GOutput = if R.0^token_is(`;`) then [@R.tail.f L M] else [R L M]
+  // where M is the `;` token.
+  dyn left_list, right_list;
+  {
+    dyn *left = 0;
+    for (int i = 0; i < found_at; i++) {
+      arrput(left, p_pop(p));
+    }
+    int ln = arrlen(left);
+    LIST(left_list, ln);
+    for (int i = 0; i < ln; i++) LGET(left_list, i) = left[i];
+    arrfree(left);
+  }
+  // Consume the `;`
+  if (found_at >= 0) {
+    (void)p_pop(p);  // drop the `;`
+  }
+  {
+    // Consume rest into right_list.
+    dyn *right = 0;
+    while (!p_end(p)) arrput(right, p_pop(p));
+    int rn = arrlen(right);
+    LIST(right_list, rn);
+    for (int i = 0; i < rn; i++) LGET(right_list, i) = right[i];
+    arrfree(right);
+  }
+  dyn l = parse_tokens_inner(left_list);
+  dyn r = parse_tokens_inner(right_list);
+  arrsetlen(p->go, 0);
+  // Check if R.0^token_is(`;`)
+  if (is_list(r) && LIST_SIZE(r) > 0 &&
+      is_tok(LGET(r, 0)) && text_eq_c(tok_type(LGET(r, 0)), t_semi)) {
+    // [@R.tail.f L M] -- push in reverse, then L, then M
+    dyn r_tail; uint64_t rn = LIST_SIZE(r);
+    for (uint64_t i = rn; i > 1; i--) arrput(p->go, LGET(r, i - 1));
+    arrput(p->go, l);
+    arrput(p->go, found_tok);
+    (void)r_tail;
+  } else {
+    // [R L M]
+    arrput(p->go, r);
+    arrput(p->go, l);
+    arrput(p->go, found_tok);
+  }
   return 0;
 }
 
 static dyn parse_xs(pstate_t *p, int delim_ctx) {
+  // let GOutput []
+  //   parse_semicolon
+  //   named loop:
+  //     while 1:
+  //       X | parse_delim DelimCtx or ret loop GOutput.f
+  //       when got X: push X GOutput
+  //
+  // We use a per-call output stack.
+  dyn *saved_go = p->go;
+  p->go = 0;
   parse_semicolon(p);
   for (;;) {
     dyn x = parse_delim(p, delim_ctx);
-    if (!x) break;
+    if (!x) {
+      // parse_delim returned 0 (it pushed to GOutput already and finished
+      // a single delim), or parse_logic returned 0. Either way, break.
+      break;
+    }
     arrput(p->go, x);
   }
-  return make_list_from_arr(p->go);
+  // GOutput.f -- forward order. Our arrput is already forward.
+  int gn = arrlen(p->go);
+  dyn out;
+  LIST(out, gn);
+  for (int i = 0; i < gn; i++) LGET(out, i) = p->go[i];
+  arrfree(p->go);
+  p->go = saved_go;
+  return out;
 }
 
 static dyn parse_tokens_inner(dyn input) {
@@ -978,8 +1416,11 @@ static dyn parse_tokens_inner(dyn input) {
   p_init(&p, input);
   dyn xs = parse_xs(&p, 0);
   if (!p_end(&p)) {
-    // unexpected token recovery
     dyn tok = p_pop(&p);
+    if (is_tok(tok) && is_opt(tok_value(tok))) {
+      // Recovery: synthesize a nullary token and re-parse.
+      // (parse_tokens line 449-457 fallback.) For now we just error.
+    }
     parser_error("unexpected", tok);
   }
   p_free(&p);
