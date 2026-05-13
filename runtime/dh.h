@@ -74,6 +74,21 @@ INLINE uint32_t dhAdler_(const uint8_t *data, int len) {
   #undef DH_MOD_ADLER
 }
 
+INLINE uint32_t dhFnv1a_(const uint8_t *data, int len) {
+  // FNV-1a 32-bit. Adler-32's low 16 bits are essentially a
+  // running byte sum, which clusters catastrophically on
+  // common-prefix inputs ("key_0", "key_1", ... all land in
+  // a ~100-slot range). FNV-1a's per-byte multiply-then-xor
+  // spreads varying-byte entropy across the whole hash word.
+  // Kept in sync with th.h's thFnv1a_.
+  uint32_t h = 0x811C9DC5u;          // FNV offset basis
+  for (int i = 0; i < len; ++i) {
+    h ^= data[i];
+    h *= 0x01000193u;                // FNV prime
+  }
+  return h;
+}
+
 INLINE dyn dhEqual_(dyn a, dyn b) {
   // Fast-path: same-tag int and text comparisons skip MCALL entirely.
   // Mixed-tag (int vs text, etc.) cannot match and returns FXN(0)
@@ -113,12 +128,19 @@ INLINE uint32_t dhHash_(dyn key) {
     return (uint32_t)dhFmix64_((uint64_t)key);
   }
   if (t == T_FIXTEXT) {
-    // text.hash on fixtext folds the 8-byte representation in half.
-    uint64_t v = (uint64_t)key;
-    return (uint32_t)((v & 0xFFFFFFFFu) ^ (v >> 32));
+    // The straight low^high fold leaves the variable chars (the
+    // trailing digits of "key_<N>" patterns) entirely in the
+    // upper half where the cap mask doesn't reach, so they all
+    // collide. Use the Murmur3 finaliser on the full dyn instead
+    // (same approach as th.h). Diverges from the text.hash
+    // builtin, but the builtin is only used through MCALL when
+    // dh's fast path doesn't match -- as long as both code
+    // paths route through here consistently, the table works.
+    return (uint32_t)dhFmix64_((uint64_t)key);
   }
   if (t == T_TEXT) {
-    return dhAdler_((const uint8_t*)BIGTEXT_DATA(key), BIGTEXT_SIZE(key));
+    // FNV-1a, not Adler-32 (see dhFnv1a_ above for why).
+    return dhFnv1a_((const uint8_t*)BIGTEXT_DATA(key), BIGTEXT_SIZE(key));
   }
   // Anything else (user type, list, closure, …) -> MCALL.
   GC_DISABLE();

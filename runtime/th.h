@@ -85,6 +85,11 @@ INLINE uint32_t thHash_(dyn key) {
 }
 
 INLINE int thEqual_(dyn a, dyn b) {
+  // Fast path: same dyn (pointer-equal BIGTEXT or bit-equal
+  // FIXTEXT) skips the memcmp. Hits whenever the user passes
+  // the same key dyn back through lookup -- common in pre-
+  // built dispatch tables, the ECS cls field hot path, etc.
+  if (a == b) return 1;
   return texts_equal(a, b);
 }
 

@@ -339,19 +339,28 @@ state-of-the-art ECS frameworks.
 > across all five ops the suites are roughly the same; del is
 > the big win.
 
-### \[P3\] **AM-6c** dh.h still uses Adler-32 for BIGTEXT hash
+### ~~\[P3\] **AM-6c** dh.h Adler-32 + fixtext fold clustering~~ (DONE)
 
-> **Where:** [`runtime/dh.h`](runtime/dh.h) `dhHash_` T_TEXT path
-> **Problem:** carries the same common-prefix clustering that
-> AM-6b just fixed in th.h. dh isn't hit by the benchmark or
-> test suite today because generic tables with text keys are
-> rare, but a user-facing table with prefix-similar text keys
-> (e.g. `@{key_1!a key_2!b ...}`) would degrade.
-> **Fix:** lift the FNV-1a routine out of th.h (or reuse
-> `thFnv1a_` directly since dh.h includes th.h transitively
-> via am.h... wait, no, dh.h is included first), and swap
-> `dhHash_`'s `dhAdler_` call. Trivial.
-> `effort: 30 min`
+> **Where:** [`runtime/dh.h`](runtime/dh.h) `dhHash_`
+> **Problem:** dh.h carried the same two hash distribution
+> bugs that AM-6b found in th.h. The FIXTEXT path used a
+> straight low^high fold that masked out the varying chars
+> in common-prefix inputs ("key_<N>" patterns), and the
+> BIGTEXT path used Adler-32 whose low 16 bits are a running
+> byte sum -- also catastrophic on common prefixes. No current
+> workload exercises generic tables with prefix-similar text
+> keys, but a user-facing `@{key_1!a key_2!b ...}` table
+> would have hit the same chain-of-N degradation that
+> bn_text saw before AM-6b.
+> **Fix:** Murmur3 finaliser for FIXTEXT (full 64-bit mix
+> instead of fold), new `dhFnv1a_` helper for BIGTEXT (kept in
+> sync with th.h's `thFnv1a_` -- both files use the same FNV
+> constants). dh.h no longer agrees bit-for-bit with the
+> `text.hash` builtin, but the builtin is only invoked via
+> MCALL for non-fast-path types, never for the fixtext/text
+> fast paths that just changed -- as long as both dh callers
+> route through the inlined path consistently, the table
+> works. Verified: sweep 150/150 + drift PASS in 1 round.
 
 ### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
 
