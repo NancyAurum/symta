@@ -139,16 +139,26 @@ slb.get X Y Z = vxGet $handle X Y Z
 
 slb.set X Y Z V =
   vxSet $handle X Y Z V
-  RevisionCount+
+  // Write the new global counter value back into $revision so the
+  // viewport's "Slb.revision <> $slab_revision" check sees the
+  // change next frame. Without this the bare `RevisionCount+`
+  // ticks the global counter and nothing else — single-voxel paint
+  // (RMB-click in voxpie's viewport, BrushSize=0) made the model
+  // mutate but the screen kept showing the previous render.
+  $revision = RevisionCount+
 
 
 slb.getTr X Y Z = vxGetTr $handle X Y Z
 
-slb.setTr X Y Z V = vxSetTr $handle X Y Z V
+slb.setTr X Y Z V =
+  vxSetTr $handle X Y Z V
+  $revise   //same reason as slb.set — observers need the bump
 
 slb.getI Index = vxGetI $handle Index
 
-slb.setI Index Color = vxSetI $handle Index Color
+slb.setI Index Color =
+  vxSetI $handle Index Color
+  $revise   //same reason as slb.set — observers need the bump
 
 slb.vxSetNilAbyss Nil Abyss = vxSetNilAbyss $handle Nil Abyss
 
