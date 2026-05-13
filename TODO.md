@@ -85,6 +85,73 @@ the commit hash and date appended.
 >   matrix.
 > `effort: multi-week` (Phase 1 + Phase 5 done; Phases 2-4 remaining)
 
+### \[P1\] **FFI-2** `ffi_load` segfaults on missing library
+
+> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `ffi_load`,
+> [`tests/ffi/expected/libc.out`](tests/ffi/expected/libc.out)
+> (currently captures the crash)
+> **Problem:** `ffi_load \msvcrt` on a system without
+> `ffi/msvcrt.ffi` prints the right diagnostic
+> ("`ffi_load: missing library ffi/msvcrt.ffi`") and then
+> immediately segfaults at `0000000000000000`. Expected
+> behaviour for a clean miss is to return `No` so the caller
+> can fall back (the `libc_resolve` helper in `tc_libc.s` walks
+> a list of candidate library names — `\msvcrt \c \System
+> \libc` — and expects each `ffi_load` that fails to return No,
+> not crash). The crash blocks any portable
+> "try-several-libraries" pattern.
+> **Fix:** find the post-diagnostic path in `ffi_load` that
+> dereferences something it just discovered was null, and
+> return `No` (or whatever the "not loaded" sentinel is)
+> instead. Suspect: the diagnostic prints the missing-library
+> message but then continues into the success path expecting
+> `lib != NULL`.
+> **Why now:** `tc_libc.s` segfaults on Win64 (no msvcrt.ffi
+> stub), so any "try libc by candidate names" test is
+> currently impossible to write cleanly. This also rules out
+> the `try-each-candidate` pattern for any user-facing FFI
+> code on a fresh checkout.
+> `effort: 30 min` (1-line fix once the crashing dereference
+> is located)
+
+### \[P2\] **FFI-3** Six FFI test goldens captured unhandled errors
+
+> **Where:** [`tests/ffi/expected/`](tests/ffi/expected/)
+> (`arith.out`, `arity_f64.out`, `double.out`,
+> `interleave.out`, `libc.out`, `str_ops.out`)
+> **Problem:** the FFI regression suite was captured with
+> `run.sh --update` while six of the seventeen tests were
+> still error-ing. The runner now treats those errors as
+> "expected" output and reports the suite as 17/17 passing.
+> The errors hidden:
+>
+> | Test       | Captured failure |
+> |------------|------------------|
+> | str_ops    | `_fixtext_ has no method `^^`` — uses `^^` thinking it's text-repeat (it's `pow` for int/float, `map`-over for list). Test source needs `text.dup`-style literal or a small repeat helper. |
+> | libc       | `segfault` from FFI-2 (`ffi_load` on missing library). |
+> | arith, arity_f64, double, interleave | `float.\`<\`: arg 1 is not float` — all four use the same `Diff.abs.float < 1e-9` near-equality helper. Either FFI's float-return marshalling drops the float tag, or `Diff.abs.float` doesn't actually coerce to float. The first arithmetic comparison after the first float-result FFI call fails. |
+>
+> **Fix sequence:**
+> 1. Investigate the `float.\<` failures — likely either an
+>    sffi return-type bug (the bigger find) or a `.float`
+>    coercion bug in core_.s. Pick one test, look at the actual
+>    output before the error.
+> 2. Replace `'A'^^100` in `tc_str_ops.s` with a working
+>    repeater (a literal `"AAAAA…"` or `(map I N: 'A').text.j`).
+> 3. Once FFI-2 lands, `tc_libc.s` can run -- gate the
+>    libc-not-found path on returning No instead of crashing.
+> 4. Refresh the goldens. Run the suite and verify they're
+>    error-free.
+>
+> **Process fix:** the run.sh's `--update` mode should refuse
+> to write a golden that contains `^UNHANDLED ERROR` or
+> `segfault at` -- those are *always* test failures, not
+> "expected" output. A 5-line sed-guard in the update path
+> prevents this class of regression. Catch the same in the
+> `am`, `runtime`, and `compiler` suites' run.sh too.
+> `effort: afternoon` (each FFI test failure root-caused +
+> the run.sh `--update` guard)
+
 ---
 
 ## Runtime — bytecode interpreter
