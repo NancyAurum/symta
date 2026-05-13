@@ -75,8 +75,8 @@ build/rt/ncm.o: runtime/ncm.h
 build/rt/gc.o: runtime/gc_types.h
 
 build/rt/w64:
-	@mkdir build\rt\w64
-	@mkdir build\rt\sffi
+	@mkdir -p build/rt/w64
+	@mkdir -p build/rt/sffi
 
 build/rt/%.o: runtime/%.c $(HDRS)
 	@echo CC $<

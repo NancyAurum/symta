@@ -21,7 +21,7 @@ tc_float =
   check_near 'f32 id 2.5'    2.5    (c_id_f32 2.5)
   check_near 'f32 id -2.5'   -2.5   (c_id_f32 -2.5)
   check_near 'f32 id 100.5'  100.5  (c_id_f32 100.5)
-  check_near 'f32 id 1e6'    1e6    (c_id_f32 1.0e6)
+  check_near 'f32 id 1e6'    1000000.0  (c_id_f32 1000000.0)
 
   // The float pi constant. 3.14159274 is the f32 representation
   // of math pi (closest IEEE single).

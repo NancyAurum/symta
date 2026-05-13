@@ -1,0 +1,7 @@
+UNHANDLED ERROR
+float.`<`: arg 1 is not float
+Stack Trace:
+  0000000000000000:float.`<`:0,0,builtin
+  0000000000000000:check_near:21,30,./src/tc_interleave.s
+  0000000000000000:tc_interleave:27,14,./src/tc_interleave.s
+  0000000000000000:<toplevel>:18,17,./src/go.s

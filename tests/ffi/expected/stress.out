@@ -1,0 +1,3 @@
+PASS 1000 sequential c_hash_i32 calls
+PASS 1000 c_hash_i32 calls with negative input
+PASS 200 interleaved int/float-sum calls

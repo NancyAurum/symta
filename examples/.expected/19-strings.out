@@ -16,10 +16,10 @@ age + 1 = 31
 
 user_full_name -> User Full Name
 
-README has 167 lines, first 3:
-  | # Symta
+README has 169 lines, first 3:
+  | <img src="logo.webp" alt="Symta logo" width="128" align="right">
   | 
-  | > A list-processing Lisp dialect where one terse line replaces fifty
+  | # Symta
 
 bytes (9): (87 97 118 101 58 32 104 105 33)
 back:    Wave: hi!

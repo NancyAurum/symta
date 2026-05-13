@@ -1818,9 +1818,15 @@ ffi_begin AutoExport Name =
 | [Root Build Srcs] GModuleFolders()
 | RootFFI "[Root]ffi/[Name].ffi"
 | BldFFI "[Build]ffi/[Name].ffi"
-| less RootFFI.exists: mex_error "Missing [RootFFI]"
+// Search order:
+//   1. Symta install ffi/<Name>.ffi (standard plugins: gfx, ui, ttf, svg, vfx)
+//   2. Project-local ffi/<Name>.ffi (self-contained test suites that stage
+//      their own .ffi without polluting the install dir, e.g. tests/ffi/)
+// In case 2 the .ffi is already at BldFFI so no copy is needed.
+| less RootFFI.exists or BldFFI.exists:
+  | mex_error "Missing [RootFFI]"
 | "[Build]ffi/".mkpath
-| copy_ffi RootFFI BldFFI
+| when RootFFI.exists: copy_ffi RootFFI BldFFI
 | when Name >< \ui:  stage_ui_dlls   Root Build
 | when Name >< \ttf: stage_ttf_fonts Root Build
 | FFI_Lib = form \Name

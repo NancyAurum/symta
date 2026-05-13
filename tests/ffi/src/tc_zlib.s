@@ -11,7 +11,7 @@
 // patterns; here we use them as assertions instead of
 // demonstrations.
 
-use cls zlib
+use cls
 
 export tc_zlib
 

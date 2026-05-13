@@ -24,7 +24,7 @@ export tc_libc
 // list of candidate names and use the first one that works.
 
 libc_resolve Name =
-  for Lib [msvcrt c System libc]:
+  for Lib [\msvcrt \c \System \libc]:
     F ffi_load Lib Name
     when F: ret F
   No
@@ -32,7 +32,7 @@ libc_resolve Name =
 tc_libc =
   // strlen(const char*) -> size_t (treated as i32 — fits for
   // any test string we use here).
-  &StrlenFn libc_resolve \strlen
+  StrlenFn libc_resolve \strlen
   if no StrlenFn:
     say "SKIP libc strlen (no libc resolvable)"
     ret
@@ -48,7 +48,7 @@ tc_libc =
     else say "FAIL libc strlen('') = [R2] (expected 0)"
 
   // memset(void*, int, size_t) -> void*: write a byte pattern.
-  &MemsetFn libc_resolve \memset
+  MemsetFn libc_resolve \memset
   if no MemsetFn:
     say "SKIP libc memset (not resolved)"
     ret
@@ -58,14 +58,14 @@ tc_libc =
   // memset returns the buffer; ignore return.
   _ffi_call \(ptr ptr int int) MemsetFn P 0x42 N
   Ok 1
-  for I N: if _ffi_get(uint8_t P I) <> 0x42: Ok = 0
+  for I N: if _ffi_get uint8_t P I <> 0x42: Ok = 0
   if Ok
-    then say "PASS libc memset 0x42×32"
-    else say "FAIL libc memset 0x42×32"
+    then say "PASS libc memset 0x42x32"
+    else say "FAIL libc memset 0x42x32"
   ffi_free P
 
   // memcpy: round-trip a small buffer.
-  &MemcpyFn libc_resolve \memcpy
+  MemcpyFn libc_resolve \memcpy
   if no MemcpyFn:
     say "SKIP libc memcpy (not resolved)"
     ret

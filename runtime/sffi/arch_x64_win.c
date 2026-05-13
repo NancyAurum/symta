@@ -159,14 +159,22 @@ uint64_t sffi_arch_call(const sffi_sig_t *sig, void *target,
    * we can write things like `8(%%rbx)` via `%c[ofs_target](%%rbx)`. */
   __asm__ volatile (
       /* Preserve callee-save we'll trample. rbp gets used to save
-       * our entry rsp; rbx is the "base pointer to frame". */
+       * our entry rsp; rbx is the "base pointer to frame".
+       *
+       * Order matters: we MUST capture %[frame_addr] into %rbx
+       * BEFORE we clobber %rbp, because the compiler is allowed to
+       * pick %rbp as the input register for &frame (rbp is not in
+       * our clobber list, so it's a candidate for "r" allocation).
+       * If we touched %rbp first, the "movq frame_addr, %rbx"
+       * would read the just-overwritten rbp and rbx would end up
+       * pointing at random stack memory — a hard-to-debug crash.
+       *
+       * push %rbx first so we can use rbx as the frame base; then
+       * load &frame into rbx; THEN deal with rbp. */
       "pushq %%rbx\n\t"
+      "movq  %[frame_addr], %%rbx\n\t"    /* rbx = &frame (safe — rbp untouched) */
       "pushq %%rbp\n\t"
       "movq  %%rsp, %%rbp\n\t"            /* rbp = caller's rsp */
-
-      /* Move frame address into rbx (compiler picked some random
-       * input register for us). */
-      "movq  %[frame_addr], %%rbx\n\t"
 
       /* Re-align rsp down to 16. Now any subsequent push aligns. */
       "andq  $-16, %%rsp\n\t"

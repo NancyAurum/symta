@@ -1,0 +1,6 @@
+PASS sum i324
+PASS sum i324 alt
+PASS sum i326
+PASS sum i328
+PASS sum i3212
+PASS sum i3212 neg

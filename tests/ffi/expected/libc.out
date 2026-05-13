@@ -1,0 +1,9 @@
+ffi_load: missing library `ffi/msvcrt.ffi`
+  (looked in `C:/Users/nangl/d/code/som/symta/tests/ffi/ffi/`)
+UNHANDLED ERROR
+segfault at 0000000000000000 (heap=00007ff7212818e8)
+Stack Trace:
+  0000000000000000:ffi_load:0,0,builtin
+  0000000000000000:libc_resolve:26,18,./src/tc_libc.s
+  0000000000000000:tc_libc:32,8,./src/tc_libc.s
+  0000000000000000:<toplevel>:18,17,./src/go.s
