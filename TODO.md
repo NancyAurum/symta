@@ -138,6 +138,175 @@ the commit hash and date appended.
 
 ---
 
+## Runtime — cache locality
+
+The five items below come from a 2026 audit (after AM-pack-v2)
+that looked for the same cache-unfriendly patterns elsewhere in
+the runtime that we just fixed in the adaptive map. Each one is
+a discrete restructure with a measurable hot-path frequency.
+Ordered roughly by ROI; numbers in the right-hand column count
+cache lines touched per hot-path operation, **before → after**.
+
+| Hot path | Frequency | Lines now | Lines after |
+|----------|-----------|-----------|-------------|
+| `O_AGE` lookup (RT-4)       | every LSET, every GC trace | 2-3 | 1 |
+| Closure CALL dispatch (RT-5) | every closure call        | 2   | 1 |
+| MCALL miss (RT-6)           | every megamorphic dispatch | 3-5 | 1 |
+| Bytecode dispatch (RT-1)    | every opcode               | n/a (BTB) | n/a (BTB-friendly) |
+| MCACHE store (RT-7)         | every MCACHE miss          | I-side SMC stall | 1 D-side |
+| Frame GC walk (RT-8)        | every GC pause             | 2/frame | 1/frame |
+
+The drift test gives strong confidence for invasive runtime
+restructures: if the bootstrap reaches a fixed point byte-
+identical after the change, codegen is unchanged. That was the
+load-bearing assertion for AM-pack-v2 and applies here too.
+
+### \[P1\] **RT-4** Object age lives in a parallel side array
+
+> **Where:** [`runtime/symta.h:106-109`](runtime/symta.h)
+> (`O_AGE`/`O_THEAP`), [`runtime/common.h:402-408`](runtime/common.h)
+> (`lsetm` write barrier), [`runtime/gc.c:17-46`](runtime/gc.c)
+> (`GC_REC3` trace).
+> **Problem:** `gc_heap_t` (`common.h:291-304`) has `void
+> heap[FULL_HEAP_SIZE]` (~512 MB at full size) and a parallel
+> `uint8_t theap[FULL_HEAP_SIZE]` (~64 MB) in completely disjoint
+> pages -- the prefetcher never sees them together. Every
+> generational write barrier (`lsetm`, fired on every store of
+> one heap object into another) does `GC_OLDER(base, value)`,
+> which is two `O_AGE` lookups. So every `LSET` touches three
+> cache lines: the object header (`O_HDR`), `theap0[gid_base]`,
+> and `theap0[gid_value]`. `O_AGE` is also read on every
+> GC pointer trace and every closure call's `O_HG`.
+> **Fix:** the high byte of `O_CODE` is unused -- functions and
+> types live in `hooks_heap`/`types` arrays with ≤24-bit
+> indices. Steal it for an inline age:
+> `gc_head_t { uint8_t age; uint8_t flags; uint16_t code_lo;
+> uint32_t size; }`. `O_AGE(o)` then loads the same cache line
+> as `O_HDR(o)`. The barrier drops from 3 lines to 1.
+> **Why now:** highest-frequency hot path in the entire
+> runtime. Every store and every trace pays the side-array
+> tax today.
+> **Why not yet:** touches the GC's most fundamental invariant
+> (age tracking). The fix is mechanical but needs careful staging
+> -- keep `theap0` populated in parallel for one revision, then
+> flip the readers to `O_AGE` from the header, then drop the
+> writes to `theap0`, then drop the array. Drift test gates each
+> step.
+> `effort: weekend`
+
+### \[P1\] **RT-5** Closure CALL chases `hooks_heap[code]` indirection
+
+> **Where:** [`runtime/symta.h:114-115`](runtime/symta.h)
+> (`O_HOOK`), [`runtime/symta.h:391-396`](runtime/symta.h)
+> (`CALL` macro), [`runtime/sbc.c:129`](runtime/sbc.c)
+> (`hooks_heap` definition).
+> **Problem:** closures dispatch via
+> `hook_t *h = &hooks_heap[O_CODE(closure)]` where
+> `hooks_heap[MAX_HOOKS=65536][24 bytes/entry] = 1.5 MB`.
+> Each closure call: load closure header (line 1) → index into
+> `hooks_heap` (line 2, ~random across the 1.5 MB region with
+> many distinct hook ids) → call handler. The per-call equivalent
+> of a vtable miss into a never-cached side region.
+> **Fix:** store `handler` (`psf_t`) + `payload` (`void *`)
+> inline at the closure's slot 0/1. The JIT-emitted curry thunks
+> (`emit_hook` in `sbc.c:95-124`) already use this layout
+> conceptually; just materialise it in the heap object so plain
+> `CALL` doesn't need `hooks_heap` at all. `meta` stays in a
+> side table (only error/trace paths touch it).
+> **Why now:** every closure call pays this. Closure-heavy
+> code (anaphoric `?+`, list comprehensions, callback-style
+> APIs) is bottlenecked here.
+> `effort: afternoon`
+
+### \[P2\] **RT-6** Method dispatch table is 4 KB per type + pointer-chase
+
+> **Where:** [`runtime/common.h:206-235`](runtime/common.h)
+> (`type_t`, `method_node_t`),
+> [`runtime/main.c:101-184`](runtime/main.c)
+> (`get_method`, `get_method_node`, `init_method`).
+> **Problem:** `type_t` is **4144 bytes** per type
+> (~48-byte header + `method_node_t *methods[512]` = 4096 bytes
+> of pointer heads). Each MCALL with a cold mcache touches:
+> `types[tag]` (header line) → `types[tag].methods[hid]` (a
+> second line, `hid<<3` bytes away from the header) → the
+> `method_node_t` chain. Chain nodes are page-allocated by
+> `init_method` so `*next` walks chase pointers across pages.
+> 3-5 cache lines per megamorphic miss.
+> **Fix:** the existing comment at `common.h:233` already wants
+> perfect hashing. Concretely: replace the 512-bucket
+> head-pointer array with a packed `(mid, fn)` open-addressed
+> probe array sized to the actual method count per type. For
+> typical types with <16 methods, the whole table fits in 1
+> cache line. Same restructure as AM-pack-v2 applied at the
+> method-table level.
+> **Bonus refactor:** split `type_t` into hot (dispatch fields)
+> and cold (name, subtypes, super, sname) sub-structs. Hot
+> sub-struct sized so 8 of them fit per cache line, for the rare
+> cross-type fallback walks.
+> **Why now:** the mcache (`mcache_t` in `sif.h:220-222`) hides
+> this on monomorphic call sites, but every polymorphic dispatch
+> -- list/text/closure ad-hoc code, anything in `cls.s` --
+> falls into the slow path.
+> `effort: afternoon`
+
+### \[P2\] **RT-7** `mcache_t` is embedded in the bytecode stream
+
+> **Where:** [`runtime/sbc.c:341-356`](runtime/sbc.c)
+> (`MCACHE_CALL`), [`runtime/sif.h:220-222`](runtime/sif.h)
+> (`mcache_t` definition).
+> **Problem:** `MCACHE_CALL` does
+> `mcache_t *mce = (mcache_t*)pin; pin += sizeof(mcache_t)`.
+> The cache lives in the bytecode payload itself -- good for
+> I-side fetch locality, BAD for cache writes. On `MCACHE_MISS`,
+> we do `mce->node = node;` which is an I-cache **store** that
+> dirties a code cache line. Modern Intel (post-Spectre
+> mitigations especially) treats this as self-modifying code
+> and can trigger a machine-clear / SMC nuke at the next
+> dispatch -- typically tens to hundreds of cycles per miss.
+> **Fix:** move the mcache slots to a separate D-side array
+> indexed by an `mcache_id` stored in the bytecode (8 or 16
+> bits; even hot functions have <256 MCALL sites). Bytecode
+> stays read-only; the cache updates in normal data memory.
+> Combined with RT-1 (computed goto), this eliminates the
+> dispatch-time SMC penalty entirely.
+> **Why now:** the SMC penalty only fires on mcache misses, but
+> misses are exactly the path we already optimise around -- and
+> when they fire, they fire in batches (type-shift in a hot
+> loop). The fix is contained: bytecode emitter writes an id;
+> sbc_exec reads from a per-function table.
+> `effort: afternoon`
+
+### \[P2\] **RT-8** `frame_t` metadata separate from `L[]` locals
+
+> **Where:** [`runtime/symta.h:222-228`](runtime/symta.h)
+> (`frame_t`), [`runtime/symta.h:342-367`](runtime/symta.h)
+> (`PROLOGUE`), [`runtime/gc.c:95-102`](runtime/gc.c)
+> (`gc_builtins`).
+> **Problem:** `PROLOGUE` puts the C function's `void *L[fsize]`
+> on the C stack, which is fine -- contiguous, prefetcher-loved.
+> But the *frame metadata* (`frame_t = {clsr, prev, vars,
+> nvars}`) lives in a separate C-stack `frm_` whose `vars`
+> points back at `L[]`. The GC root scan walks
+> `api.frame->prev → frame->vars → walk nvars pointers → next
+> frame` -- two cache lines per frame for deep stacks. Steady
+> state cost is small; GC pause cost on call-stack-heavy
+> workloads (game tick, deep AST walks) is real.
+> **Fix:** `OPEN_FRAME` allocates `frame_t + L[]` as one
+> struct-hack blob on the C stack, with the locals immediately
+> following the metadata. GC root scan touches one line per
+> frame. As a bonus, `vars` and `nvars` become redundant (size
+> is known to prologue), shrinking the frame header.
+> **Smaller related win:** `api_t` itself
+> (`symta.h:234-285`) interleaves cold fields
+> (`print_object_f`, `alloc`, `text_chars`, `sbuf`,
+> `nfi_args[32]`) with hot fields (`frame`, `args`, `hgp`,
+> `theap0`, `heap0`). Every barrier and every CALL loads from
+> different lines of `api_g`. Reorder so the ~8 hot pointers fit
+> in the first cache line.
+> `effort: 30 min (api_t reorder) + afternoon (frame inlining)`
+
+---
+
 ## Adaptive map — table internals
 
 The adaptive map is what backs every Symta hash, every ECS
