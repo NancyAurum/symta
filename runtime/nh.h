@@ -61,24 +61,43 @@ Points to consider:
 //#define NH_INIT_VAL(x) x = 0
 
 #define nh_t PRFX(NH_PFX,,_t)
+#define nh_slot_t PRFX(NH_PFX,,_slot_t)
 
+// AM-pack-v2 (TODO.md): pack {key, val, hash} into one struct
+// per slot, inline in the nh_t tail. Hot-path hit reads ONE
+// cache line for everything instead of three (keys[], vals[],
+// hashes[] as separate arrays). Trade: per-slot footprint
+// grows from ~20 bytes (split across three arrays) to 24
+// bytes (one struct), but we drop two separate mallocs per
+// table. AM-15's hash cache is still opt-in via
+// NH_CACHE_HASH; without it the slot is 16 bytes (no hash
+// field). The half-pack ({key, hash} only, vals separate)
+// that AM-pack tried in 2438e33 lost on insert/del because
+// the val store was still on a separate cache line; the
+// full pack here keeps everything together.
+typedef struct {
+  NH_KEY key;
+  NH_VAL val;
+#ifdef NH_CACHE_HASH
+  uint32_t hash;
+  uint32_t _pad;
+#endif
+} nh_slot_t;
 
 typedef struct {
   uint32_t cap; //capacity
   uint32_t used;
-  NH_VAL *vals;
-#ifdef NH_CACHE_HASH
-  // AM-15 (TODO.md): when the keys are dyn values whose hash
-  // requires a MCALL (lists, closures, user types in dh.h), we
-  // store the hash alongside the key so the Robin Hood probe
-  // doesn't have to re-hash the resident on every step. The
-  // cache is exact -- we write it at Add_ time and rebuild it
-  // on Grow_. Adds 4 B/slot of memory; saves one MCALL per
-  // probed-but-not-matching slot.
-  uint32_t *hashes;
-#endif
-  NH_KEY keys[1];
+  nh_slot_t slots[1];  /* inline tail; cap+1 entries */
 } nh_t;
+
+/* Accessors. Centralised so the {key,val,hash} layout doesn't
+ * leak into every loop body. */
+#define NH_K(nh, i)    ((nh)->slots[i].key)
+#define NH_V(nh, i)    ((nh)->slots[i].val)
+#ifdef NH_CACHE_HASH
+#define NH_H(nh, i)    ((nh)->slots[i].hash)
+#endif
+#define NH_VPTR(nh, i) (&(nh)->slots[i].val)
 
 #define NH_INIT_SZ (1<<2)
 
@@ -124,26 +143,21 @@ INLINE uint64_t PRFX(NH_PFX,,Hash_)(uint64_t key) {
 #define NH_FREE(size) free(size);
 #endif
 
-//keys should be initialized to 0
 INLINE nh_t *PRFX(NH_PFX,,Alloc_)(int cap) {
-  nh_t *nh = (nh_t*)NH_ALLOC(sizeof(nh_t)+sizeof(NH_KEY)*(cap-1));
-  nh->vals = NH_ALLOC(sizeof(NH_VAL)*cap);
-#ifdef NH_CACHE_HASH
-  nh->hashes = NH_ALLOC(sizeof(uint32_t)*cap);
-#endif
+  nh_t *nh = (nh_t*)NH_ALLOC(sizeof(nh_t)+sizeof(nh_slot_t)*(cap-1));
+  /* Zero the entire slot array first; this initialises val
+   * fields to all-zero (NH_ZERO_VALS semantics) and the hash
+   * field (when present) to 0. The key field is then fixed
+   * up below if NH_KEY_NIL isn't all-zero. */
+  memset(nh->slots, 0, sizeof(nh_slot_t)*cap);
 #ifdef NH_ZERO_VALS
-  memset(nh->vals, 0, sizeof(NH_VAL)*cap);
 #undef NH_ZERO_VALS
 #endif
 
   nh->cap = cap-1;
   nh->used = 0;
-  NH_KEY *ks = nh->keys;
-  for (int i = 0; i < cap; i+=4) {
-    ks[i  ] = NH_KEY_NIL;
-    ks[i+1] = NH_KEY_NIL;
-    ks[i+2] = NH_KEY_NIL;
-    ks[i+3] = NH_KEY_NIL;
+  for (int i = 0; i < cap; i++) {
+    nh->slots[i].key = NH_KEY_NIL;
   }
   return nh;
 }
@@ -163,10 +177,6 @@ INLINE void PRFX(NH_PFX,,Free)(nh_t *nh) {
   if (nh)
 #endif
   {
-    NH_FREE(nh->vals);
-#ifdef NH_CACHE_HASH
-    NH_FREE(nh->hashes);
-#endif
     NH_FREE(nh);
   }
 }
@@ -199,10 +209,8 @@ INLINE void PRFX(NH_PFX,,Free)(nh_t *nh) {
 
 INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   uint32_t cap = nh->cap;
-  NH_KEY *ks = nh->keys;
-  NH_VAL *vs = nh->vals;
+  nh_slot_t *ss = nh->slots;
 #ifdef NH_CACHE_HASH
-  uint32_t *hs = nh->hashes;
   uint32_t hash_my = (uint32_t)NH_HASH(key);
   uint32_t home_my = hash_my & cap;
 #else
@@ -211,16 +219,16 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   uint32_t i = home_my;
   uint32_t dib_my = 0;
 
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
-    if (NH_EQUAL(ks[i], key)) {
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ss[i].key, key)) {
       if (old) *old = 1;
-      return vs+i;
+      return &ss[i].val;
     }
 #ifdef NH_CACHE_HASH
-    uint32_t hash_them = hs[i];
+    uint32_t hash_them = ss[i].hash;
     uint32_t home_them = hash_them & cap;
 #else
-    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t home_them = NH_HASH(ss[i].key) & cap;
 #endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) {
@@ -228,14 +236,14 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
       // resident along on the chain. The new entry's val isn't
       // known yet (the caller writes through the returned pointer),
       // so we remember the slot and re-insert the displaced one.
-      NH_KEY  k_disp = ks[i];
-      NH_VAL  v_disp = vs[i];
+      NH_KEY  k_disp = ss[i].key;
+      NH_VAL  v_disp = ss[i].val;
 #ifdef NH_CACHE_HASH
       uint32_t h_disp = hash_them;
-      hs[i] = hash_my;
+      ss[i].hash = hash_my;
 #endif
-      ks[i] = key;
-      NH_VAL *ret = vs + i;
+      ss[i].key = key;
+      NH_VAL *ret = &ss[i].val;
 #ifdef NH_INIT_VAL
       NH_INIT_VAL(*ret);
 #endif
@@ -252,27 +260,27 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
       uint32_t home_j = home_them;
       uint32_t dib_j  = (j - home_j) & cap;
       for (;; j = (j+1)&cap, dib_j++) {
-        if (ks[j] == NH_KEY_NIL) {
-          ks[j] = k;
-          vs[j] = v;
+        if (ss[j].key == NH_KEY_NIL) {
+          ss[j].key = k;
+          ss[j].val = v;
 #ifdef NH_CACHE_HASH
-          hs[j] = h;
+          ss[j].hash = h;
 #endif
           return ret;
         }
 #ifdef NH_CACHE_HASH
-        uint32_t hash_jx = hs[j];
+        uint32_t hash_jx = ss[j].hash;
         uint32_t home_jx = hash_jx & cap;
 #else
-        uint32_t home_jx = NH_HASH(ks[j]) & cap;
+        uint32_t home_jx = NH_HASH(ss[j].key) & cap;
 #endif
         uint32_t dib_jx  = (j - home_jx) & cap;
         if (dib_jx < dib_j) {
-          NH_KEY kt = ks[j]; NH_VAL vt = vs[j];
-          ks[j] = k; vs[j] = v;
+          NH_KEY kt = ss[j].key; NH_VAL vt = ss[j].val;
+          ss[j].key = k; ss[j].val = v;
           k = kt; v = vt;
 #ifdef NH_CACHE_HASH
-          { uint32_t ht = hs[j]; hs[j] = h; h = ht; }
+          { uint32_t ht = ss[j].hash; ss[j].hash = h; h = ht; }
 #endif
           home_j = home_jx;
           dib_j  = dib_jx;
@@ -283,16 +291,16 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   }
 
   // Empty slot found before any Robin Hood swap.
-  ks[i] = key;
+  ss[i].key = key;
 #ifdef NH_CACHE_HASH
-  hs[i] = hash_my;
+  ss[i].hash = hash_my;
 #endif
   nh->used++;
   if (old) *old = 0;
 #ifdef NH_INIT_VAL
-  NH_INIT_VAL(vs[i]);
+  NH_INIT_VAL(ss[i].val);
 #endif
-  return vs+i;
+  return &ss[i].val;
 }
 
 INLINE NH_VAL *PRFX(NH_PFX,,Lookup)(nh_t *nh, NH_KEY key) {
@@ -300,21 +308,20 @@ INLINE NH_VAL *PRFX(NH_PFX,,Lookup)(nh_t *nh, NH_KEY key) {
   if (!nh) return 0;
 #endif
   uint32_t cap = nh->cap;
-  NH_KEY *ks = nh->keys;
+  nh_slot_t *ss = nh->slots;
 #ifdef NH_CACHE_HASH
-  uint32_t *hs = nh->hashes;
   uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
 #else
   uint32_t home_my = NH_HASH(key) & cap;
 #endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
-    if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ss[i].key, key)) return &ss[i].val;
 #ifdef NH_CACHE_HASH
-    uint32_t home_them = hs[i] & cap;
+    uint32_t home_them = ss[i].hash & cap;
 #else
-    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t home_them = NH_HASH(ss[i].key) & cap;
 #endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return 0; // RH invariant -> not in table
@@ -328,21 +335,20 @@ INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
   if (!nh) return NH_VAL_NIL;
 #endif
   uint32_t cap = nh->cap;
-  NH_KEY *ks = nh->keys;
+  nh_slot_t *ss = nh->slots;
 #ifdef NH_CACHE_HASH
-  uint32_t *hs = nh->hashes;
   uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
 #else
   uint32_t home_my = NH_HASH(key) & cap;
 #endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
-    if (NH_EQUAL(ks[i], key)) return nh->vals[i];
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ss[i].key, key)) return ss[i].val;
 #ifdef NH_CACHE_HASH
-    uint32_t home_them = hs[i] & cap;
+    uint32_t home_them = ss[i].hash & cap;
 #else
-    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t home_them = NH_HASH(ss[i].key) & cap;
 #endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return NH_VAL_NIL;
@@ -357,22 +363,22 @@ INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
 INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
-  NH_KEY *ks = nh->keys;
+  nh_slot_t *ss = nh->slots;
 
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-    if (NH_EQUAL(ks[i], key)) {
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+    if (NH_EQUAL(ss[i].key, key)) {
       if (old) *old = 1;
-      return nh->vals+i;
+      return &ss[i].val;
     }
   }
 
-  ks[i] = key;
+  ss[i].key = key;
   nh->used++;
   if (old) *old = 0;
 #ifdef NH_INIT_VAL
-  NH_INIT_VAL(nh->vals[i]);
+  NH_INIT_VAL(ss[i].val);
 #endif
-  return nh->vals+i;
+  return &ss[i].val;
 }
 
 
@@ -382,9 +388,9 @@ INLINE NH_VAL *PRFX(NH_PFX,,Lookup)(nh_t *nh, NH_KEY key) {
 #endif
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
-  NH_KEY *ks = nh->keys;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-    if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+  nh_slot_t *ss = nh->slots;
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+    if (NH_EQUAL(ss[i].key, key)) return &ss[i].val;
   }
   return 0;
 }
@@ -397,9 +403,9 @@ INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
 #endif
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
-  NH_KEY *ks = nh->keys;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-    if (NH_EQUAL(ks[i], key)) return nh->vals[i];
+  nh_slot_t *ss = nh->slots;
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+    if (NH_EQUAL(ss[i].key, key)) return ss[i].val;
   }
   return NH_VAL_NIL;
 }
@@ -431,11 +437,10 @@ INLINE void PRFX(NH_PFX,,Grow_)(nh_t **pnh) {
   uint32_t new_cap = cap*2;
   nh_t *nh = PRFX(NH_PFX,,Alloc_)(new_cap);
   *pnh = nh;
-  NH_KEY *ks = onh->keys; 
-  NH_VAL *vs = onh->vals;
-  for (int i = 0; i < cap; i++) {
-    if (ks[i] == NH_KEY_NIL) continue;
-    *PRFX(NH_PFX,,Add_)(nh,ks[i],0) = vs[i];
+  nh_slot_t *oss = onh->slots;
+  for (uint32_t i = 0; i < cap; i++) {
+    if (oss[i].key == NH_KEY_NIL) continue;
+    *PRFX(NH_PFX,,Add_)(nh, oss[i].key, 0) = oss[i].val;
   }
   PRFX(NH_PFX,,Free)(onh);
 }
@@ -459,12 +464,12 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add)(nh_t **pnh, NH_KEY key, int *old) {
   nh_t *nh = *pnh;
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
-  NH_KEY *ks = nh->keys;
+  nh_slot_t *ss = nh->slots;
 
   if (old) *old = 1;
 
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-    if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+    if (NH_EQUAL(ss[i].key, key)) return &ss[i].val;
   }
 
   if (NH_NEEDS_GROW(*pnh)) {
@@ -472,22 +477,22 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add)(nh_t **pnh, NH_KEY key, int *old) {
     nh = *pnh;
     cap = nh->cap;
     i = NH_HASH(key)&cap;
-    ks = nh->keys;
+    ss = nh->slots;
 
-    for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-      if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+    for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+      if (NH_EQUAL(ss[i].key, key)) return &ss[i].val;
     }
 
   }
 
 
-  ks[i] = key;
+  ss[i].key = key;
   nh->used++;
   if (old) *old = 0;
 #ifdef NH_INIT_VAL
-  NH_INIT_VAL(nh->vals[i]);
+  NH_INIT_VAL(ss[i].val);
 #endif
-  return nh->vals+i;
+  return &ss[i].val;
 #endif // NH_ROBIN_HOOD
 }
 
@@ -503,46 +508,44 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
   if (!nh) return;
 #endif
   uint32_t cap = nh->cap;
-  NH_KEY *ks = nh->keys;
-  NH_VAL *vs = nh->vals;
+  nh_slot_t *ss = nh->slots;
 
 #ifdef NH_ROBIN_HOOD
   // Robin Hood deletion: find the slot using RH early-exit, then
   // backshift the trailing chain to maintain the "no slot is more
   // displaced than its successor" invariant.
 #ifdef NH_CACHE_HASH
-  uint32_t *hs = nh->hashes;
   uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
 #else
   uint32_t home_my = NH_HASH(key) & cap;
 #endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
-    if (NH_EQUAL(ks[i], key)) {
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ss[i].key, key)) {
       // Found. Walk forward shifting each entry back by one slot
       // until we hit either an empty slot or an entry already at
       // its home (dib == 0).
       uint32_t j = i;
       for (;;) {
         uint32_t nxt = (j+1) & cap;
-        if (ks[nxt] == NH_KEY_NIL) {
-          ks[j] = NH_KEY_NIL;
+        if (ss[nxt].key == NH_KEY_NIL) {
+          ss[j].key = NH_KEY_NIL;
           break;
         }
 #ifdef NH_CACHE_HASH
-        uint32_t home_nxt = hs[nxt] & cap;
+        uint32_t home_nxt = ss[nxt].hash & cap;
 #else
-        uint32_t home_nxt = NH_HASH(ks[nxt]) & cap;
+        uint32_t home_nxt = NH_HASH(ss[nxt].key) & cap;
 #endif
         if (nxt == home_nxt) {  // entry is at home; don't move
-          ks[j] = NH_KEY_NIL;
+          ss[j].key = NH_KEY_NIL;
           break;
         }
-        ks[j] = ks[nxt];
-        vs[j] = vs[nxt];
+        ss[j].key = ss[nxt].key;
+        ss[j].val = ss[nxt].val;
 #ifdef NH_CACHE_HASH
-        hs[j] = hs[nxt];
+        ss[j].hash = ss[nxt].hash;
 #endif
         j = nxt;
       }
@@ -550,9 +553,9 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
       return;
     }
 #ifdef NH_CACHE_HASH
-    uint32_t home_them = hs[i] & cap;
+    uint32_t home_them = ss[i].hash & cap;
 #else
-    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t home_them = NH_HASH(ss[i].key) & cap;
 #endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return; // RH invariant -> not in table
@@ -561,21 +564,21 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
 #else
 
   uint32_t i = NH_HASH(key)&cap;
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
-    if (NH_EQUAL(ks[i], key)) {
-      ks[i] = NH_KEY_NIL;
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
+    if (NH_EQUAL(ss[i].key, key)) {
+      ss[i].key = NH_KEY_NIL;
       nh->used--;
       i = (i+1)&cap;
       break;
     }
   }
   //rehash the following keys
-  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
+  for ( ; ss[i].key != NH_KEY_NIL; i = (i+1)&cap) {
     int old;
-    NH_VAL *moved = PRFX(NH_PFX,,Add_)(nh, ks[i], &old);
+    NH_VAL *moved = PRFX(NH_PFX,,Add_)(nh, ss[i].key, &old);
     if (old) break; // all the following keys are reachable as is
-    *moved = nh->vals[i];
-    ks[i] = NH_KEY_NIL;
+    *moved = ss[i].val;
+    ss[i].key = NH_KEY_NIL;
     nh->used--;
   }
 #endif // NH_ROBIN_HOOD
@@ -585,15 +588,15 @@ typedef uint32_t PRFX(NH_PFX,,it_t);
 #define nh_it_t PRFX(NH_PFX,,it_t)
 
 INLINE nh_it_t PRFX(NH_PFX,,ValidKey)(nh_t *nh, nh_it_t i) {
-  return nh->keys[i] != NH_KEY_NIL;
+  return nh->slots[i].key != NH_KEY_NIL;
 }
 
 INLINE NH_KEY *PRFX(NH_PFX,,Key)(nh_t *nh, nh_it_t i) {
-  return nh->keys+i;
+  return &nh->slots[i].key;
 }
 
 INLINE NH_VAL *PRFX(NH_PFX,,Val)(nh_t *nh, nh_it_t i) {
-  return nh->vals+i;
+  return &nh->slots[i].val;
 }
 
 
@@ -606,6 +609,13 @@ INLINE NH_VAL *PRFX(NH_PFX,,Val)(nh_t *nh, nh_it_t i) {
 
 
 #undef nh_iter_t
+#undef nh_slot_t
+#undef NH_K
+#undef NH_V
+#undef NH_VPTR
+#ifdef NH_CACHE_HASH
+#undef NH_H
+#endif
 
 #undef NH_KEY
 #undef NH_VAL

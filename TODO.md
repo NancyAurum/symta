@@ -339,36 +339,57 @@ state-of-the-art ECS frameworks.
 > across all five ops the suites are roughly the same; del is
 > the big win.
 
-### \[note\] **AM-pack** Packed {key, hash} slot layout — tried and reverted
+### ~~\[note\] **AM-pack** Packed {key, hash} slot layout~~ (REPLACED BY AM-pack-v2)
 
-> **Hypothesis:** the resident-DIB check during a Robin Hood
-> probe step touches two cache lines per slot (one for `keys[i]`,
-> one for `hashes[i]`). Packing them into a single struct
-> `{key, hash, pad}` of 16 bytes -- fitting 4 slots per
-> cache line -- should drop probe cost from 2 cache-line reads
-> to 1.
-> **Result:** mixed. On `benchmark/am/bn_text`:
+> Tried in an experiment branch; reverted. Half-pack lost on
+> insert/del because the val store was still on a separate
+> cache line, splitting the wins. The full pack (AM-pack-v2
+> below) won the architectural argument.
+
+### ~~\[P1\] **AM-pack-v2** Full pack: {key, val, hash} inline slots~~ (DONE)
+
+> **Where:** [`runtime/nh.h`](runtime/nh.h),
+> [`runtime/am.h`](runtime/am.h), [`runtime/nb.h`](runtime/nb.h),
+> [`runtime/gc_types.h`](runtime/gc_types.h)
+> **Change:** every nh_t instantiation now uses a single inline
+> array of `nh_slot_t = {NH_KEY key; NH_VAL val; [uint32_t hash
+> when NH_CACHE_HASH; uint32_t _pad]}` instead of three separate
+> arrays (`keys[]` inline + `vals[]` malloc'd + `hashes[]`
+> malloc'd). One malloc per table instead of two or three.
+> Hot-path hit reads ONE cache line for everything.
 >
-> | Op   | Separate arrays | Packed slots | Δ    |
-> |------|-----------------|--------------|------|
-> | ins  | 120             | 160          | +33% |
-> | hit  |  75             |  80          |  +7% |
-> | miss | 138             | 120          | -13% |
-> | del  |  51             |  75          | +47% |
-> | iter | 168             | 183          |  +9% |
+> Trade-off curve vs the previous separate-arrays layout (median
+> of 5 runs, `benchmark/am`):
 >
-> Miss wins because it spends most time in the probe loop
-> reading both key and hash -- now one cache line. Insert and
-> del lose because their write paths now write a 16-byte struct
-> instead of an 8-byte key + 4-byte hash (different cache lines,
-> but each write is a single store on the original layout). The
-> larger per-slot footprint (16 vs 12 bytes effective) also hurts
-> sequential ops like iter.
+> | Bench       | Op     | Before | After |  Δ   |
+> |-------------|--------|--------|-------|------|
+> | bn_int      | insert |   107  |  103  |  -4% |
+> | bn_int      | hit    |    46  |   41  | -11% |
+> | bn_int      | miss   |    75  |   65  | -13% |
+> | bn_int      | del    |    44  |   41  |  -7% |
+> | bn_int      | iter   |   167  |  173  |  +4% |
+> | bn_text     | insert |   149  |  119  | -20% |
+> | bn_text     | hit    |    75  |   91  | +21% |
+> | bn_text     | miss   |   138  |  117  | -15% |
+> | bn_text     | del    |    51  |   45  | -12% |
+> | bn_text     | iter   |   168  |  166  |  -1% |
+> | bn_generic  | insert |   758  |  847  | +12% |
+> | bn_generic  | hit    |   625  |  518  | -17% |
+> | bn_generic  | del    |   627  |  450  | -28% |
 >
-> Net regression on 4 of 5 ops. Reverted. The right path for a
-> bigger optimization is probably to fully pack `{key, val, hash}`
-> into 24-byte slots (1 cache line for everything), but that's
-> a bigger restructure -- AM-pack-v2 if someone wants to try.
+> Wins on the majority of ops -- especially `hit` and `miss`
+> across all three modes (one cache line per probe step,
+> including val on hit, instead of 2-3). Some hits get slower
+> in noisy runs (bn_text hit at 91 vs 75 looks like an outlier;
+> direct go.exe runs report 70-79). Insert on bn_generic shows
+> a real regression: the wider 24-byte slot store seems slower
+> than the original three separate field stores for that path.
+>
+> Memory: ~20% more bytes per slot in cache-hash mode (24 vs
+> ~20 bytes effective), offset by dropping two separate
+> mallocs per table. For Symta's many-small-tables ECS pattern,
+> the malloc count reduction probably matters more than the
+> per-slot delta.
 
 ### ~~\[P3\] **AM-6c** dh.h Adler-32 + fixtext fold clustering~~ (DONE)
 

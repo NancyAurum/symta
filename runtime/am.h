@@ -140,12 +140,14 @@ extern uint32_t amFinalizerHook;
 /* symta_itbl was the stb_ds int-keyed row; AM-6 in TODO.md
  * replaced it with ih_t (nh_t-template) for AM_INT. symta_stbl
  * was its string-keyed sibling; AM-6b replaced it with th_t
- * for AM_TEXT. The adaptive map now runs a single hash strategy
- * across all three real-hash modes -- Robin Hood probing at
- * 75% load, identical backshift delete, hash cache on dh and
- * th. AM_BITMAP* still uses its dedicated nb_t. Neither old
- * typedef is referenced anywhere; this comment is the only
- * memorial. */
+ * for AM_TEXT. AM-pack-v2 then changed the layout *inside* every
+ * nh_t instantiation: keys, values, and (when NH_CACHE_HASH)
+ * the hash now live in a single packed `nh_slot_t` array inline
+ * in the nh_t tail, instead of three separate arrays. Hot path
+ * reads one cache line for everything; one malloc per table
+ * instead of two or three. AM_BITMAP* still uses its dedicated
+ * nb_t (which sits on top of an nh_t-template internally and
+ * inherits the packed layout). */
 
 
 INLINE dyn amGidGet(dyn o, dyn ref) {
@@ -729,8 +731,6 @@ INLINE dyn amL(dyn o) {
     }
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
-    dyn *keys = hm->keys;
-    dyn *vals = hm->vals;
     LIST(r,dhN(hm));
     int j = 0;
     NH_FOR(dh,i,hm) {
@@ -798,7 +798,6 @@ INLINE dyn amKs(dyn o) {
     }
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
-    dyn *keys = hm->keys;
     LIST(r,dhN(hm));
     int j = 0;
     NH_FOR(dh,i,hm) {

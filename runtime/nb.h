@@ -104,8 +104,8 @@ INLINE void nbDel(nb_t *nb, NB_ID id) {
 INLINE NB_ID nbN(nb_t nb) { //population count
   NB_ID used = 0;
   times(i, nhPgCap(nb)) {
-    if (nb->keys[i] == NB_ID_NIL) continue;
-    NB_WORD *pwords = nb->vals[i].words;
+    if (nb->slots[i].key == NB_ID_NIL) continue;
+    NB_WORD *pwords = nb->slots[i].val.words;
     for (int j = 0; j < NB_NWORDS; j++) {
       NB_WORD word = pwords[j];
       times(k, NB_WBITS) {
@@ -119,7 +119,7 @@ INLINE NB_ID nbN(nb_t nb) { //population count
 INLINE NB_ID nbSize(nb_t nb) {
   NB_ID size = 0;
   times(i, nhPgCap(nb)) {
-    if (nb->keys[i] == NB_ID_NIL) continue;
+    if (nb->slots[i].key == NB_ID_NIL) continue;
     size += NB_PBITS;
   }
   return size;
@@ -128,9 +128,9 @@ INLINE NB_ID nbSize(nb_t nb) {
 INLINE void nbInfo(nb_t nb) {
   printf("npages=%d\n", nhPgN(nb));
   times(i, nhPgCap(nb)) {
-    if (nb->keys[i] == NB_ID_NIL) continue;
-    NB_ID key = nb->keys[i];
-    NB_WORD *pwords = nb->vals[i].words;
+    if (nb->slots[i].key == NB_ID_NIL) continue;
+    NB_ID key = nb->slots[i].key;
+    NB_WORD *pwords = nb->slots[i].val.words;
     printf("page #%d\n", key);
     for (int j = 0; j < NB_NWORDS; j++) {
       NB_WORD word = pwords[j];
@@ -147,9 +147,9 @@ INLINE void nbInfo(nb_t nb) {
 
 #define NB_FOR(id,nb) \
   NB_WORD word; times(i_, nhPgCap(nb)) \
-    LET(NB_ID key_ = nb->keys[i_]) \
+    LET(NB_ID key_ = nb->slots[i_].key) \
       if (key_ != NB_ID_NIL) \
-        LET(NB_WORD* pwords = nb->vals[i_].words) times(j_, NB_NWORDS) \
+        LET(NB_WORD* pwords = nb->slots[i_].val.words) times(j_, NB_NWORDS) \
          LET(NB_WORD word = pwords[j_]) times(k_, NB_WBITS) \
            if (word & ((NB_WORD)1<<k_)) \
              LET(NB_ID id = (key_<<NB_PSHFT) | (j_ << NB_WSHFT) | k_)
