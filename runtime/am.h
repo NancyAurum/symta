@@ -13,11 +13,10 @@
     AM_BITMAP1  - bitmap; values implicitly FXN(1).
     AM_INT      - nh_t-derived ih_t hashmap, integer-keyed
                   (AM-6: replaced stb_ds; Robin Hood + 75% load).
-    AM_TEXT     - stb_ds hashmap, string-keyed. The last
-                  stb_ds use in the adaptive map; see AM-6b in
-                  TODO.md for the switch-to-th_t plan and the
-                  perf regression that's keeping it on stb_ds
-                  today.
+    AM_TEXT     - nh_t-derived th_t hashmap, text-keyed
+                  (AM-6b: replaced stb_ds; Robin Hood + 75% load
+                  + AM-15 hash cache; FNV-1a for BIGTEXT,
+                  Murmur3 finaliser for FIXTEXT).
     AM_GENERIC  - nh_t-derived dh_t hashmap, dyn-keyed
                   (any mix of types; Robin Hood + 75% load +
                   AM-15 hash cache).
@@ -97,6 +96,7 @@ Todo:
 #include "ng.h"
 #include "dh.h"
 #include "ih.h"
+#include "th.h"
 #include "nb.h"
 #include "prf.h"
 
@@ -139,13 +139,15 @@ extern uint32_t amFinalizerHook;
 #define AM_BITMAP1 5
 
 
-/* symta_stbl is the stb_ds string-keyed hashmap row layout
- * (AM_TEXT mode). symta_itbl used to be the int-keyed sibling;
- * AM-6 (TODO.md) replaced it with ih_t (nh_t-template) so the
- * adaptive map runs a single hash strategy for both AM_INT and
- * AM_GENERIC -- Robin Hood probing at 75% load, identical
- * Murmur3-based hash, identical backshift delete. */
-typedef struct { char *key; dyn value; } *symta_stbl;
+/* symta_itbl was the stb_ds int-keyed row; AM-6 in TODO.md
+ * replaced it with ih_t (nh_t-template) for AM_INT. symta_stbl
+ * was its string-keyed sibling; AM-6b replaced it with th_t
+ * for AM_TEXT. The adaptive map now runs a single hash strategy
+ * across all three real-hash modes -- Robin Hood probing at
+ * 75% load, identical backshift delete, hash cache on dh and
+ * th. AM_BITMAP* still uses its dedicated nb_t. Neither old
+ * typedef is referenced anywhere; this comment is the only
+ * memorial. */
 
 
 INLINE dyn amGidGet(dyn o, dyn ref) {
@@ -326,8 +328,8 @@ static dyn amClear(uint8_t *bc_) {
     dh_t *hm = AM_BASE(o);
     dhFree(hm);
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
-    shfree(hm);
+    th_t *hm = AM_BASE(o);
+    thFree(hm);
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
     ihFree(hm);
@@ -363,8 +365,8 @@ INLINE dyn amHas(dyn o, dyn key) { //Key exists
   GOT(AM_EMPTY) return 0;
   GOT(AM_TEXT)
     if (!IS_TEXT(key)) return 0;
-    symta_stbl hm = AM_BASE(o);
-    r = shget(hm,text_chars(key));
+    th_t *hm = AM_BASE(o);
+    r = thGet(hm, key);
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
     r = ihGet(hm, key);
@@ -401,8 +403,8 @@ INLINE dyn amGot(dyn o, dyn key) { //key both exists and has value != No
   GOT(AM_EMPTY) return 0;
   GOT(AM_TEXT)
     if (!IS_TEXT(key)) return 0;
-    symta_stbl hm = AM_BASE(o);
-    r = shget(hm,text_chars(key));
+    th_t *hm = AM_BASE(o);
+    r = thGet(hm, key);
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
     r = ihGet(hm, key);
@@ -433,8 +435,8 @@ INLINE dyn amGet(dyn o, dyn key) {
   GOT(AM_EMPTY) return AM_VOID(o);
   GOT(AM_TEXT)
     if (!IS_TEXT(key)) return AM_VOID(o);
-    symta_stbl hm = AM_BASE(o);
-    r = shget(hm,text_chars(key));
+    th_t *hm = AM_BASE(o);
+    r = thGet(hm, key);
     if (r == NIL) r = AM_VOID(o);
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
@@ -494,16 +496,15 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
       AM_BASE(o) = hm;
       return;
     GOT(AM_TEXT)
-      symta_stbl hm = AM_BASE(o);
+      th_t *hm = AM_BASE(o);
       if (IS_TEXT(key)) {
-        shdel(hm, text_chars(key));
+        thDel(&hm, key);
         AM_BASE(o) = hm;
       }
       /* AM-11 (TODO.md): without this `return`, control falls out
        * of the delete-branch switch, past the `if (value==void_val)`
        * block, and into the regular AM_TEXT insert branch below --
-       * which `shput`s the key right back. T.K = void_val on a
-       * text-keyed table looked like a no-op. */
+       * which would `thSet` the key right back. */
       return;
     GOT(AM_INT)
       ih_t *hm = AM_BASE(o);
@@ -536,10 +537,8 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
   GOT(AM_EMPTY)
     //pick initial type
     if (IS_TEXT(key)) {
-      symta_stbl hm = 0;
-      sh_new_arena(hm); //make shput copy the text chars
-      shdefault(hm, NIL);
-      shput(hm, text_chars(key), value);
+      th_t *hm = thAlloc();
+      thSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_TEXT);
     } else if (O_TAG(key) == T_INT) {
@@ -565,25 +564,19 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
     dhSet(&hm, key, value);
     AM_BASE(o) = hm;
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
+    th_t *hm = AM_BASE(o);
     if (IS_TEXT(key)) {
-      shput(hm, text_chars(key), value);
+      thSet(&hm, key, value);
       AM_BASE(o) = hm;
     } else { //convert to dynamic key type hash map
-      //fprintf(stderr, "cvt: %s\n", print_object(key));
-      GC_DISABLE();
       dh_t *dh = dhAlloc();
-      for (int i=0; i < shlen(hm); ++i) {
-        dyn k;
-        TEXT(k,hm[i].key);
-        AM_ATTRACT(o,k); //values don't need that
-        dhSet(&dh, k, hm[i].value);
+      NH_FOR(th,i,hm) {
+        dhSet(&dh, *thKey(hm,i), *thVal(hm,i));
       }
-      GC_ENABLE();
       dhSet(&dh, key, value);
       AM_BASE(o) = dh;
       AM_SET_TYPE(o, AM_GENERIC);
-      shfree(hm);
+      thFree(hm);
     }
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
@@ -655,9 +648,9 @@ INLINE dyn amDel(dyn o, dyn key) {
     dhDel(&hm, key);
     AM_BASE(o) = hm;
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
+    th_t *hm = AM_BASE(o);
     if (IS_TEXT(key)) {
-      shdel(hm, text_chars(key));
+      thDel(&hm, key);
       AM_BASE(o) = hm;
     }
   GOT(AM_INT)
@@ -689,8 +682,8 @@ INLINE dyn amN(dyn o) {
     dh_t *hm = AM_BASE(o);
     return FXN(dhN(hm));
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
-    return FXN(shlen(hm));
+    th_t *hm = AM_BASE(o);
+    return FXN(thN(hm));
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
     return FXN(ihN(hm));
@@ -711,16 +704,17 @@ INLINE dyn amL(dyn o) {
   GOT(AM_EMPTY)
     r = Empty;
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
-    int n = shlen(hm);
+    th_t *hm = AM_BASE(o);
+    int n = thN(hm);
     LIST(r,n);
-    for (int i=0; i < n; ++i) {
-      dyn t, kv;
+    int j = 0;
+    NH_FOR(th,i,hm) {
+      dyn kv;
       LIST(kv,2);
-      TEXT(t,hm[i].key);
-      LGET(kv,0) = t;
-      LGET(kv,1) = hm[i].value;
-      LGET(r,i) = kv;
+      LGET(kv,0) = *thKey(hm,i);
+      LGET(kv,1) = *thVal(hm,i);
+      LGET(r,j) = kv;
+      j++;
     }
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);
@@ -787,13 +781,13 @@ INLINE dyn amKs(dyn o) {
   GOT(AM_EMPTY)
     r = Empty;
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
-    int n = shlen(hm);
+    th_t *hm = AM_BASE(o);
+    int n = thN(hm);
     LIST(r,n);
-    for (int i=0; i < n; ++i) {
-      dyn t;
-      TEXT(t,hm[i].key);
-      LGET(r,i) = t;
+    int j = 0;
+    NH_FOR(th,i,hm) {
+      LGET(r,j) = *thKey(hm,i);
+      j++;
     }
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);

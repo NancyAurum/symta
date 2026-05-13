@@ -1,12 +1,11 @@
 // bn_text -- AM_TEXT mode benchmarks.
 //
 // AM_TEXT is used by literal table syntax (`@t: name!Nancy
-// age!37 ...`) and string-keyed lookup tables. Still on stb_ds
-// today (AM-6b in TODO.md is blocked on a performance issue --
-// a first switch to th_t showed a 100x slowdown on the bench
-// suite). The benchmarks here cover insert / lookup hit /
-// lookup miss / del / iterate, with keys generated as text so
-// shget paths get exercised.
+// age!37 ...`) and string-keyed lookup tables. Backed by th_t
+// (nh_t-template, Robin Hood, 75% load, AM-15 hash cache,
+// FNV-1a for BIGTEXT keys -- see runtime/th.h). Covers
+// insert / lookup hit / lookup miss / del / iterate, with
+// keys generated as text so the BIGTEXT path gets exercised.
 //
 // We use a smaller N than bn_int because text key allocation
 // (alloc_text on every "key_[I]" string) dominates the

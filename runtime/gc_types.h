@@ -137,10 +137,13 @@ static void tbl_gc_internals(dyn o) {
       GC_REC(*dhVal(hm,i),*dhVal(hm,i));
     }
   GOT(AM_TEXT)
-    symta_stbl hm = AM_BASE(o);
-    for (int i=0; i < shlen(hm); ++i) {
-      dyn *t = &hm[i].value;
-      GC_REC(*t,*t);
+    /* AM-6b: text keys are dyns stored directly in th_t. Mark
+     * both keys and values; otherwise a BIGTEXT key whose only
+     * reference is the slot would get reclaimed. */
+    th_t *hm = AM_BASE(o);
+    NH_FOR(th,i,hm) {
+      GC_REC(*thKey(hm,i),*thKey(hm,i));
+      GC_REC(*thVal(hm,i),*thVal(hm,i));
     }
   GOT(AM_INT)
     ih_t *hm = AM_BASE(o);

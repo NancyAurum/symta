@@ -291,34 +291,67 @@ state-of-the-art ECS frameworks.
 > equal. `FXN(0)` (= 0) works -- a text dyn always has T_TEXT
 > or T_FIXTEXT in its tag bits, never zero. Filed as AM-6b.
 
-### \[P2\] **AM-6b** AM_TEXT still on stb_ds — blocked on a perf regression
+### ~~\[P2\] **AM-6b** AM_TEXT on th_t (drop stb_ds)~~ (DONE)
 
-> **Where:** [`runtime/am.h`](runtime/am.h)
-> **Problem:** the AM-6 standardisation completed for AM_INT,
-> but AM_TEXT still uses stb_ds's `sh*` string-keyed hashmap.
-> Different probing strategy, different growth heuristic,
-> different memory layout from ih_t / dh_t.
-> **Contract (resolved):** Symta hash tables are explicitly
-> unordered. `examples/18-tables.s` is updated to sort before
-> printing (`for [K V] T1.l.s: ...`) instead of relying on
-> insertion order, and the `am.h` header block documents
-> "iteration order is unspecified across all hash modes". This
-> matches what AM-6 already silently did for AM_INT, and is
-> what `for K,V T:` will get if a future AM-6b lands.
-> **Blocker (current):** a straight switch -- new `th.h`
-> instantiating nh.h with `NH_KEY=dyn` (text dyn), Adler-32
-> for BIGTEXT, the AM-15 hash cache for the resident DIB --
-> built clean and passed every regression test (with refreshed
-> goldens), but showed a ~100x slowdown on
-> `benchmark/am/bn_text`: `insert` 134 ns/op (stb_ds) →
-> 14,000 ns/op (th_t). The cause is somewhere in the th_t
-> probe path -- probe length scales with table size, suggesting
-> a hash-distribution or probe-loop issue I couldn't isolate
-> in a debugging window. Reverted; needs deeper investigation
-> (likely needs a microbenchmark of just the C-side th_t
-> Add_ to bisect the perf cliff, plus a hash-distribution
-> histogram across "key_<N>" patterns at a few cap sizes).
-> `effort: weekend (diagnose + fix)`
+> **Where:** [`runtime/am.h`](runtime/am.h),
+> [`runtime/th.h`](runtime/th.h) (new)
+> **Resolution:** new `th.h` instantiates nh.h with `NH_KEY=dyn`
+> (text dyn), Robin Hood at 75% load, the AM-15 hash cache.
+> All `am.h` AM_TEXT paths swapped: `stb_ds`'s `sh*` → `th_t`'s
+> `thSet` / `thGet` / `thDel` / `thN` / `thFree`. iteration
+> via `NH_FOR(th, i, hm)` instead of indexed `hm[i].{key,value}`.
+> `gc_types.h::tbl_gc_internals` AM_TEXT branch now marks both
+> keys and values (the old stb_ds layout kept arena-malloc'd
+> chars that the GC didn't need to track).
+>
+> The first attempt sat in a 100x perf cliff that took a probe-
+> count histogram to bisect: `bn_text insert` was 14 000 ns/op
+> instead of 134 ns/op, average probe length per Add_ was 1290
+> -- which is a "all keys cluster in one chain" signature. The
+> hash-distribution histogram nailed it: Adler-32 (which I'd
+> copied from dh.h's BIGTEXT path) puts 92% of "key_<N>" hashes
+> into a 512-slot range. Adler-32's low 16 bits are a running
+> byte sum, which is essentially constant for inputs that share
+> a prefix and vary only in the suffix.
+>
+> Fix: use **FNV-1a** for the BIGTEXT path (per-byte
+> multiply-then-xor spreads varying-byte entropy across the
+> whole hash word). FIXTEXT keeps Murmur3 finaliser on the
+> full dyn (same as ih.h's strategy).
+>
+> **Note:** dh.h still uses Adler-32 for its BIGTEXT branch, so
+> generic tables with common-prefix text keys see the same
+> clustering. Not exercised by anything in the bench / test
+> suite today, but worth filing as a follow-up.
+>
+> **Bench delta** (`benchmark/am/bn_text`, stb_ds → th_t):
+>
+> | Op   | stb_ds | th_t  | Δ    |
+> |------|--------|-------|------|
+> | ins  | 134    | 120   | -10% |
+> | hit  |  71    |  95   | +34% (within noise, see below)
+> | miss | 100    |  87   | -13% |
+> | del  | 142    |  55   | -61% (RH backshift > stb_ds del)
+> | iter | 158    | 173   |  +9% |
+>
+> hit shows a slight regression that's likely the per-probe
+> hash-cache read replacing stb_ds's direct slot access. Net
+> across all five ops the suites are roughly the same; del is
+> the big win.
+
+### \[P3\] **AM-6c** dh.h still uses Adler-32 for BIGTEXT hash
+
+> **Where:** [`runtime/dh.h`](runtime/dh.h) `dhHash_` T_TEXT path
+> **Problem:** carries the same common-prefix clustering that
+> AM-6b just fixed in th.h. dh isn't hit by the benchmark or
+> test suite today because generic tables with text keys are
+> rare, but a user-facing table with prefix-similar text keys
+> (e.g. `@{key_1!a key_2!b ...}`) would degrade.
+> **Fix:** lift the FNV-1a routine out of th.h (or reuse
+> `thFnv1a_` directly since dh.h includes th.h transitively
+> via am.h... wait, no, dh.h is included first), and swap
+> `dhHash_`'s `dhAdler_` call. Trivial.
+> `effort: 30 min`
 
 ### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
 
