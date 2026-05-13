@@ -216,18 +216,45 @@ state-of-the-art ECS frameworks.
 > `nh_t`) already exist; the change is mostly in `amSet`.
 > `effort: weekend`
 
-### \[P1\] **AM-5** `nh_t` load factor is conservative (50 %)
+### ~~\[P1\] **AM-5** `nh_t` load factor is conservative (50 %)~~ (DONE)
 
-> **Where:** [`runtime/nh.h:85`](runtime/nh.h)
-> **Problem:** `NH_NEEDS_GROW(nh)` triggers at half-full.
-> Linear probing without tombstones makes 50 % defensible, but
-> for ECS tables of 100k–1M entries you're allocating ~2× the
-> memory you actually need.
-> **Fix:** switch to Robin Hood probing or double hashing —
-> either buys 75–80 % load factor with similar lookup latency.
-> Robin Hood is ~30 lines of additional bookkeeping; the
-> existing linear probe stays correct as a fallback.
-> `effort: afternoon`
+> **Where:** [`runtime/nh.h`](runtime/nh.h),
+> [`runtime/dh.h`](runtime/dh.h)
+> **Resolution:** Robin Hood probing landed in `nh.h` as an
+> opt-in via `#define NH_ROBIN_HOOD`. dh.h opts in and raises
+> the load factor to ~75 % (`(used*4) > 3*(cap+1)`). nb.h
+> stays on plain linear probing -- its keys are cheap uint32
+> ints where the per-probe NH_HASH call is essentially free and
+> the variance argument doesn't carry the same weight.
+>
+> Robin Hood implementation:
+>   - `Add_` swaps when it meets an entry whose distance-from-
+>     initial-bucket (DIB) is less than the new entry's, and
+>     continues displacing along the chain until an empty slot
+>     is found.
+>   - `Lookup` / `Get` early-exit when they see a resident with
+>     DIB < their own -- the RH invariant guarantees their key
+>     can't be further along.
+>   - `Del` backshifts: walk forward, shifting each non-home
+>     entry back into the empty slot, until we hit an empty
+>     slot or an at-home entry.
+>   - DIB isn't stored; it's recomputed via
+>     `(slot - (HASH(keys[slot]) & cap)) & cap`. Adds one
+>     NH_HASH call per probed slot, which is the AM-3 fast path
+>     for int/text keys and an MCALL for user types. Net cost
+>     is dominated by the reduced probe length at 75 % load
+>     factor.
+>
+> Expected impact: ~33 % memory reduction on
+> hash-table-heavy workloads. Probe-length variance flattens
+> from O(N²) clustering behaviour at high load to near-uniform
+> around 1.5-2.0.
+>
+> Drift bootstrap: 3-stage fixed point reached in one round
+> (`s1==s2` byte-identical). Robin Hood doesn't perturb the
+> compiler's iteration paths -- the .sbc artefacts are byte-
+> identical to the pre-RH versions.
+> tests/am: 11/11 pass; tests/sweep.sh: 149/149.
 
 ### \[P2\] **AM-6** Two underlying hashmaps (`stb_ds` and `nh_t`)
 

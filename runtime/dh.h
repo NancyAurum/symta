@@ -9,6 +9,21 @@
 #define NH_VAL_NIL NIL
 #define NH_PREP
 
+// AM-5 (TODO.md): Robin Hood probing keeps the variance of probe
+// lengths bounded so we can run the table at a higher load factor
+// without the worst-case-O(N) clustering you get from plain
+// linear probing.
+#define NH_ROBIN_HOOD
+
+// AM-5 (TODO.md): grow at ~75% load instead of the previous 50%.
+// At 50% the table doubled at every doubling-point (used*2 > cap)
+// -- we were paying ~2x the memory for the same population. With
+// Robin Hood the average probe length at 75% load stays near 1.5
+// (vs ~9 for linear probing), so the memory win is essentially
+// free in throughput.
+//   used / (cap+1) > 0.75 iff used*4 > 3*(cap+1)
+#define NH_NEEDS_GROW(nh) ((nh)->used * 4 > ((nh)->cap + 1) * 3)
+
 //#define NH_ZERO_VALS
 #define NH_INIT_VAL(o) o = 0
 

@@ -155,6 +155,139 @@ INLINE void PRFX(NH_PFX,,Free)(nh_t *nh) {
   }
 }
 
+// Add_, Lookup, Get, Del exist in two flavours below: a plain
+// linear-probing variant (the original) and a Robin Hood variant
+// guarded by NH_ROBIN_HOOD. Define NH_ROBIN_HOOD before including
+// this header to opt the instantiation in.
+//
+// Robin Hood probing (Pedro Celis, 1986; pioneered for hash tables
+// by Emmanuel Goossaert / Malte Skarupke) bounds the variance of
+// probe lengths by ensuring entries are sorted by distance-from-
+// initial-bucket (DIB) along the probe chain. When inserting, if
+// we encounter a slot whose resident DIB is LESS than ours, we
+// take their slot and the resident continues down the chain.
+// Effect: at 75-80% load factor, average and worst-case probe
+// lengths stay close (typically 1-3 probes) whereas plain linear
+// probing degrades quadratically -- avg ~9 probes for a miss at
+// 75%. Lookups also gain an early-exit: if we see a resident
+// whose DIB < ours, our key cannot be in this chain (otherwise
+// Robin Hood would have placed it before this slot).
+//
+// The DIB isn't stored; we recompute it on the fly via
+//   dib(slot_i) = (slot_i - (NH_HASH(keys[slot_i]) & cap)) & cap
+// which is exact because the table size is a power of two. This
+// avoids the per-slot byte of overhead a "DIB array" variant
+// would cost.
+
+#ifdef NH_ROBIN_HOOD
+
+INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
+  uint32_t cap = nh->cap;
+  NH_KEY *ks = nh->keys;
+  NH_VAL *vs = nh->vals;
+  uint32_t home_my = NH_HASH(key) & cap;
+  uint32_t i = home_my;
+  uint32_t dib_my = 0;
+
+  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ks[i], key)) {
+      if (old) *old = 1;
+      return vs+i;
+    }
+    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t dib_them = (i - home_them) & cap;
+    if (dib_them < dib_my) {
+      // Robin Hood swap: install our key at this slot, take the
+      // resident along on the chain. The new entry's val isn't
+      // known yet (the caller writes through the returned pointer),
+      // so we remember the slot and re-insert the displaced one.
+      NH_KEY  k_disp = ks[i];
+      NH_VAL  v_disp = vs[i];
+      ks[i] = key;
+      NH_VAL *ret = vs + i;
+#ifdef NH_INIT_VAL
+      NH_INIT_VAL(*ret);
+#endif
+      nh->used++;
+      if (old) *old = 0;
+
+      // Inner loop: keep displacing until we hit an empty slot.
+      uint32_t j  = (i+1) & cap;
+      NH_KEY   k  = k_disp;
+      NH_VAL   v  = v_disp;
+      uint32_t home_j = home_them;
+      uint32_t dib_j  = (j - home_j) & cap;
+      for (;; j = (j+1)&cap, dib_j++) {
+        if (ks[j] == NH_KEY_NIL) {
+          ks[j] = k;
+          vs[j] = v;
+          return ret;
+        }
+        uint32_t home_jx = NH_HASH(ks[j]) & cap;
+        uint32_t dib_jx  = (j - home_jx) & cap;
+        if (dib_jx < dib_j) {
+          NH_KEY kt = ks[j]; NH_VAL vt = vs[j];
+          ks[j] = k; vs[j] = v;
+          k = kt; v = vt;
+          home_j = home_jx;
+          dib_j  = dib_jx;
+        }
+      }
+      // unreachable: the inner loop only exits via the empty slot.
+    }
+  }
+
+  // Empty slot found before any Robin Hood swap.
+  ks[i] = key;
+  nh->used++;
+  if (old) *old = 0;
+#ifdef NH_INIT_VAL
+  NH_INIT_VAL(vs[i]);
+#endif
+  return vs+i;
+}
+
+INLINE NH_VAL *PRFX(NH_PFX,,Lookup)(nh_t *nh, NH_KEY key) {
+#ifndef NH_PREP
+  if (!nh) return 0;
+#endif
+  uint32_t cap = nh->cap;
+  NH_KEY *ks = nh->keys;
+  uint32_t home_my = NH_HASH(key) & cap;
+  uint32_t i = home_my;
+  uint32_t dib_my = 0;
+  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t dib_them = (i - home_them) & cap;
+    if (dib_them < dib_my) return 0; // RH invariant -> not in table
+  }
+  return 0;
+}
+
+#ifdef NH_VAL_NIL
+INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
+#ifndef NH_PREP
+  if (!nh) return NH_VAL_NIL;
+#endif
+  uint32_t cap = nh->cap;
+  NH_KEY *ks = nh->keys;
+  uint32_t home_my = NH_HASH(key) & cap;
+  uint32_t i = home_my;
+  uint32_t dib_my = 0;
+  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ks[i], key)) return nh->vals[i];
+    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t dib_them = (i - home_them) & cap;
+    if (dib_them < dib_my) return NH_VAL_NIL;
+  }
+  return NH_VAL_NIL;
+}
+#undef NH_VAL_NIL
+#endif
+
+#else // NH_ROBIN_HOOD -- the original linear-probing variant.
+
 INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
@@ -207,6 +340,8 @@ INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
 #undef NH_VAL_NIL
 #endif
 
+#endif // NH_ROBIN_HOOD
+
 
 INLINE int PRFX(NH_PFX,,Cap)(nh_t *nh) {
 #ifdef NH_PREP
@@ -246,6 +381,15 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add)(nh_t **pnh, NH_KEY key, int *old) {
   if (!*pnh) *pnh = PRFX(NH_PFX,,Alloc_)(NH_INIT_SZ);
 #endif
 
+#ifdef NH_ROBIN_HOOD
+  // Grow first if needed so Add_ never has to handle a full table.
+  // (With RH at 75% load, the inner displacement loop can run
+  // ~3 swaps on average; running it on a fully-loaded table would
+  // never terminate.)
+  if (NH_NEEDS_GROW(*pnh)) PRFX(NH_PFX,,Grow_)(pnh);
+  return PRFX(NH_PFX,,Add_)(*pnh, key, old);
+#else
+
   nh_t *nh = *pnh;
   uint32_t cap = nh->cap;
   uint32_t i = NH_HASH(key)&cap;
@@ -278,6 +422,7 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add)(nh_t **pnh, NH_KEY key, int *old) {
   NH_INIT_VAL(nh->vals[i]);
 #endif
   return nh->vals+i;
+#endif // NH_ROBIN_HOOD
 }
 
 
@@ -292,8 +437,48 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
   if (!nh) return;
 #endif
   uint32_t cap = nh->cap;
-  uint32_t i = NH_HASH(key)&cap;
   NH_KEY *ks = nh->keys;
+  NH_VAL *vs = nh->vals;
+
+#ifdef NH_ROBIN_HOOD
+  // Robin Hood deletion: find the slot using RH early-exit, then
+  // backshift the trailing chain to maintain the "no slot is more
+  // displaced than its successor" invariant.
+  uint32_t home_my = NH_HASH(key) & cap;
+  uint32_t i = home_my;
+  uint32_t dib_my = 0;
+  for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
+    if (NH_EQUAL(ks[i], key)) {
+      // Found. Walk forward shifting each entry back by one slot
+      // until we hit either an empty slot or an entry already at
+      // its home (dib == 0).
+      uint32_t j = i;
+      for (;;) {
+        uint32_t nxt = (j+1) & cap;
+        if (ks[nxt] == NH_KEY_NIL) {
+          ks[j] = NH_KEY_NIL;
+          break;
+        }
+        uint32_t home_nxt = NH_HASH(ks[nxt]) & cap;
+        if (nxt == home_nxt) {  // entry is at home; don't move
+          ks[j] = NH_KEY_NIL;
+          break;
+        }
+        ks[j] = ks[nxt];
+        vs[j] = vs[nxt];
+        j = nxt;
+      }
+      nh->used--;
+      return;
+    }
+    uint32_t home_them = NH_HASH(ks[i]) & cap;
+    uint32_t dib_them = (i - home_them) & cap;
+    if (dib_them < dib_my) return; // RH invariant -> not in table
+  }
+  return; // empty chain
+#else
+
+  uint32_t i = NH_HASH(key)&cap;
   for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap) {
     if (NH_EQUAL(ks[i], key)) {
       ks[i] = NH_KEY_NIL;
@@ -311,6 +496,7 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
     ks[i] = NH_KEY_NIL;
     nh->used--;
   }
+#endif // NH_ROBIN_HOOD
 }
 
 typedef uint32_t PRFX(NH_PFX,,it_t);
@@ -356,6 +542,10 @@ INLINE NH_VAL *PRFX(NH_PFX,,Val)(nh_t *nh, nh_it_t i) {
 
 #ifdef NH_PREP
 #undef NH_PREP
+#endif
+
+#ifdef NH_ROBIN_HOOD
+#undef NH_ROBIN_HOOD
 #endif
 
 #if 0
