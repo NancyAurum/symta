@@ -2,6 +2,72 @@
 
   Adaptive Map
 
+  An adaptive hash table whose internal representation specialises
+  to the observed key/value distribution at runtime. One table
+  object (an O_TAG=T_TBL heap allocation, 2 cells: base + void)
+  can be in any of six modes:
+
+    AM_EMPTY    - no backing; everything misses
+    AM_BITMAP0  - bitmap of present integer keys; values are
+                  implicitly FXN(0). Set bit -> get returns 0.
+    AM_BITMAP1  - bitmap; values implicitly FXN(1).
+    AM_INT      - stb_ds hashmap, integer-keyed.
+    AM_TEXT     - stb_ds hashmap, string-keyed.
+    AM_GENERIC  - nh_t-derived dh_t hashmap, dyn-keyed
+                  (any mix of types).
+
+  Mode transitions happen lazily inside amSet/amGidSet: every
+  promotion path widens the underlying type (the inverse demotion
+  doesn't exist -- once promoted to AM_INT, a column that drains
+  back to all-zero values stays in INT mode until amClear).
+
+  --- void_val contract ---
+
+  AM_VOID(o) holds the value returned for missing keys. Defaults
+  to No (set in amNew). The user can change it with `T.setNo X`
+  (-> amSetNo).
+
+  amSet / amGidSet treat `value == void_val` as a delete request.
+  In particular, this means:
+    - Default void_val = No: `T.K = No` deletes K. (Expected.)
+    - After `T.setNo 0`: `T.K = 0` also deletes K, even though
+      the user "stored a value". This is the AM-7 quirk -- the
+      surprise is greatest on BITMAP0 tables, where 0 is *also*
+      the implicit stored value. We have no separate "remove key"
+      API in Symta today; the convention is to either pick a
+      void_val that's not in your value alphabet (the default No
+      is usually right), or use T.del K explicitly.
+
+  --- AM_EMPTY initial-mode selection asymmetry ---
+
+  amGidSet (component-column setter, used by cls fields) and
+  amSet (user-facing T.K=V) pick different initial modes for an
+  empty table when the first value is FXN(0):
+
+    amGidSet, value == FXN(0) -> AM_BITMAP0
+    amSet,    value == FXN(0) -> AM_INT
+
+  Same observable behaviour (`T.has K` returns 1, `T.K` returns
+  0 in both); different memory cost. amSet's choice optimises
+  for the common case where T.K=0 is a real stored value rather
+  than a membership marker, accepting the AM_INT footprint.
+  ECS-style component columns go through amGidSet, which picks
+  BITMAP0 for the dense-zero case. amSet matches amGidSet for
+  FXN(1) (both pick AM_BITMAP1) -- the asymmetry is only on 0.
+
+  --- iteration / mutation ---
+
+  amL and amKs eagerly build a fresh list of the current
+  contents; mutation after the call returns doesn't disturb the
+  returned list. amL therefore *implicitly snapshots*; we don't
+  need an explicit "iteration in progress" guard. Callers that
+  walk the table via NH_FOR/internal pointers (e.g. from inside
+  a finalizer) are on their own.
+
+  --- references ---
+
+  See TODO.md (AM-* items) for the open polish backlog.
+
 Todo:
 * Efficient strings set representation:
   Use a default value 1 or a radix judy tree instead of a string-keyed hash map.

@@ -269,18 +269,46 @@ state-of-the-art ECS frameworks.
 > am.h entirely.
 > `effort: afternoon`
 
-### \[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete
+### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
 
-> **Where:** [`runtime/am.h:163–211`](runtime/am.h)
-> **Problem:** writing `0` to a `BITMAP0` table compares
-> `value == void_val` (also `0`), takes the delete branch, and
-> `nbDel`s the key. So `T.K = 0` on a bitmap-0 table makes
-> `T.has K` return false — even though logically the user just
-> wrote a value. Consistent with how AM_VOID works elsewhere,
-> but surprising and undocumented.
-> **Fix:** at minimum, document the contract. Better: split
-> "set value" from "remove key" so the behaviour is explicit.
-> `effort: 30 min` (docs) / `afternoon` (split API)
+> **Where:** [`runtime/am.h`](runtime/am.h) header doc block
+> **Resolution:** documented the `void_val` contract at the top
+> of `am.h` so the surprise is one paragraph away from anyone
+> reading the file. Key points captured:
+>
+> - `AM_VOID(o)` holds the value returned for missing keys
+>   (default `No`).
+> - `amSet` / `amGidSet` interpret `value == void_val` as a delete
+>   request; this is what makes `T.K = 0` look like a delete *if*
+>   the user previously called `T.setNo 0`.
+> - Default `void_val = No` means most user code never hits the
+>   quirk -- you have to opt in via `T.setNo 0`.
+> - Workaround: pick a `void_val` outside your value alphabet, or
+>   use `T.del K` explicitly when you want to remove a key.
+>
+> The "split set vs. remove" API change is deferred until somebody
+> actually trips on it in real code; the doc paragraph is enough
+> for now.
+
+### \[P2\] **AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0
+
+> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `AM_EMPTY` branch
+> **Problem:** sibling discrepancy with `amGidSet`. On an empty
+> table, writing `FXN(0)` with an integer key goes:
+>   - `amGidSet` -> `AM_BITMAP0` (1 bit per key)
+>   - `amSet` -> `AM_INT` (16 B per key)
+> Same observable behaviour (`T.has K`, `T.K` both behave
+> identically); different memory cost. Documented in the am.h
+> header but not fixed. The choice is intentional in spirit --
+> general-purpose users writing `T.K=0` usually mean to store a
+> real 0 value, not a membership marker -- but the inconsistency
+> is worth fixing once we have a clear answer (e.g. a separate
+> `tbl_set_marker` API, or by demoting INT->BITMAP0 on the next
+> rehash if the value distribution warrants).
+> **Fix:** either align `amSet` with `amGidSet` (pick BITMAP0 on
+> first-FXN(0) too -- one-line change), or expose an explicit
+> `T.mark K` builtin that always picks the bitmap path.
+> `effort: 30 min` (align) / `afternoon` (new builtin)
 
 ### \[P2\] **AM-8** Iteration during mutation has no guard
 
