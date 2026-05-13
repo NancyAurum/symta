@@ -8,7 +8,7 @@
 #
 # Quick reference:
 #   make                build runtime + plugins + examples
-#   make plugins        just the C FFI plugins (gfx, ui, ttf, svg, vfx)
+#   make plugins        just the C FFI plugins (gfx, ui, ttf, svg)
 #   make runtime        just symta(.exe) + libcinvoke
 #   make cinvoke        just libcinvoke.a
 #   make examples       compile every example under examples/
@@ -52,26 +52,31 @@ SUFFIX_osx := Makefile.osx
 SUFFIX_linux := Makefile
 
 # ------------------------------------------------------------------ plugins
+#
+# The standalone Symta distribution ships gfx, ui, ttf, svg. vfx
+# (sparse voxel octree, transpiled through the niche New-C
+# compiler) lives at the SoM project root — see ../vfx — and is
+# only built when SoM the game or VoxPie need it. A fresh symta
+# checkout doesn't pull vfx; if you `use slb` from your project
+# without it, `ffi_begin export vfx` errors out at compile time
+# with a clear "Missing ffi/vfx.ffi" message.
 
-PLUGINS := gfx ui ttf svg vfx
+PLUGINS := gfx ui ttf svg
 
 gfx_DIR := c/gfx
 ui_DIR  := c/ui
 ttf_DIR := c/ttf
 svg_DIR := c/svg
-vfx_DIR := c/vfx
 
 gfx_MAKEFILE := $(SUFFIX_$(PLATFORM))
 ui_MAKEFILE  := $(SUFFIX_$(PLATFORM))
 ttf_MAKEFILE := Makefile.w64
 svg_MAKEFILE := Makefile.w64
-vfx_MAKEFILE := Makefile
 
 gfx_OUT := lib/gfx.ffi
 ui_OUT  := lib/ui.ffi
 ttf_OUT := lib/ttf.ffi
 svg_OUT := out/svg.ffi
-vfx_OUT := lib/vfx.ffi
 
 FFI_DIR := ffi
 
@@ -225,7 +230,6 @@ clean-plugins:
 	    case $$p in \
 	      gfx|ui) echo Makefile.$(PLATFORM) ;; \
 	      ttf|svg) echo Makefile.w64 ;; \
-	      vfx) echo Makefile ;; \
 	    esac \
 	  ) clean 2>/dev/null || true; \
 	done

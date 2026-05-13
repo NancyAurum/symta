@@ -1,1 +1,0 @@
-make lib/util && lib/util
