@@ -1767,6 +1767,28 @@ copy_ffi SF DF =
   | fs_copy SF DF
   | fs_chmod 755 DF
 
+// Runtime DLLs that have to sit next to go.exe for the ui plugin's
+// SDL-import-table to resolve at load time. Kept here (vs each
+// project committing its own copies) so a user who's never run
+// `make plugins` still gets a working window the first time their
+// project does `use uim`. Hardcoded list because Symta has no
+// directory-glob primitive at compile time; revise when SDL ships
+// new sidecar DLLs or when ui swaps to a renderer that doesn't
+// need them. See symta/sdl/README.md.
+SDLBundle ['SDL2.dll' 'SDL2_mixer.dll' 'libFLAC-8.dll' 'libmikmod-2.dll'
+           'libmodplug-1.dll' 'libogg-0.dll' 'libvorbis-0.dll'
+           'libvorbisfile-3.dll' 'smpeg2.dll']
+
+stage_ui_dlls Root Build =
+| Src "[Root]sdl/"
+| less Src.exists:
+  | mex_error "Missing [Src] (ui plugin needs SDL DLLs staged from symta/sdl/)"
+| for F SDLBundle:
+  | SF "[Src][F]"
+  | DF "[Build][F]"
+  | when SF.exists: copy_ffi SF DF
+| 0
+
 FFI_AutoExport 0
 
 ffi_begin AutoExport Name =
@@ -1777,6 +1799,7 @@ ffi_begin AutoExport Name =
 | less RootFFI.exists: mex_error "Missing [RootFFI]"
 | "[Build]ffi/".mkpath
 | copy_ffi RootFFI BldFFI
+| when Name >< \ui: stage_ui_dlls Root Build
 | FFI_Lib = form \Name
 | 0
 

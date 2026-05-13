@@ -40,16 +40,14 @@ done
 
 mkdir -p "$ACTUAL" "$EXPECT"
 
-# Stage runtime assets (pic / ttf / SDL DLLs) from the 16-ui example
-# so we don't duplicate ~4MB of binaries inside the tests tree. The
-# examples are checked-in; the test dir is not.
+# Stage application-level assets (pic / ttf) from the 16-ui example
+# so the renderer can find its pictograms and fonts. The SDL runtime
+# DLLs are auto-staged by the ffi_begin macro (see symta/sdl/) the
+# first time the harness compiles its uim use, so they aren't our
+# problem here.
 ASSET_SRC="$ROOT/examples/16-ui"
 for d in pic ttf; do
   [ -d "$BUILD/$d" ] || cp -r "$ASSET_SRC/$d" "$BUILD/$d"
-done
-for f in "$ASSET_SRC"/*.dll; do
-  base=$(basename "$f")
-  [ -f "$BUILD/$base" ] || cp "$f" "$BUILD/$base"
 done
 
 # Build the harness once; uses cached sbc on subsequent runs.
