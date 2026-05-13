@@ -72,12 +72,18 @@ the commit hash and date appended.
 >   AArch64 Linux/macOS (`arch_arm64.c`). All four stubs are in
 >   tree with their calling-convention notes documented; bring
 >   them up when somebody actually needs the target.
-> - **Phase 5:** [`tests/ffi/`](tests/ffi/) project — a small
->   C `.dll` / `.so` exposing one function per (return × arg-type)
->   combo at arities 0..6, called from Symta and asserted
->   against an expected value. Tier-3 of the regression net
->   (see `symta_speedup.md` cross-cutting strategy).
-> `effort: multi-week` (Phase 1 done; Phases 2-5 remaining)
+> - **Phase 5:** [`tests/ffi/`](tests/ffi/) — comprehensive
+>   regression suite. **Landed in commit … (May 2026).** 17
+>   cases covering every (return × arg-type × arity) combination
+>   the language exposes, plus realistic-library tests (libc
+>   strlen/memset/memcpy and zlib compress/uncompress/crc32).
+>   Catches: pool-vs-slot confusion (interleave), stack-arg
+>   sign-extension (arity_i32 with negatives), xmm pool
+>   overflow (arity_f64 with 10 doubles), per-call state leakage
+>   (stress with 1000 sequential calls). See
+>   [`tests/ffi/README.md`](tests/ffi/README.md) for the full
+>   matrix.
+> `effort: multi-week` (Phase 1 + Phase 5 done; Phases 2-4 remaining)
 
 ---
 
