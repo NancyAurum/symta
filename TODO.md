@@ -339,6 +339,37 @@ state-of-the-art ECS frameworks.
 > across all five ops the suites are roughly the same; del is
 > the big win.
 
+### \[note\] **AM-pack** Packed {key, hash} slot layout — tried and reverted
+
+> **Hypothesis:** the resident-DIB check during a Robin Hood
+> probe step touches two cache lines per slot (one for `keys[i]`,
+> one for `hashes[i]`). Packing them into a single struct
+> `{key, hash, pad}` of 16 bytes -- fitting 4 slots per
+> cache line -- should drop probe cost from 2 cache-line reads
+> to 1.
+> **Result:** mixed. On `benchmark/am/bn_text`:
+>
+> | Op   | Separate arrays | Packed slots | Δ    |
+> |------|-----------------|--------------|------|
+> | ins  | 120             | 160          | +33% |
+> | hit  |  75             |  80          |  +7% |
+> | miss | 138             | 120          | -13% |
+> | del  |  51             |  75          | +47% |
+> | iter | 168             | 183          |  +9% |
+>
+> Miss wins because it spends most time in the probe loop
+> reading both key and hash -- now one cache line. Insert and
+> del lose because their write paths now write a 16-byte struct
+> instead of an 8-byte key + 4-byte hash (different cache lines,
+> but each write is a single store on the original layout). The
+> larger per-slot footprint (16 vs 12 bytes effective) also hurts
+> sequential ops like iter.
+>
+> Net regression on 4 of 5 ops. Reverted. The right path for a
+> bigger optimization is probably to fully pack `{key, val, hash}`
+> into 24-byte slots (1 cache line for everything), but that's
+> a bigger restructure -- AM-pack-v2 if someone wants to try.
+
 ### ~~\[P3\] **AM-6c** dh.h Adler-32 + fixtext fold clustering~~ (DONE)
 
 > **Where:** [`runtime/dh.h`](runtime/dh.h) `dhHash_`

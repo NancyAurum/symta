@@ -24,11 +24,9 @@
   Iteration order is unspecified across all hash modes -- the
   table is an unordered hash map, not a sequence. User code
   that needs deterministic output sorts via T.l.s or T.ks.s
-  first (see examples/18-tables.s for the pattern). AM_INT
-  iteration after AM-6 is in Robin Hood / hash order; AM_TEXT
-  on stb_ds is currently insertion-ordered as an implementation
-  artefact but that's not guaranteed and shouldn't be relied
-  on -- when AM-6b lands, AM_TEXT joins INT in hash order.
+  first (see examples/18-tables.s for the pattern). All three
+  real-hash modes iterate in Robin Hood / hash order; AM_BITMAP
+  modes iterate in increasing-gid order via the bitmap scan.
 
   Mode transitions happen lazily inside amSet/amGidSet: every
   promotion path widens the underlying type (the inverse demotion
