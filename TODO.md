@@ -291,46 +291,34 @@ state-of-the-art ECS frameworks.
 > equal. `FXN(0)` (= 0) works -- a text dyn always has T_TEXT
 > or T_FIXTEXT in its tag bits, never zero. Filed as AM-6b.
 
-### \[P2\] **AM-6b** AM_TEXT still on stb_ds — blocked on iteration-order contract
+### \[P2\] **AM-6b** AM_TEXT still on stb_ds — blocked on a perf regression
 
 > **Where:** [`runtime/am.h`](runtime/am.h)
 > **Problem:** the AM-6 standardisation completed for AM_INT,
 > but AM_TEXT still uses stb_ds's `sh*` string-keyed hashmap.
 > Different probing strategy, different growth heuristic,
 > different memory layout from ih_t / dh_t.
-> **Blocker:** `examples/18-tables.s` documents (line 41) that
-> "`for K,V T:` walks the table; insertion order is preserved."
-> stb_ds happens to preserve insertion order; nh_t doesn't
-> (Robin Hood places entries by hash). A first try at AM-6b
-> (a `th.h` instantiation analogous to `ih.h`, plus a
-> gc_types.h AM_TEXT branch that marks dyn keys) built clean
-> but broke 4 runtime tests + 25 compiler-output goldens
-> because example output relies on insertion order. The drift
-> test still passes -- the compiler is deterministic against
-> its own output -- but the goldens themselves were captured
-> under stb_ds's insertion-order iteration.
->
-> **Resolution options:**
-> - **(a) Order-preserving th_t**: add a parallel insertion-
->   order array (and free-list of recycled slots) on top of
->   nh_t. Iteration walks the order array; lookup uses the
->   hash. ~2x storage overhead, similar to Lua's array-part.
-> - **(b) Drop the contract**: update examples to sort before
->   iteration (the way 07-map and 18-tables already do for
->   GENERIC tables). Symta becomes "iteration order is
->   unspecified" across all modes; user code that needs
->   determinism sorts explicitly.
-> - **(c) Per-call sort**: have `amL` / `amKs` always return
->   sorted output for AM_TEXT. Cheap if the test surface is
->   small; doesn't help streaming iteration.
->
-> Note: AM-6 (AM_INT) already broke insertion-order for int
-> tables. No test caught it because (i) compiler internals
-> don't iterate AM_INT user-visibly and (ii) no example
-> iterates an int-keyed table whose output matters. So in
-> practice the contract was already partially broken; AM-6b
-> just makes the break visible.
-> `effort: afternoon (drop contract) / weekend (order-preserving)`
+> **Contract (resolved):** Symta hash tables are explicitly
+> unordered. `examples/18-tables.s` is updated to sort before
+> printing (`for [K V] T1.l.s: ...`) instead of relying on
+> insertion order, and the `am.h` header block documents
+> "iteration order is unspecified across all hash modes". This
+> matches what AM-6 already silently did for AM_INT, and is
+> what `for K,V T:` will get if a future AM-6b lands.
+> **Blocker (current):** a straight switch -- new `th.h`
+> instantiating nh.h with `NH_KEY=dyn` (text dyn), Adler-32
+> for BIGTEXT, the AM-15 hash cache for the resident DIB --
+> built clean and passed every regression test (with refreshed
+> goldens), but showed a ~100x slowdown on
+> `benchmark/am/bn_text`: `insert` 134 ns/op (stb_ds) →
+> 14,000 ns/op (th_t). The cause is somewhere in the th_t
+> probe path -- probe length scales with table size, suggesting
+> a hash-distribution or probe-loop issue I couldn't isolate
+> in a debugging window. Reverted; needs deeper investigation
+> (likely needs a microbenchmark of just the C-side th_t
+> Add_ to bisect the perf cliff, plus a hash-distribution
+> histogram across "key_<N>" patterns at a few cap sizes).
+> `effort: weekend (diagnose + fix)`
 
 ### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
 

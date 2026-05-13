@@ -2,8 +2,9 @@
 //
 // AM_TEXT is used by literal table syntax (`@t: name!Nancy
 // age!37 ...`) and string-keyed lookup tables. Still on stb_ds
-// today (AM-6b in TODO.md is blocked on the insertion-order
-// contract). The benchmarks here cover insert / lookup hit /
+// today (AM-6b in TODO.md is blocked on a performance issue --
+// a first switch to th_t showed a 100x slowdown on the bench
+// suite). The benchmarks here cover insert / lookup hit /
 // lookup miss / del / iterate, with keys generated as text so
 // shget paths get exercised.
 //
@@ -24,13 +25,9 @@ bn_text =
   say "\[bn_text\]"
   say "# N=[N] warmup=[WARMUP]"
 
-  // Pre-build the key list so we're benching the AM ops, not
-  // the text concatenation. The list itself lives in cache for
-  // the duration of the bench.
   Keys (map I N: "key_[I]")
 
   T (!)
-  // Warmup -- also confirms the first WARMUP keys are addable.
   times I WARMUP:
     K Keys[I]
     T.K = I

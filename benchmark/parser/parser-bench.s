@@ -8,8 +8,8 @@
 // built against.
 //
 // Run:
-//   bash tests-runtime/lineno-check.sh   # build symta.exe first
-//   ./symta/symta.exe -f tests-runtime/parser-bench.s
+//   make runtime                                 # build symta.exe first
+//   ./symta/symta.exe -f benchmark/parser/parser-bench.s
 
 Src 'symta/src/reader.s'.get.utf8
 say "source: [Src.n] bytes"

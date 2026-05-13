@@ -149,7 +149,7 @@ and diffing their AST output on every input.
 
 The C port:
 - is ~28× faster on representative inputs
-  (`tests/runtime/parser-bench.s`)
+  (`benchmark/parser/parser-bench.s`)
 - exercises a `tests/bootstrap/drift.sh` 5-stage drift check
   proving stages 2..5 are pairwise byte-identical
 - still exposes `text.parse` as a runtime built-in via a thin

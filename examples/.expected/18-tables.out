@@ -8,9 +8,9 @@ got age?    1
 T1.l =      ((name Nancy) (age 37) (city Amsterdam))
 
 fields:
-  name = Nancy
   age = 37
   city = Amsterdam
+  name = Nancy
 
 after edits: @{d!4 b!20 c!3}
 

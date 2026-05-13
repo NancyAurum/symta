@@ -16,10 +16,20 @@
     AM_TEXT     - stb_ds hashmap, string-keyed. The last
                   stb_ds use in the adaptive map; see AM-6b in
                   TODO.md for the switch-to-th_t plan and the
-                  insertion-order blocker that's keeping it on
-                  stb_ds today.
+                  perf regression that's keeping it on stb_ds
+                  today.
     AM_GENERIC  - nh_t-derived dh_t hashmap, dyn-keyed
-                  (any mix of types; Robin Hood + 75% load).
+                  (any mix of types; Robin Hood + 75% load +
+                  AM-15 hash cache).
+
+  Iteration order is unspecified across all hash modes -- the
+  table is an unordered hash map, not a sequence. User code
+  that needs deterministic output sorts via T.l.s or T.ks.s
+  first (see examples/18-tables.s for the pattern). AM_INT
+  iteration after AM-6 is in Robin Hood / hash order; AM_TEXT
+  on stb_ds is currently insertion-ordered as an implementation
+  artefact but that's not guaranteed and shouldn't be relied
+  on -- when AM-6b lands, AM_TEXT joins INT in hash order.
 
   Mode transitions happen lazily inside amSet/amGidSet: every
   promotion path widens the underlying type (the inverse demotion

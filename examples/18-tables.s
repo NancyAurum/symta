@@ -37,11 +37,13 @@ say ""
 
 
 // ----------------------------------------------------------------
-// 3. Iteration. `for K,V T:` walks the table; insertion order is
-//    preserved.
+// 3. Iteration. `for K,V T:` walks the table. Order is *not*
+//    specified -- Symta tables are unordered hash maps. If you
+//    need deterministic output, sort the pairs first (see
+//    example 6 below for the top-N pattern).
 // ----------------------------------------------------------------
 say "fields:"
-for K,V T1: say "  [K] = [V]"
+for [K V] T1.l.s: say "  [K] = [V]"   // sort for stable output
 say ""
 
 
