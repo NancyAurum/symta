@@ -256,17 +256,56 @@ state-of-the-art ECS frameworks.
 > identical to the pre-RH versions.
 > tests/am: 11/11 pass; tests/sweep.sh: 149/149.
 
-### \[P2\] **AM-6** Two underlying hashmaps (`stb_ds` and `nh_t`)
+### ~~\[P2\] **AM-6** Two underlying hashmaps (`stb_ds` and `nh_t`)~~ (PARTIAL — AM_INT done, AM_TEXT pending)
 
-> **Where:** [`runtime/am.h`](runtime/am.h) uses `stb_ds` for
-> `AM_INT` / `AM_TEXT`, `nh_t` for `AM_GENERIC`
-> **Problem:** two probing strategies, two memory layouts,
-> two places to tune load factor. Performance work has to be
-> done twice. stb_ds is also harder to specialise for our
-> cases.
-> **Fix:** standardise on `nh_t`. It's already templated for
-> typed keys via macro instantiation. Drop stb_ds usage from
-> am.h entirely.
+> **Where:** [`runtime/am.h`](runtime/am.h),
+> [`runtime/ih.h`](runtime/ih.h) (new)
+> **Resolution (AM_INT):** new `ih.h` instantiates `nh_t` with
+> `NH_KEY=dyn`, `NH_KEY_NIL=NIL` (= 1; can't collide with any
+> FXN(n) since real int keys always have low GID_SHFT bits =
+> 0), Robin Hood probing on, 75% load factor. am.h's AM_INT
+> mode now uses `ih_t *` everywhere stb_ds's `symta_itbl` lived
+> -- ihGet replaces hmget, ihSet replaces hmput, ihDel replaces
+> hmdel, ihN replaces hmlen, ihFree replaces hmfree, and
+> NH_FOR replaces the `for (i; i < hmlen; ++i) hm[i]` raw walk.
+> gc_types.h's tbl_gc_internals also switched.
+>
+> Effect: ECS column tables (the most common AM_INT users)
+> now get the same Robin Hood + 75% load throughput / memory
+> characteristics that dh.h (AM_GENERIC) does. One probing
+> strategy, one growth heuristic, one place to tune.
+>
+> Iteration-order change: stb_ds was insertion-ordered with
+> swap-on-delete; ih_t is hash-ordered. The drift test passed
+> in one round (s1==s2 byte-identical .sbc), which means none
+> of the compile-time AM_INT tables iterate-order-leak into
+> codegen. tc_int's "round-trip [K]" output reordered, no
+> behavior change.
+>
+> **Still pending:** AM_TEXT mode still uses stb_ds's `sh*`
+> string-hashmap. Switching it requires either (a) a separate
+> nh.h instantiation with `NH_KEY=char*` plus a copy-on-insert
+> arena (sh_new_arena's role), or (b) storing text dyns
+> directly and using texts_equal for NH_EQUAL. Option (b) is
+> cleaner but needs a sentinel value that no Symta text can
+> equal. `FXN(0)` (= 0) works -- a text dyn always has T_TEXT
+> or T_FIXTEXT in its tag bits, never zero. Filed as AM-6b.
+
+### \[P2\] **AM-6b** AM_TEXT still on stb_ds
+
+> **Where:** [`runtime/am.h`](runtime/am.h)
+> **Problem:** the AM-6 standardisation completed for AM_INT,
+> but AM_TEXT still uses stb_ds's `sh*` string-keyed hashmap.
+> Different probing strategy, different growth heuristic,
+> different memory layout from ih_t / dh_t.
+> **Fix:** create `th.h` (text-keyed Symta hash) that
+> instantiates `nh_t` with `NH_KEY=dyn` (storing the text dyn
+> directly), `NH_KEY_NIL=FXN(0)` (impossible value -- a text
+> dyn always has a non-zero tag), `NH_HASH` calls dhAdler_ on
+> the bigtext bytes (or folds the fixtext bits), `NH_EQUAL`
+> calls texts_equal. Routes AM_TEXT through the same Robin
+> Hood + 75% load as INT and GENERIC. AM_TEXT → AM_GENERIC
+> promotion stays as-is.
 > `effort: afternoon`
 
 ### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)

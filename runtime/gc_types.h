@@ -143,9 +143,9 @@ static void tbl_gc_internals(dyn o) {
       GC_REC(*t,*t);
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    for (int i=0; i < hmlen(hm); ++i) {
-      dyn *t = &hm[i].value;
+    ih_t *hm = AM_BASE(o);
+    NH_FOR(ih,i,hm) {
+      dyn *t = ihVal(hm,i);
       GC_REC(*t,*t);
     }
   GOT(AM_BITMAP0)

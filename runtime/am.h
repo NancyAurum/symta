@@ -81,6 +81,7 @@ Todo:
 
 #include "ng.h"
 #include "dh.h"
+#include "ih.h"
 #include "nb.h"
 #include "prf.h"
 
@@ -123,7 +124,12 @@ extern uint32_t amFinalizerHook;
 #define AM_BITMAP1 5
 
 
-typedef struct { uint64_t key; dyn value; } *symta_itbl;
+/* symta_stbl is the stb_ds string-keyed hashmap row layout
+ * (AM_TEXT mode). symta_itbl used to be the int-keyed sibling;
+ * AM-6 (TODO.md) replaced it with ih_t (nh_t-template) so the
+ * adaptive map runs a single hash strategy for both AM_INT and
+ * AM_GENERIC -- Robin Hood probing at 75% load, identical
+ * Murmur3-based hash, identical backshift delete. */
 typedef struct { char *key; dyn value; } *symta_stbl;
 
 
@@ -132,9 +138,9 @@ INLINE dyn amGidGet(dyn o, dyn ref) {
   CASE(AM_TYPE(o))
   GOT(AM_EMPTY) r = AM_VOID(o);
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
+    ih_t *hm = AM_BASE(o);
     dyn key = FXN(O_GID(ref));
-    r = hmget(hm,(uint64_t)key);
+    r = ihGet(hm, key);
     if (r == NIL) r = AM_VOID(o);
   GOT(AM_BITMAP0)
     nb_t nb = AM_BASE(o);
@@ -173,11 +179,13 @@ INLINE dyn amRefs(dyn o, uint64_t tag) {
   GOT(AM_TEXT)
     r = Empty;
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    int n = hmlen(hm);
+    ih_t *hm = AM_BASE(o);
+    int n = ihN(hm);
     LIST(r,n);
-    for (int i=0; i < n; ++i) {
-      LGET(r,i) = MKIMM(tag,UNFXN((dyn)hm[i].key));
+    int j = 0;
+    NH_FOR(ih,i,hm) {
+      LGET(r,j) = MKIMM(tag,UNFXN(*ihKey(hm,i)));
+      j++;
     }
   GOT(AM_GENERIC)
     r = Empty;
@@ -218,9 +226,9 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       AM_BASE(o) = hm;
       return;
     GOT(AM_INT)
-      symta_itbl hm = AM_BASE(o);
+      ih_t *hm = AM_BASE(o);
       if (O_TAG(key) == T_INT) {
-        hmdel(hm, (uint64_t)key);
+        ihDel(&hm, key);
         AM_BASE(o) = hm;
       }
       return;
@@ -255,15 +263,14 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       AM_BASE(o) = nb;
       AM_SET_TYPE(o, AM_BITMAP1);
     } else {
-      symta_itbl hm = 0;
-      hmdefault(hm, NIL);
-      hmput(hm, (uint64_t)key, value);
+      ih_t *hm = ihAlloc();
+      ihSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_INT);
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    hmput(hm, (uint64_t)key, value);
+    ih_t *hm = AM_BASE(o);
+    ihSet(&hm, key, value);
     AM_BASE(o) = hm;
   GOT(AM_BITMAP0)
     nb_t nb = AM_BASE(o);
@@ -271,10 +278,9 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       nbSet(&nb,UNFXN(key));
       AM_BASE(o) = nb;
     } else {
-      symta_itbl hm = 0;
-      hmdefault(hm, NIL);
-      NB_FOR(id,nb) hmput(hm, (uint64_t)FXN(id), FXN(0));
-      hmput(hm, (uint64_t)key, value);
+      ih_t *hm = ihAlloc();
+      NB_FOR(id,nb) ihSet(&hm, FXN(id), FXN(0));
+      ihSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_INT);
     }
@@ -284,10 +290,9 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       nbSet(&nb,UNFXN(key));
       AM_BASE(o) = nb;
     } else {
-      symta_itbl hm = 0;
-      hmdefault(hm, NIL);
-      NB_FOR(id,nb) hmput(hm, (uint64_t)FXN(id), FXN(1));
-      hmput(hm, (uint64_t)key, value);
+      ih_t *hm = ihAlloc();
+      NB_FOR(id,nb) ihSet(&hm, FXN(id), FXN(1));
+      ihSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_INT);
     }
@@ -305,8 +310,8 @@ static dyn amClear(uint8_t *bc_) {
     symta_stbl hm = AM_BASE(o);
     shfree(hm);
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    hmfree(hm);
+    ih_t *hm = AM_BASE(o);
+    ihFree(hm);
   GOT(AM_BITMAP0)
     nb_t nb = AM_BASE(o);
     nbFree(nb);
@@ -342,8 +347,8 @@ INLINE dyn amHas(dyn o, dyn key) { //Key exists
     symta_stbl hm = AM_BASE(o);
     r = shget(hm,text_chars(key));
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    r = hmget(hm,(uint64_t)key);
+    ih_t *hm = AM_BASE(o);
+    r = ihGet(hm, key);
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
@@ -380,8 +385,8 @@ INLINE dyn amGot(dyn o, dyn key) { //key both exists and has value != No
     symta_stbl hm = AM_BASE(o);
     r = shget(hm,text_chars(key));
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    r = hmget(hm,(uint64_t)key);
+    ih_t *hm = AM_BASE(o);
+    r = ihGet(hm, key);
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
@@ -413,8 +418,8 @@ INLINE dyn amGet(dyn o, dyn key) {
     r = shget(hm,text_chars(key));
     if (r == NIL) r = AM_VOID(o);
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    r = hmget(hm,(uint64_t)key);
+    ih_t *hm = AM_BASE(o);
+    r = ihGet(hm, key);
     if (r == NIL) r = AM_VOID(o);
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
@@ -482,9 +487,9 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
        * text-keyed table looked like a no-op. */
       return;
     GOT(AM_INT)
-      symta_itbl hm = AM_BASE(o);
+      ih_t *hm = AM_BASE(o);
       if (O_TAG(key) == T_INT) {
-        hmdel(hm, (uint64_t)key);
+        ihDel(&hm, key);
         AM_BASE(o) = hm;
       }
       return;
@@ -525,9 +530,8 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         AM_BASE(o) = nb;
         AM_SET_TYPE(o, AM_BITMAP1);
       } else {
-        symta_itbl hm = 0;
-        hmdefault(hm, NIL);
-        hmput(hm, (uint64_t)key, value);
+        ih_t *hm = ihAlloc();
+        ihSet(&hm, key, value);
         AM_BASE(o) = hm;
         AM_SET_TYPE(o, AM_INT);
       }
@@ -563,19 +567,19 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
       shfree(hm);
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
+    ih_t *hm = AM_BASE(o);
     if (O_TAG(key) == T_INT) {
-      hmput(hm, (uint64_t)key, value);
+      ihSet(&hm, key, value);
       AM_BASE(o) = hm;
     } else { //convert to dynamic key type hash map
       dh_t *dh = dhAlloc();
-      for (int i=0; i < hmlen(hm); ++i) {
-        dhSet(&dh, (dyn)hm[i].key, hm[i].value);
+      NH_FOR(ih,i,hm) {
+        dhSet(&dh, *ihKey(hm,i), *ihVal(hm,i));
       }
       dhSet(&dh, key, value);
       AM_BASE(o) = dh;
       AM_SET_TYPE(o, AM_GENERIC);
-      hmfree(hm);
+      ihFree(hm);
     }
   GOT(AM_BITMAP0)
     nb_t nb = AM_BASE(o);
@@ -584,10 +588,9 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         nbSet(&nb,UNFXN(key));
         AM_BASE(o) = nb;
       } else {
-        symta_itbl hm = 0;
-        hmdefault(hm, NIL);
-        NB_FOR(id,nb) hmput(hm, (uint64_t)FXN(id), FXN(0));
-        hmput(hm, (uint64_t)key, value);
+        ih_t *hm = ihAlloc();
+        NB_FOR(id,nb) ihSet(&hm, FXN(id), FXN(0));
+        ihSet(&hm, key, value);
         AM_BASE(o) = hm;
         AM_SET_TYPE(o, AM_INT);
       }
@@ -606,10 +609,9 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         nbSet(&nb,UNFXN(key));
         AM_BASE(o) = nb;
       } else {
-        symta_itbl hm = 0;
-        hmdefault(hm, NIL);
-        NB_FOR(id,nb) hmput(hm, (uint64_t)FXN(id), FXN(1));
-        hmput(hm, (uint64_t)key, value);
+        ih_t *hm = ihAlloc();
+        NB_FOR(id,nb) ihSet(&hm, FXN(id), FXN(1));
+        ihSet(&hm, key, value);
         AM_BASE(o) = hm;
         AM_SET_TYPE(o, AM_INT);
       }
@@ -638,9 +640,9 @@ INLINE dyn amDel(dyn o, dyn key) {
       AM_BASE(o) = hm;
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
+    ih_t *hm = AM_BASE(o);
     if (O_TAG(key) == T_INT) {
-      hmdel(hm, (uint64_t)key);
+      ihDel(&hm, key);
       AM_BASE(o) = hm;
     }
   GOT(AM_BITMAP0)
@@ -669,8 +671,8 @@ INLINE dyn amN(dyn o) {
     symta_stbl hm = AM_BASE(o);
     return FXN(shlen(hm));
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    return FXN(hmlen(hm));
+    ih_t *hm = AM_BASE(o);
+    return FXN(ihN(hm));
   GOT(AM_BITMAP0)
     nb_t nb = AM_BASE(o);
     return FXN(nbN(nb));
@@ -700,15 +702,17 @@ INLINE dyn amL(dyn o) {
       LGET(r,i) = kv;
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    int n = hmlen(hm);
+    ih_t *hm = AM_BASE(o);
+    int n = ihN(hm);
     LIST(r,n);
-    for (int i=0; i < n; ++i) {
+    int j = 0;
+    NH_FOR(ih,i,hm) {
       dyn kv;
       LIST(kv,2);
-      LGET(kv,0) = (dyn)hm[i].key;
-      LGET(kv,1) = hm[i].value;
-      LGET(r,i) = kv;
+      LGET(kv,0) = *ihKey(hm,i);
+      LGET(kv,1) = *ihVal(hm,i);
+      LGET(r,j) = kv;
+      j++;
     }
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);
@@ -771,11 +775,13 @@ INLINE dyn amKs(dyn o) {
       LGET(r,i) = t;
     }
   GOT(AM_INT)
-    symta_itbl hm = AM_BASE(o);
-    int n = hmlen(hm);
+    ih_t *hm = AM_BASE(o);
+    int n = ihN(hm);
     LIST(r,n);
-    for (int i=0; i < n; ++i) {
-      LGET(r,i) = (dyn)hm[i].key;
+    int j = 0;
+    NH_FOR(ih,i,hm) {
+      LGET(r,j) = *ihKey(hm,i);
+      j++;
     }
   GOT(AM_GENERIC)
     dh_t *hm = AM_BASE(o);

@@ -17,8 +17,8 @@ PASS has 42 after No
 PASS has 10 after del
 PASS get 10 after del
 PASS ks len == n
-PASS round-trip -5
-PASS round-trip 30
 PASS round-trip 20
+PASS round-trip 30
+PASS round-trip -5
 PASS normal write
 PASS set-to-void deletes
