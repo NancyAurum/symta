@@ -52,7 +52,10 @@ for f in examples/*.s; do
     tr -d '\r' \
       | sed -e 's/\bgid=[0-9]\{6,\}/gid=XXXXX/g' \
             -e 's/^heap used: [0-9]\{1,\}+[0-9]\{1,\}$/heap used: XXX+XXX/' \
-            -e 's/^object=[0-9a-fA-F]\{4,\}/object=XXXXX/'
+            -e 's/^object=[0-9a-fA-F]\{4,\}/object=XXXXX/' \
+            -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/|REPO/|g' \
+            -e 's|/home/[^/]*/[^,]*/symta/|REPO/|g' \
+            -e 's|/Users/[^/]*/[^,]*/symta/|REPO/|g'
   }
 
   # Some examples have benign nondeterminism (hash iteration order,

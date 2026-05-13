@@ -34,7 +34,9 @@ done
 mkdir -p "$HERE/out"
 
 # The harness exits non-zero on any test failure; passthrough.
-( cd "$HERE" && ./go.exe )
+GO="$HERE/go.exe"
+[ -x "$GO" ] || GO="$HERE/go"
+( cd "$HERE" && "$GO" )
 rc=$?
 
 if [ $UPDATE -eq 1 ] && [ $rc -ne 0 ]; then

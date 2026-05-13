@@ -103,7 +103,11 @@ for name in "${CASES[@]}"; do
   out="$HERE/actual/$name.out"
   golden="$HERE/expected/$name.out"
 
-  raw=$( cd "$HERE" && ./go.exe --case=$name 2>&1 )
+  # On Windows the compiled output is `go.exe`; on Linux/macOS it's
+  # just `go`. Both produced by the same `symta .` invocation above.
+  GO="$HERE/go.exe"
+  [ -x "$GO" ] || GO="$HERE/go"
+  raw=$( cd "$HERE" && "$GO" --case=$name 2>&1 )
   printf '%s\n' "$raw" | tr -d '\r' > "$out"
 
   # Fast pre-check: any FAIL in actual = test failed.

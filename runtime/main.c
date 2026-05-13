@@ -466,7 +466,11 @@ static int ctx_error_handler(ctx_error_t *info) {
     } else*/ if ((uint8_t*)api.heap0 <= p && p < (uint8_t*)api.heap1+HEAP_SIZE) {
       rterr("out of memory");
     } else {
-      rterr("segfault at %p (heap=%p)", p, (uint8_t*)api.heap0);
+      /* Zero-padded 16-digit hex matches Win/macOS CRT output and
+       * keeps `tests/.../run.sh` byte-diffs portable. */
+      rterr("segfault at %016llx (heap=%016llx)",
+            (unsigned long long)(uintptr_t)p,
+            (unsigned long long)(uintptr_t)(uint8_t*)api.heap0);
     }
   } else {
     rterr("%s", info->text);
@@ -794,10 +798,41 @@ int main(int argc, char **argv) {
   void *R;
   char *tmp;
 
+#ifdef __linux__
+  /* Match Windows' merged-output interleaving exactly so the test
+   * goldens survive a cross-platform diff:
+   *
+   *   - stdout: line-buffered, so program-side `say`/printf
+   *     content flushes per line and stays in chronological order
+   *     with stderr writes that happen between them.
+   *
+   *   - stderr: block-buffered, so the runtime's `fprintf(stderr,…)`
+   *     bursts (stack traces especially) accumulate in a buffer
+   *     and only emit at exit. On Windows the C runtime does the
+   *     same thing implicitly when stderr is a pipe; on glibc
+   *     stderr is unbuffered by default which causes stack traces
+   *     to interleave AHEAD of in-flight stdout content.
+   *
+   * Together these reproduce the "stdout drained then stderr"
+   * order the Win64 build emits when invoked via `2>&1`. */
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOFBF, 0);
+#endif
+
+#ifndef __linux__
+  /* Historical invariant: heap addresses must sort below code
+   * addresses so the runtime can fingerprint pointers by range.
+   * Holds on Win64 (image base at 0x100000000+) and macOS (same
+   * with -image_base 0x100000000). On Linux there's no clean
+   * GNU-ld equivalent of -image_base — heap and code both live in
+   * the low 4 GiB. Nothing else in the runtime currently depends
+   * on this layout, so we skip the check. Revisit if a future
+   * encoding scheme needs it (or use -Ttext to pin code high). */
   if ((void*)malloc(1) > (void*)&main) {
     fprintf(stderr, "FIXME: heap is above the code. Edit BLTIN_BASE.\n");
     exit(-1);
   }
+#endif
 
   shdefault(methlut,-1);
   shdefault(typelut,-1);

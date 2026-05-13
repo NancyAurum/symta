@@ -231,6 +231,14 @@ void fatal(char *fmt, ...) { //for fatal unrecoverable errors
 }
 
 void rterr_(char *msg) {
+  /* Flush any pending stdout BEFORE writing to stderr. Without this,
+   * stdout content that was line-buffered (or block-buffered when
+   * piped) is held until atexit, while stderr writes immediately,
+   * so the merged 2>&1 stream sees stderr interleaved BEFORE the
+   * preceding stdout content. Test goldens were captured on Windows
+   * where stdout-then-stderr was the implicit order; matching that
+   * on Linux just means flushing here. */
+  fflush(stdout);
   if (!api.error_handler) {
     fprintf(stderr, "UNHANDLED ERROR\n");
     fprintf(stderr, "%s\n", msg);
@@ -274,7 +282,19 @@ static NOINLINE void bad_call(char *method_name, char *msg) {
 
 static int inside_stack_trace = 0;
 void print_stack_trace() {
-  void *fn;
+  /* `fn` was originally meant to be the per-frame function pointer
+   * for symbolication, but the actual assignment was lost (or never
+   * landed) — print_stack_trace just printed `void *fn` uninitialised
+   * for as long as anyone remembers. On Win64 the stack layout
+   * happened to leave it zero, so `%p` printed "0000000000000000"
+   * and the test goldens captured that. On glibc the same uninit
+   * pointer prints "(nil)", which breaks byte-identical comparison.
+   *
+   * Fix: explicitly zero `fn` and use a portable hex format that
+   * produces the same 16-digit zero-padded representation on every
+   * platform. When someone wires up real symbolication they can
+   * replace the literal zero with a real address. */
+  uintptr_t fn = 0;
   fn_meta_t *meta;
   int row, col;
   char *name, *origin;
@@ -299,7 +319,8 @@ void print_stack_trace() {
       row = meta->row;
       col = meta->col;
     }
-    fprintf(stderr, "  %p:%s:%d,%d,%s\n", fn, name, row, col, origin);
+    fprintf(stderr, "  %016llx:%s:%d,%d,%s\n",
+            (unsigned long long)fn, name, row, col, origin);
     if (++sp_count > 50) {
       fprintf(stderr, "  ...stack is too big...\n");
       return;
@@ -2219,7 +2240,11 @@ BUILTIN_VARARGS("__",sink)
             ? fmt("%s has no method ", types[tag].name)
             : fmt("Bad tag %d, for method call ", tag);
   char *b = fmt("%s\n", print_object(name));
-  char *c = fmt("object=%p (tag=%ld)\n", o, O_TAG(o));
+  /* Zero-padded 16-digit hex for cross-platform output stability
+   * (glibc prints `(nil)` and `0x...` for %p; Win CRT prints
+   * `00000000...`). Test goldens already use the zero-padded form. */
+  char *c = fmt("object=%016llx (tag=%ld)\n",
+                (unsigned long long)(uintptr_t)o, (long)O_TAG(o));
   char *d = fmt("%s%s%s",a,b,c);
   arrfree(a);
   arrfree(b);
@@ -2515,7 +2540,6 @@ void init_root_sink() {
 
 static void init_args(int argc, char **argv) {
   int i;
-  char tmp[1024];
   char *lib_path;
   int main_argc = argc-1;
   char **main_argv = argv+1;
@@ -2531,9 +2555,32 @@ static void init_args(int argc, char **argv) {
     main_path = strdup(".");
   }
 
-  realpath(main_path, tmp);
-  free(main_path);
-  main_path = strdup(tmp);
+  /* realpath(NULL) malloc()s the resolved path. Glibc's fortified
+   * realpath aborts if the caller-supplied buffer is smaller than
+   * PATH_MAX (4096) — passing a 1024-byte stack buffer used to
+   * trigger "*** buffer overflow detected ***" on first launch.
+   * Letting libc allocate the right-sized buffer is the portable
+   * fix; we transfer ownership to main_path via the resulting
+   * pointer.
+   *
+   * realpath() also strips the trailing separator that init_args
+   * left on the parsed argv[0]. Callers (fmt("%ssbc.saf", main_path),
+   * cat(main_path, "sbc"), ...) assume main_path ends with one,
+   * so we add it back. */
+  {
+    char *resolved = realpath(main_path, NULL);
+    free(main_path);
+    if (resolved) {
+      size_t n = strlen(resolved);
+      main_path = (char*)malloc(n + 2);
+      memcpy(main_path, resolved, n);
+      main_path[n]   = '/';
+      main_path[n+1] = 0;
+      free(resolved);
+    } else {
+      main_path = strdup("./");
+    }
+  }
 
   LIST(main_args, main_argc);
   for (i = 0; i < main_argc; i++) {

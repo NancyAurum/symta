@@ -1,7 +1,16 @@
 #ifndef SRT_COMMON_H
 #define SRT_COMMON_H
 
-#ifdef __GNUC__
+// On Linux we deliberately DON'T push hidden visibility: the symta
+// runtime is linked as an executable (not a shared library), and
+// `push(hidden)` here would cascade through the system headers
+// pulled in by symta.h / ng.h below, marking libc symbols (exit,
+// malloc, stderr, ...) as hidden undefined references. ld then
+// refuses to satisfy them from libc.so.* — "hidden symbol X isn't
+// defined". On Windows + macOS the original push is preserved
+// because their toolchains either tolerate this or rely on
+// -fvisibility=hidden in CFLAGS for the same effect.
+#if defined(__GNUC__) && !defined(__linux__)
 #pragma GCC visibility push(hidden)
 #endif
 
@@ -158,6 +167,7 @@ uint32_t sbc_hook(psf_t fn, uint8_t *payload);
 #include "unix/compat.h"
 #include "linux/compat.h"
 #include <sys/mman.h>
+#define _mprotect mprotect
 #endif
 
 #define CAR(x) O_RELOC(x)

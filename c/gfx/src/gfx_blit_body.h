@@ -104,16 +104,19 @@ if (sa == 0) {
   , 0xff, 12, 0xff, 0xff
   , 0xff, 12, 0xff, 0xff
   };
-  //__m128 msa = _mm_set1_epi32(sa<<8);
+  /* These are integer-domain SSE intrinsics (epi32, epi16, epi8),
+   * so the local vector type must be __m128i not __m128. GCC <= 12
+   * silently let `__m128` through; GCC 13 (Ubuntu 24.04) is strict
+   * and refuses the implicit float-vs-int vector conversion. */
   #if defined B_BRIGHTEN || defined B_SATURATE
-  __m128 srgb = _mm_setr_epi32(sb,sg,sr,sa);
+  __m128i srgb = _mm_setr_epi32(sb,sg,sr,sa);
   #else
-  __m128 srgb = _mm_shuffle_epi8(_mm_set1_epi32(c),sse_imsk);
+  __m128i srgb = _mm_shuffle_epi8(_mm_set1_epi32(c),sse_imsk);
   #endif
-  __m128 msa = _mm_shuffle_epi8(srgb,*(__m128i*RESTRICT)iamsk);
-  __m128 drgb = _mm_shuffle_epi8(_mm_set1_epi32(DC),sse_imsk);
-  __m128 r1 = _mm_mulhi_epu16(_mm_sub_epi16(drgb,srgb), msa);
-  __m128 r2 = _mm_add_epi16(r1, srgb);
+  __m128i msa = _mm_shuffle_epi8(srgb,*(__m128i*RESTRICT)iamsk);
+  __m128i drgb = _mm_shuffle_epi8(_mm_set1_epi32(DC),sse_imsk);
+  __m128i r1 = _mm_mulhi_epu16(_mm_sub_epi16(drgb,srgb), msa);
+  __m128i r2 = _mm_add_epi16(r1, srgb);
   DC = _mm_extract_epi32(_mm_shuffle_epi8(r2,sse_omsk),0);
 #else //X86_SSE
   int dr, dg, db;

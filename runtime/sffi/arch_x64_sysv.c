@@ -31,6 +31,7 @@
  * dispatch is different: separate counters for int and float regs.
  */
 
+#include <stdio.h>
 #include "sffi.h"
 #include <stddef.h>
 #include <stdlib.h>
@@ -123,12 +124,38 @@ uint64_t sffi_arch_call(const sffi_sig_t *sig, void *target,
   }
   frame.n_stk = stk;
 
+  /* CRITICAL — push rsp well past `frame` BEFORE the asm carves
+   * its call-site stack region.
+   *
+   * Without this, the C compiler positions `frame` (408 B) so that
+   * roughly half of it sits below the function's rsp, in the SysV
+   * 128-byte red zone. The asm's `subq stk_bytes, %rsp` then lands
+   * inside frame.i[3..5]'s storage. The subsequent `rep movsq`
+   * writes the stack args we read from frame.stk_args back into
+   * frame.i[3..5] — clobbering int-register args 4..6 with stack
+   * args 7..9. Reproduces as a +9 offset on c_sum_i32_12 (1..12
+   * sums to 78, but we get 87 because args 4,5,6 are replaced by
+   * 7,8,9 before the asm reads them into r8/r9/rcx).
+   *
+   * Bumping rsp down past sizeof(frame) (plus a safety margin)
+   * guarantees frame is entirely ABOVE the call-site stack region.
+   * volatile + the dummy store keep the compiler from elision. */
+  volatile uint64_t pad[SFFI_MAX_ARGS + 8];
+  pad[0] = 0;
+  (void)pad;
+
   __asm__ volatile (
+      /* See the long comment in arch_x64_win.c::sffi_arch_call for
+       * why frame_addr must land in %rbx BEFORE we touch %rbp: the
+       * compiler is allowed to allocate %rbp for the [frame_addr]
+       * "r" input (rbp is not in our clobber list), so by the time
+       * we did `movq frame_addr, %rbx` after `movq %rsp, %rbp`, rbp
+       * would already be overwritten and rbx would point at random
+       * stack memory. Same risk on every SysV ABI we target. */
       "pushq %%rbx\n\t"
+      "movq  %[frame_addr], %%rbx\n\t"    /* rbx = &frame (safe — rbp untouched) */
       "pushq %%rbp\n\t"
       "movq  %%rsp, %%rbp\n\t"
-
-      "movq  %[frame_addr], %%rbx\n\t"
 
       /* Align rsp to 16 and carve stk_bytes. */
       "andq  $-16, %%rsp\n\t"
