@@ -2238,6 +2238,16 @@ BUILTIN3("ffi_memset",ffi_memset,C_ANY,ptr,C_INT,value,C_INT,size)
   memset((void*)ptr, UNFXN(value), UNFXN(size));
 RETURNS(No)
 
+/* ffi_memcmp(p,q,size) -> int. Returns 0 when the two buffers are
+ * byte-identical, non-zero otherwise (the signed direction is
+ * memcmp's: <0 if `p` < `q` lexicographically, >0 otherwise). Faster
+ * than walking individual pixels through gfx.get when you have a
+ * pixel buffer and you only need an equality test (e.g. PNG-pixel
+ * golden comparison). */
+BUILTIN3("ffi_memcmp",ffi_memcmp,C_ANY,ptr_a,C_ANY,ptr_b,C_INT,size)
+  R = FXN(memcmp((void*)ptr_a, (void*)ptr_b, UNFXN(size)));
+RETURNS(R)
+
 /*
 // here is how a method can be reapplied to other type:
 type meta.~ O M: object_!O meta_!M
@@ -2313,6 +2323,7 @@ static struct {
   B(ffi_alloc)
   B(ffi_free)
   B(ffi_memset)
+  B(ffi_memcmp)
   B(ncm_process_)
   B(parse_module_hdr_)
   B(get_deh)

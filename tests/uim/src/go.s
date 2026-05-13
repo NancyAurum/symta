@@ -43,42 +43,51 @@ for A main_args():
 // libpng version (zlib chunk choice, filter selection, ancillary
 // chunk ordering, etc.) -- the pixels are what we're actually testing.
 when got ArgPngcmpA:
-  // Per-channel tolerance. Cross-platform we've seen up to ~20 per
-  // channel on text AA fringes (FreeType version differences) and on
-  // title-bar / window-chrome backgrounds (SDL2 default theme
-  // varies). 32 (~12.5% of full range) absorbs every benign
-  // platform drift we've measured so far while still catching real
-  // regressions -- a wrong-colour widget would show ±100+. Past
-  // tolerance the test reports the worst offending pixel so the
-  // first deltas of a real change are still easy to investigate.
+  // Two-stage pixel comparison:
+  //   1. Fast path: dimensions match -> ffi_memcmp the entire RGBA
+  //      buffer in one shot. memcmp is ~100x faster than walking
+  //      gfx.get(X,Y) per pixel through the FFI, so the >99% common
+  //      "screenshot matches exactly" case finishes in milliseconds.
+  //   2. Slow path: when memcmp says "different", walk pixel-by-
+  //      pixel and apply the per-channel tolerance. We tolerate up
+  //      to ~32 per channel because cross-platform we've measured
+  //      ~20 on text AA fringes (FreeType version) and on window-
+  //      chrome backgrounds (SDL2 theme defaults). 32 absorbs that
+  //      while still catching real regressions (those show ±100+).
   Tolerance 32
   GA gfx ArgPngcmpA
   GB gfx ArgPngcmpB
   if GA.w <> GB.w or GA.h <> GB.h:
     say "DIFF size [GA.w]x[GA.h] vs [GB.w]x[GB.h]"
   else
-    Same 1
-    MaxDelta 0
-    DiffPixel No
-    for Y GA.h: for X GA.w:
-      when Same:
-        PA GA.get(X Y)
-        PB GB.get(X Y)
-        // Compare channels independently; max(|chan_a - chan_b|).
-        // gfx packs RGBA as 0xAABBGGRR (Symta low byte = R).
-        // `-*-` is bitwise AND, `->-` is shift-right in Symta.
-        DR (PA       -*- 0xFF) - (PB       -*- 0xFF)
-        DG (PA ->-  8 -*- 0xFF) - (PB ->-  8 -*- 0xFF)
-        DB (PA ->- 16 -*- 0xFF) - (PB ->- 16 -*- 0xFF)
-        DA (PA ->- 24 -*- 0xFF) - (PB ->- 24 -*- 0xFF)
-        D max DR.abs DG.abs DB.abs DA.abs
-        when D > MaxDelta: MaxDelta = D
-        when D > Tolerance:
-          Same = 0
-          DiffPixel =: X Y
-    if Same
-      then say "MATCH (max channel delta=[MaxDelta])"
-      else say "DIFF pixel [DiffPixel.0],[DiffPixel.1]: [GA.get(DiffPixel.0 DiffPixel.1).x] vs [GB.get(DiffPixel.0 DiffPixel.1).x] (tolerance=[Tolerance])"
+    // RGBA = 4 bytes/pixel; gfx.pixels is the raw frame buffer.
+    NBytes GA.w*GA.h*4
+    if ffi_memcmp(GA.pixels GB.pixels NBytes) >< 0:
+      say "MATCH"
+    else
+      // Pixel-level fallback with per-channel tolerance.
+      Same 1
+      MaxDelta 0
+      DiffPixel No
+      for Y GA.h: for X GA.w:
+        when Same:
+          PA GA.get(X Y)
+          PB GB.get(X Y)
+          // Compare channels independently; max(|chan_a - chan_b|).
+          // gfx packs RGBA as 0xAABBGGRR (Symta low byte = R).
+          // `-*-` is bitwise AND, `->-` is shift-right in Symta.
+          DR (PA       -*- 0xFF) - (PB       -*- 0xFF)
+          DG (PA ->-  8 -*- 0xFF) - (PB ->-  8 -*- 0xFF)
+          DB (PA ->- 16 -*- 0xFF) - (PB ->- 16 -*- 0xFF)
+          DA (PA ->- 24 -*- 0xFF) - (PB ->- 24 -*- 0xFF)
+          D max DR.abs DG.abs DB.abs DA.abs
+          when D > MaxDelta: MaxDelta = D
+          when D > Tolerance:
+            Same = 0
+            DiffPixel =: X Y
+      if Same
+        then say "MATCH (within tolerance; max channel delta=[MaxDelta])"
+        else say "DIFF pixel [DiffPixel.0],[DiffPixel.1]: [GA.get(DiffPixel.0 DiffPixel.1).x] vs [GB.get(DiffPixel.0 DiffPixel.1).x] (tolerance=[Tolerance])"
   halt
 
 W ArgW(No=640)
