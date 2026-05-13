@@ -365,6 +365,39 @@ int sbcd = 0; //SBC debug
 int sbc_opc;
 int64_t sbc_icount;
 
+/* RT-1: bytecode dispatch -- switch(RD8) vs computed gotos.
+ *
+ * Define SBC_THREADED_DISPATCH at build time (e.g. via -D) to
+ * compile the threaded variant: one indirect branch per opcode
+ * (`goto *dt[*pin++]`) instead of one centralised indirect in
+ * the switch's jump table. Empirically ~10-25 % faster on tight
+ * inner loops because each opcode gets its own branch-predictor
+ * entry for the *next* opcode (the predictor learns common
+ * opcode-to-opcode transitions like `FXNADD -> ST_4_x`). See
+ * benchmark/rt/ for measurements.
+ *
+ * The case bodies are byte-identical between modes; the OP()
+ * and BREAK macros bridge the syntactic difference (case label
+ * vs goto label, break vs goto-next). The nested switch inside
+ * SBC_NFI's return-type handling is left as a real switch in
+ * both modes -- BREAK inside it does the right thing in either
+ * dispatch flavour (exits via inner break, then outer break or
+ * jumps to next outer opcode directly).
+ *
+ * Default is the portable switch dispatch; threaded mode needs
+ * GCC's computed-goto extension (works on gcc/clang/MinGW; not
+ * MSVC -- but Symta ships on w64devkit so that's a non-issue).
+ */
+#ifdef SBC_THREADED_DISPATCH
+  #define OP(op)    L_##op:
+  #define BREAK     goto *dt[*pin++]
+  #define DEFAULT   L_default:
+#else
+  #define OP(op)    case op:
+  #define BREAK     break
+  #define DEFAULT   default:
+#endif
+
 dyn sbc_exec_fn(uint8_t *pin) {
 #if 0
   if (pin[-1] != SBC_SUBR) {
@@ -377,67 +410,232 @@ dyn sbc_exec_fn(uint8_t *pin) {
 
   int nvars = RD16;
   SUBR(nvars);
-  
+
+#ifdef SBC_THREADED_DISPATCH
+  /* Per-opcode jump table.  Holes default to L_default (the
+   * `bad opcode` handler).  Order doesn't matter, but we keep
+   * it close to the enum order in sif.h for readability. */
+  static void *const dt[256] = {
+    [0 ... 255] = &&L_default,
+    [SBC_NOP] = &&L_SBC_NOP,
+    [SBC_LEAVE0] = &&L_SBC_LEAVE0,
+    [SBC_LEAVEN] = &&L_SBC_LEAVEN,
+    [SBC_LEAVE] = &&L_SBC_LEAVE,
+    [SBC_JMP] = &&L_SBC_JMP,
+    [SBC_JMP16] = &&L_SBC_JMP16,
+    [SBC_B] = &&L_SBC_B,
+    [SBC_B8] = &&L_SBC_B8,
+    [SBC_IFFXN] = &&L_SBC_IFFXN,
+    [SBC_CALL] = &&L_SBC_CALL,
+    [SBC_CALLIR] = &&L_SBC_CALLIR,
+    [SBC_CALLT] = &&L_SBC_CALLT,
+    [SBC_CALLTIR] = &&L_SBC_CALLTIR,
+    [SBC_TCALL] = &&L_SBC_TCALL,
+    [SBC_MCALL] = &&L_SBC_MCALL,
+    [SBC_MCALLIR] = &&L_SBC_MCALLIR,
+    [SBC_MCALL8] = &&L_SBC_MCALL8,
+    [SBC_TMCALL] = &&L_SBC_TMCALL,
+    [SBC_CLOSURE] = &&L_SBC_CLOSURE,
+    [SBC_OBJECT] = &&L_SBC_OBJECT,
+    [SBC_CNAS] = &&L_SBC_CNAS,
+    [SBC_ARGLIST] = &&L_SBC_ARGLIST,
+    [SBC_ARGLIST8] = &&L_SBC_ARGLIST8,
+    [SBC_ARGLIST0] = &&L_SBC_ARGLIST0,
+    [SBC_ARGLIST1] = &&L_SBC_ARGLIST1,
+    [SBC_ARGLIST2] = &&L_SBC_ARGLIST2,
+    [SBC_ARGLIST3] = &&L_SBC_ARGLIST3,
+    [SBC_ARGLIST4] = &&L_SBC_ARGLIST4,
+    [SBC_ARGLIST5] = &&L_SBC_ARGLIST5,
+    [SBC_LIST] = &&L_SBC_LIST,
+    [SBC_MOVEEMT] = &&L_SBC_MOVEEMT,
+    [SBC_MOVENO] = &&L_SBC_MOVENO,
+    [SBC_MOVETX] = &&L_SBC_MOVETX,
+    [SBC_MOVETX8] = &&L_SBC_MOVETX8,
+    [SBC_MOVEMT] = &&L_SBC_MOVEMT,
+    [SBC_MOVEMT8] = &&L_SBC_MOVEMT8,
+    [SBC_MOVEIM] = &&L_SBC_MOVEIM,
+    [SBC_MOVE] = &&L_SBC_MOVE,
+    [SBC_MOVE8] = &&L_SBC_MOVE8,
+    [SBC_MOVE4] = &&L_SBC_MOVE4,
+    [SBC_STOR] = &&L_SBC_STOR,
+    [SBC_STOR8] = &&L_SBC_STOR8,
+    [SBC_ST4_0] = &&L_SBC_ST4_0,
+    [SBC_ST4_1] = &&L_SBC_ST4_1,
+    [SBC_ST4_2] = &&L_SBC_ST4_2,
+    [SBC_ST4_3] = &&L_SBC_ST4_3,
+    [SBC_ST4_4] = &&L_SBC_ST4_4,
+    [SBC_ST4_5] = &&L_SBC_ST4_5,
+    [SBC_ST4_6] = &&L_SBC_ST4_6,
+    [SBC_ST4_7] = &&L_SBC_ST4_7,
+    [SBC_ST4_8] = &&L_SBC_ST4_8,
+    [SBC_ST4_9] = &&L_SBC_ST4_9,
+    [SBC_ST4_A] = &&L_SBC_ST4_A,
+    [SBC_ST4_B] = &&L_SBC_ST4_B,
+    [SBC_ST4_C] = &&L_SBC_ST4_C,
+    [SBC_ST4_D] = &&L_SBC_ST4_D,
+    [SBC_ST4_E] = &&L_SBC_ST4_E,
+    [SBC_ST4_F] = &&L_SBC_ST4_F,
+    [SBC_LOAD] = &&L_SBC_LOAD,
+    [SBC_LOAD8] = &&L_SBC_LOAD8,
+    [SBC_LD4_0] = &&L_SBC_LD4_0,
+    [SBC_LD4_1] = &&L_SBC_LD4_1,
+    [SBC_LD4_2] = &&L_SBC_LD4_2,
+    [SBC_LD4_3] = &&L_SBC_LD4_3,
+    [SBC_LD4_4] = &&L_SBC_LD4_4,
+    [SBC_LD4_5] = &&L_SBC_LD4_5,
+    [SBC_LD4_6] = &&L_SBC_LD4_6,
+    [SBC_LD4_7] = &&L_SBC_LD4_7,
+    [SBC_LD4_8] = &&L_SBC_LD4_8,
+    [SBC_LD4_9] = &&L_SBC_LD4_9,
+    [SBC_LD4_A] = &&L_SBC_LD4_A,
+    [SBC_LD4_B] = &&L_SBC_LD4_B,
+    [SBC_LD4_C] = &&L_SBC_LD4_C,
+    [SBC_LD4_D] = &&L_SBC_LD4_D,
+    [SBC_LD4_E] = &&L_SBC_LD4_E,
+    [SBC_LD4_F] = &&L_SBC_LD4_F,
+    [SBC_COPY] = &&L_SBC_COPY,
+    [SBC_FXNB0] = &&L_SBC_FXNB0,
+    [SBC_FXNB8] = &&L_SBC_FXNB8,
+    [SBC_FXNB16] = &&L_SBC_FXNB16,
+    [SBC_FXNB32] = &&L_SBC_FXNB32,
+    [SBC_FXN0] = &&L_SBC_FXN0,
+    [SBC_FXN8] = &&L_SBC_FXN8,
+    [SBC_FXN16] = &&L_SBC_FXN16,
+    [SBC_FXN32] = &&L_SBC_FXN32,
+    [SBC_IMMB64] = &&L_SBC_IMMB64,
+    [SBC_IMM64] = &&L_SBC_IMM64,
+    [SBC_FXT8] = &&L_SBC_FXT8,
+    [SBC_FXT16] = &&L_SBC_FXT16,
+    [SBC_FXT24] = &&L_SBC_FXT24,
+    [SBC_FXT32] = &&L_SBC_FXT32,
+    [SBC_FXT40] = &&L_SBC_FXT40,
+    [SBC_FXT48] = &&L_SBC_FXT48,
+    [SBC_FXT56] = &&L_SBC_FXT56,
+    [SBC_FXNTAG] = &&L_SBC_FXNTAG,
+    [SBC_FXNLISTN] = &&L_SBC_FXNLISTN,
+    [SBC_FXNLGET] = &&L_SBC_FXNLGET,
+    [SBC_FXNLSET] = &&L_SBC_FXNLSET,
+    [SBC_FXNLSETIR] = &&L_SBC_FXNLSETIR,
+    [SBC_FXNSIZE] = &&L_SBC_FXNSIZE,
+    [SBC_ABS] = &&L_SBC_ABS,
+    [SBC_NEG] = &&L_SBC_NEG,
+    [SBC_FXNADD] = &&L_SBC_FXNADD,
+    [SBC_FXNSUB] = &&L_SBC_FXNSUB,
+    [SBC_FXNMUL] = &&L_SBC_FXNMUL,
+    [SBC_FXNDIV] = &&L_SBC_FXNDIV,
+    [SBC_FXNREM] = &&L_SBC_FXNREM,
+    [SBC_IMMEQ] = &&L_SBC_IMMEQ,
+    [SBC_IMMNE] = &&L_SBC_IMMNE,
+    [SBC_FXNLT] = &&L_SBC_FXNLT,
+    [SBC_FXNGT] = &&L_SBC_FXNGT,
+    [SBC_FXNLTE] = &&L_SBC_FXNLTE,
+    [SBC_FXNGTE] = &&L_SBC_FXNGTE,
+    [SBC_FXNAND] = &&L_SBC_FXNAND,
+    [SBC_FXNIOR] = &&L_SBC_FXNIOR,
+    [SBC_FXNXOR] = &&L_SBC_FXNXOR,
+    [SBC_FXNSHL] = &&L_SBC_FXNSHL,
+    [SBC_FXNSHR] = &&L_SBC_FXNSHR,
+    [SBC_SAME] = &&L_SBC_SAME,
+    [SBC_VARY] = &&L_SBC_VARY,
+    [SBC_TINIT] = &&L_SBC_TINIT,
+    [SBC_TINITI] = &&L_SBC_TINITI,
+    [SBC_SUBTYPE] = &&L_SBC_SUBTYPE,
+    [SBC_DMET] = &&L_SBC_DMET,
+    [SBC_INC] = &&L_SBC_INC,
+    [SBC_DEC] = &&L_SBC_DEC,
+    [SBC_NOT] = &&L_SBC_NOT,
+    [SBC_GOT] = &&L_SBC_GOT,
+    [SBC_NO] = &&L_SBC_NO,
+    [SBC_GID] = &&L_SBC_GID,
+    [SBC_CURMET] = &&L_SBC_CURMET,
+    [SBC_MNAME] = &&L_SBC_MNAME,
+    [SBC_FATAL] = &&L_SBC_FATAL,
+    [SBC_GC0] = &&L_SBC_GC0,
+    [SBC_GC1] = &&L_SBC_GC1,
+    [SBC_NFI_INT] = &&L_SBC_NFI_INT,
+    [SBC_NFI_PTR] = &&L_SBC_NFI_PTR,
+    [SBC_NFI_TXT] = &&L_SBC_NFI_TXT,
+    [SBC_NFI_U4] = &&L_SBC_NFI_U4,
+    [SBC_NFI_FLT] = &&L_SBC_NFI_FLT,
+    [SBC_NFI_DBL] = &&L_SBC_NFI_DBL,
+    [SBC_NFI] = &&L_SBC_NFI,
+    [SBC_NLDU1] = &&L_SBC_NLDU1,
+    [SBC_NLDU2] = &&L_SBC_NLDU2,
+    [SBC_NLDU4] = &&L_SBC_NLDU4,
+    [SBC_NLDS1] = &&L_SBC_NLDS1,
+    [SBC_NLDS2] = &&L_SBC_NLDS2,
+    [SBC_NLDS4] = &&L_SBC_NLDS4,
+    [SBC_NSTU1] = &&L_SBC_NSTU1,
+    [SBC_NSTU2] = &&L_SBC_NSTU2,
+    [SBC_NSTU4] = &&L_SBC_NSTU4,
+    [SBC_NSTS1] = &&L_SBC_NSTS1,
+    [SBC_NSTS2] = &&L_SBC_NSTS2,
+    [SBC_NSTS4] = &&L_SBC_NSTS4,
+    [SBC_CTX] = &&L_SBC_CTX,
+  };
+  goto *dt[*pin++];
+#else
   for (;;) {
   switch(RD8) {
-  case SBC_NOP: {break;}
-  case SBC_LEAVE0: return (dyn)0;
-  case SBC_LEAVEN: {return FXN((int64_t)RD16);}
-  case SBC_LEAVE: {
+#endif
+  OP(SBC_NOP) {BREAK;}
+  OP(SBC_LEAVE0) return (dyn)0;
+  OP(SBC_LEAVEN) {return FXN((int64_t)RD16);}
+  OP(SBC_LEAVE) {
     int src = RD16;
     //fprintf(stderr, "leave: %d\n", src);
     CHKREG(src);
     return L[src];}
-  case SBC_JMP: {pin = sbc->code+RD24; break;}
-  case SBC_JMP16: {
+  OP(SBC_JMP) {pin = sbc->code+RD24; BREAK;}
+  OP(SBC_JMP16) {
     int16_t diff = (int16_t)RD16;
     pin += diff;
-    break;}
-  case SBC_B: {
+    BREAK;}
+  OP(SBC_B) {
     uint32_t cnd = RD16;
     uint32_t ofs = RD24;
     CHKREG(cnd);
     if (L[cnd]) pin = sbc->code+ofs;
-    break;}
-  case SBC_B8: {
+    BREAK;}
+  OP(SBC_B8) {
     uint32_t cnd = RD8;
     int16_t diff = (int16_t)RD16;
     CHKREG(cnd);
     if (L[cnd]) pin += diff;
-    break;}
-  case SBC_IFFXN: {
+    BREAK;}
+  OP(SBC_IFFXN) {
     uint32_t cnd = RD8;
     int16_t diff = (int16_t)RD16;
     CHKREG(cnd);
     if (!O_TAG(L[cnd])) pin += diff;
-    break;}
-  case SBC_CALL: {
+    BREAK;}
+  OP(SBC_CALL) {
     int dst = RD16;
     int fn = RD16;
     CHKREG(dst);
     CHKREG(fn);
     CALL(L[dst],L[fn]);
-    break;}
-  case SBC_CALLIR: {
+    BREAK;}
+  OP(SBC_CALLIR) {
     int fn = RD16;
     dyn dummy;
     CHKREG(fn);
     CALL(dummy,L[fn]);
-    break;}
-  case SBC_CALLT: {
+    BREAK;}
+  OP(SBC_CALLT) {
     int dst = RD16;
     int fn = RD16;
     CHKREG(dst);
     CHKREG(fn);
     CALL_TAGGED(L[dst],L[fn]);
-    break;}
-  case SBC_CALLTIR: {
+    BREAK;}
+  OP(SBC_CALLTIR) {
     int fn = RD16;
     dyn dummy;
     CHKREG(fn);
     CALL_TAGGED(dummy,L[fn]);
-    break;}
-  case SBC_TCALL: {
+    BREAK;}
+  OP(SBC_TCALL) {
     int fn = RD16;
     dyn *r;
     CHKREG(fn);
@@ -445,31 +643,31 @@ dyn sbc_exec_fn(uint8_t *pin) {
     //FIXME: instead check that thunk handler is sbc_exec_fn and jump to the
     //       beginning
     return r;
-    break;}
-  case SBC_MCALL: {
+    BREAK;}
+  OP(SBC_MCALL) {
     int dst = RD16;
     int obj = RD16;
     int met = RD16;
     CHKREG(dst);
     CHKREG(obj);
     MCACHE_CALL(L[dst],L[obj],sbc->mt[met]);
-    break;}
-  case SBC_MCALLIR: {
+    BREAK;}
+  OP(SBC_MCALLIR) {
     dyn dummy;
     int obj = RD16;
     int met = RD16;
     CHKREG(obj);
     MCACHE_CALL(dummy,L[obj],sbc->mt[met]);
-    break;}
-  case SBC_MCALL8: {
+    BREAK;}
+  OP(SBC_MCALL8) {
     int dst = RD8;
     int obj = RD8;
     int met = RD8;
     CHKREG(dst);
     CHKREG(obj);
     MCACHE_CALL(L[dst],L[obj],sbc->mt[met]);
-    break;}
-  case SBC_TMCALL: {
+    BREAK;}
+  OP(SBC_TMCALL) {
     int obj = RD16;
     int met = RD16;
     dyn *r;
@@ -478,16 +676,16 @@ dyn sbc_exec_fn(uint8_t *pin) {
     //FIXME: instead check that thunk handler is sbc_exec_fn and jump to the
     //       beginning
     return r;
-    break;}
-  case SBC_CLOSURE: {
+    BREAK;}
+  OP(SBC_CLOSURE) {
     uint32_t dst = RD16;
     uint32_t idx = RD16;
     uint32_t size = RD8;
     CHKREG(dst);
     void *fn = (void*)sbc->hooks[idx];
     CLOSURE(L[dst],fn,size)
-    break;}
-  case SBC_OBJECT: {
+    BREAK;}
+  OP(SBC_OBJECT) {
     int dst = RD16;
     int tid = RD16;
     int size = RD16;
@@ -497,12 +695,12 @@ dyn sbc_exec_fn(uint8_t *pin) {
     } else {
       L[dst] = MKIMM(sbc->ty[tid],0);
     }
-    break;}
-  case SBC_CNAS: {
+    BREAK;}
+  OP(SBC_CNAS) {
     uint32_t expected = RD16;
     CHECK_NARGS(expected);
-    break;}
-  case SBC_ARGLIST: {
+    BREAK;}
+  OP(SBC_ARGLIST) {
     int size = RD16;
     ARGLIST(size);
     for (int j = 0; j < size; j++) {
@@ -510,8 +708,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       CHKREG(src);
       STARG(j,L[src]);
     }
-    break;}
-  case SBC_ARGLIST8: {
+    BREAK;}
+  OP(SBC_ARGLIST8) {
     int size = RD8;
     ARGLIST(size);
     for (int j = 0; j < size; j++) {
@@ -519,18 +717,18 @@ dyn sbc_exec_fn(uint8_t *pin) {
       CHKREG(src);
       STARG(j,L[src]);
     }
-    break;}
-  case SBC_ARGLIST0: {
+    BREAK;}
+  OP(SBC_ARGLIST0) {
     ARGLIST(0);
-    break;}
-  case SBC_ARGLIST1: {
+    BREAK;}
+  OP(SBC_ARGLIST1) {
     int a;
     ARGLIST(1);
     a = RD8;
     CHKREG(a);
     STARG(0,L[a]);
-    break;}
-  case SBC_ARGLIST2: {
+    BREAK;}
+  OP(SBC_ARGLIST2) {
     int a;
     ARGLIST(2);
     a = RD8;
@@ -539,8 +737,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     a = RD8;
     CHKREG(a);
     STARG(1,L[a]);
-    break;}
-  case SBC_ARGLIST3: {
+    BREAK;}
+  OP(SBC_ARGLIST3) {
     int a;
     ARGLIST(3);
     a = RD8;
@@ -552,8 +750,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     a = RD8;
     CHKREG(a);
     STARG(2,L[a]);
-    break;}
-  case SBC_ARGLIST4: {
+    BREAK;}
+  OP(SBC_ARGLIST4) {
     int a;
     ARGLIST(4);
     a = RD8;
@@ -568,8 +766,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     a = RD8;
     CHKREG(a);
     STARG(3,L[a]);
-    break;}
-  case SBC_ARGLIST5: {
+    BREAK;}
+  OP(SBC_ARGLIST5) {
     int a;
     ARGLIST(5);
     a = RD8;
@@ -587,107 +785,107 @@ dyn sbc_exec_fn(uint8_t *pin) {
     a = RD8;
     CHKREG(a);
     STARG(4,L[a]);
-    break;}
-  case SBC_LIST: {
+    BREAK;}
+  OP(SBC_LIST) {
     uint32_t dst = RD16;
     uint32_t size = RD16;
     CHKREG(dst);
     LIST(L[dst],size);
-    break;}
-  case SBC_MOVEEMT: {
+    BREAK;}
+  OP(SBC_MOVEEMT) {
     int dst = RD16;
     CHKREG(dst);
     L[dst] = Empty;
-    break;}
-  case SBC_MOVENO: {
+    BREAK;}
+  OP(SBC_MOVENO) {
     int dst = RD16;
     CHKREG(dst);
     L[dst] = No;
-    break;}
-  case SBC_MOVETX: {
+    BREAK;}
+  OP(SBC_MOVETX) {
     int dst = RD16;
     int src = RD24;
     CHKREG(dst);
     L[dst] = sbc->tx[src];
-    break;}
-  case SBC_MOVETX8: {
+    BREAK;}
+  OP(SBC_MOVETX8) {
     int dst = RD8;
     int src = RD8;
     CHKREG(dst);
     L[dst] = sbc->tx[src];
-    break;}
-  case SBC_MOVEMT: { //move method
+    BREAK;}
+  OP(SBC_MOVEMT) { //move method
     int dst = RD16;
     int src = RD24;
     CHKREG(dst);
     L[dst] = FXN(sbc->mt[src]);
-    break;}
-  case SBC_MOVEMT8: { //move method
+    BREAK;}
+  OP(SBC_MOVEMT8) { //move method
     int dst = RD8;
     int src = RD8;
     CHKREG(dst);
     L[dst] = FXN(sbc->mt[src]);
-    break;}
-  case SBC_MOVEIM: { //move imported
+    BREAK;}
+  OP(SBC_MOVEIM) { //move imported
     int dst = RD16;
     int src = RD24;
     CHKREG(dst);
     L[dst] = sbc->im[src];
-    break;}
-  case SBC_MOVE: { //move local to local
+    BREAK;}
+  OP(SBC_MOVE) { //move local to local
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src];
-    break;}
-  case SBC_MOVE8: { //move local to local
+    BREAK;}
+  OP(SBC_MOVE8) { //move local to local
     int dst = RD8;
     int src = RD8;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src];
-    break;}
-  case SBC_MOVE4: { //move local to local
+    BREAK;}
+  OP(SBC_MOVE4) { //move local to local
     int opr = RD8;
     int dst = opr&0xF;
     int src = opr>>4;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src];
-    break;}
-  case SBC_STOR: {
+    BREAK;}
+  OP(SBC_STOR) {
     int dst = RD16;
     int src = RD16;
     int index = RD16;
     CHKREG(dst);
     CHKREG(src);
     STOR(L[dst],index,L[src]);
-    break;}
-  case SBC_STOR8: {
+    BREAK;}
+  OP(SBC_STOR8) {
     int dst = RD8;
     int src = RD8;
     int index = RD8;
     CHKREG(dst);
     CHKREG(src);
     STOR(L[dst],index,L[src]);
-    break;}
-  case SBC_ST4_0:
-  case SBC_ST4_1:
-  case SBC_ST4_2:
-  case SBC_ST4_3:
-  case SBC_ST4_4:
-  case SBC_ST4_5:
-  case SBC_ST4_6:
-  case SBC_ST4_7:
-  case SBC_ST4_8:
-  case SBC_ST4_9:
-  case SBC_ST4_A:
-  case SBC_ST4_B:
-  case SBC_ST4_C:
-  case SBC_ST4_D:
-  case SBC_ST4_E:
-  case SBC_ST4_F: {
+    BREAK;}
+  OP(SBC_ST4_0)
+  OP(SBC_ST4_1)
+  OP(SBC_ST4_2)
+  OP(SBC_ST4_3)
+  OP(SBC_ST4_4)
+  OP(SBC_ST4_5)
+  OP(SBC_ST4_6)
+  OP(SBC_ST4_7)
+  OP(SBC_ST4_8)
+  OP(SBC_ST4_9)
+  OP(SBC_ST4_A)
+  OP(SBC_ST4_B)
+  OP(SBC_ST4_C)
+  OP(SBC_ST4_D)
+  OP(SBC_ST4_E)
+  OP(SBC_ST4_F) {
     int index = pin[-1]-SBC_ST4_0;
     int opr = RD8;
     int dst = opr&0xF;
@@ -695,39 +893,39 @@ dyn sbc_exec_fn(uint8_t *pin) {
     CHKREG(dst);
     CHKREG(src);
     STOR(L[dst],index,L[src]);
-    break;}
-  case SBC_LOAD: {
+    BREAK;}
+  OP(SBC_LOAD) {
     int dst = RD16;
     int src = RD16;
     int index = RD16;
     CHKREG(dst);
     CHKREG(src);
     LOAD(L[dst],L[src],index);
-    break;}
-  case SBC_LOAD8: {
+    BREAK;}
+  OP(SBC_LOAD8) {
     int dst = RD8;
     int src = RD8;
     int index = RD8;
     CHKREG(dst);
     CHKREG(src);
     LOAD(L[dst],L[src],index);
-    break;}
-  case SBC_LD4_0:
-  case SBC_LD4_1:
-  case SBC_LD4_2:
-  case SBC_LD4_3:
-  case SBC_LD4_4:
-  case SBC_LD4_5:
-  case SBC_LD4_6:
-  case SBC_LD4_7:
-  case SBC_LD4_8:
-  case SBC_LD4_9:
-  case SBC_LD4_A:
-  case SBC_LD4_B:
-  case SBC_LD4_C:
-  case SBC_LD4_D:
-  case SBC_LD4_E:
-  case SBC_LD4_F: {
+    BREAK;}
+  OP(SBC_LD4_0)
+  OP(SBC_LD4_1)
+  OP(SBC_LD4_2)
+  OP(SBC_LD4_3)
+  OP(SBC_LD4_4)
+  OP(SBC_LD4_5)
+  OP(SBC_LD4_6)
+  OP(SBC_LD4_7)
+  OP(SBC_LD4_8)
+  OP(SBC_LD4_9)
+  OP(SBC_LD4_A)
+  OP(SBC_LD4_B)
+  OP(SBC_LD4_C)
+  OP(SBC_LD4_D)
+  OP(SBC_LD4_E)
+  OP(SBC_LD4_F) {
     int index = pin[-1]-SBC_LD4_0;
     int opr = RD8;
     int dst = opr&0xF;
@@ -735,8 +933,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     CHKREG(dst);
     CHKREG(src);
     LOAD(L[dst],L[src],index);
-    break;}
-  case SBC_COPY: {
+    BREAK;}
+  OP(SBC_COPY) {
     int dst = RD16;
     int src = RD16;
     int dindex = RD16;
@@ -744,50 +942,50 @@ dyn sbc_exec_fn(uint8_t *pin) {
     CHKREG(dst);
     CHKREG(src);
     COPY(L[dst],dindex,L[src],sindex);
-    break;}
-  case SBC_FXNB0: {
+    BREAK;}
+  OP(SBC_FXNB0) {
     int dst = RD8;
     CHKREG(dst);
     L[dst] = 0;
-    break;}
-  case SBC_FXNB8: {
+    BREAK;}
+  OP(SBC_FXNB8) {
     int dst = RD8;
     uint64_t imm = RD8;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int8_t)(uint8_t)imm);
-    break;}
-  case SBC_FXNB16: {
+    BREAK;}
+  OP(SBC_FXNB16) {
     int dst = RD8;
     uint64_t imm = RD16;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int16_t)(uint16_t)imm);
-    break;}
-  case SBC_FXNB32: {
+    BREAK;}
+  OP(SBC_FXNB32) {
     int dst = RD8;
     uint64_t imm = RD32;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int32_t)(uint32_t)imm);
-    break;}
-  case SBC_FXN0: {L[RD16] = 0; break;}
-  case SBC_FXN8: {
+    BREAK;}
+  OP(SBC_FXN0) {L[RD16] = 0; BREAK;}
+  OP(SBC_FXN8) {
     int dst = RD16;
     uint64_t imm = RD8;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int8_t)(uint8_t)imm);
-    break;}
-  case SBC_FXN16: {
+    BREAK;}
+  OP(SBC_FXN16) {
     int dst = RD16;
     uint64_t imm = RD16;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int16_t)(uint16_t)imm);
-    break;}
-  case SBC_FXN32: {
+    BREAK;}
+  OP(SBC_FXN32) {
     int dst = RD16;
     uint64_t imm = RD32;
     CHKREG(dst);
     L[dst] = FXN((int64_t)(int32_t)(uint32_t)imm);
-    break;}
-  case SBC_IMMB64: {
+    BREAK;}
+  OP(SBC_IMMB64) {
     int dst = RD8;
     CHKREG(dst);
 #ifndef SBC_TRANSITION
@@ -808,8 +1006,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       TEXT(L[dst], tmp);
     }
 #endif
-    break;}
-  case SBC_IMM64: {
+    BREAK;}
+  OP(SBC_IMM64) {
     int dst = RD16;
     CHKREG(dst);
 #ifndef SBC_TRANSITION
@@ -830,63 +1028,63 @@ dyn sbc_exec_fn(uint8_t *pin) {
       TEXT(L[dst], tmp);
     }
 #endif
-    break;}
-  case SBC_FXT8: {
+    BREAK;}
+  OP(SBC_FXT8) {
     int dst = RD8;
     uint64_t imm = RD8;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT16: {
+    BREAK;}
+  OP(SBC_FXT16) {
     int dst = RD8;
     uint64_t imm = RD16;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT24: {
+    BREAK;}
+  OP(SBC_FXT24) {
     int dst = RD8;
     uint64_t imm = RD24;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT32: {
+    BREAK;}
+  OP(SBC_FXT32) {
     int dst = RD8;
     uint64_t imm = RD32;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT40: {
+    BREAK;}
+  OP(SBC_FXT40) {
     int dst = RD8;
     uint64_t imm = RD40;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT48: {
+    BREAK;}
+  OP(SBC_FXT48) {
     int dst = RD8;
     uint64_t imm = RD48;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXT56: {
+    BREAK;}
+  OP(SBC_FXT56) {
     int dst = RD8;
     uint64_t imm = RD56;
     CHKREG(dst);
     L[dst] = (dyn)FIXTEXT((uint64_t)imm);
-    break;}
-  case SBC_FXNTAG: {
+    BREAK;}
+  OP(SBC_FXNTAG) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = FXN(O_TAG(L[src]));
-    break;}
-  case SBC_FXNLISTN: {
+    BREAK;}
+  OP(SBC_FXNLISTN) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst); CHKREG(src);
     FXNLISTN(L[dst],L[src]);
-    break;}
-  case SBC_FXNLGET: {
+    BREAK;}
+  OP(SBC_FXNLGET) {
     int dst = RD16;
     int src = RD16;
     int index = RD16;
@@ -901,8 +1099,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[src],L[index]);
       MCACHE_CALL(L[dst],L[src],m_get);
     }
-    break;}
-  case SBC_FXNLSET: {
+    BREAK;}
+  OP(SBC_FXNLSET) {
     int dst = RD16;
     int src = RD16;
     int index = RD16;
@@ -918,8 +1116,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST3(L[src],L[index],L[val]);
       MCACHE_CALL(L[dst],L[src],m_set);
     }
-    break;}
-  case SBC_FXNLSETIR: {
+    BREAK;}
+  OP(SBC_FXNLSETIR) {
     dyn dummy;
     int src = RD16;
     int index = RD16;
@@ -935,15 +1133,15 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST3(L[src],L[index],L[val]);
       MCACHE_CALL(dummy,L[src],m_set);
     }
-    break;}
-  case SBC_FXNSIZE: {
+    BREAK;}
+  OP(SBC_FXNSIZE) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = FXN(LIST_SIZE(L[src]));
-    break;}
-  case SBC_ABS: {
+    BREAK;}
+  OP(SBC_ABS) {
     int dst = RD16; int a = RD16; 
     CHKREG(dst); CHKREG(a);
     dyn aa = L[a];
@@ -960,8 +1158,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST1(L[a]);
       MCALL(L[dst],L[a],m_abs);
     }
-    break;}
-  case SBC_NEG: {
+    BREAK;}
+  OP(SBC_NEG) {
     int dst = RD16; int a = RD16; 
     CHKREG(dst); CHKREG(a);
     dyn aa = L[a];
@@ -971,8 +1169,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST1(L[a]); //cant use aa and bb here, cuz GC could have run
       MCALL(L[dst],L[a],m_neg);
     }
-    break;}
-  case SBC_FXNADD: {
+    BREAK;}
+  OP(SBC_FXNADD) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     dyn aa = L[a];
@@ -989,8 +1187,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]); //cant use aa and bb here, cuz GC could have run
       MCALL(L[dst],L[a],m_add);
     }
-    break;}
-  case SBC_FXNSUB: {
+    BREAK;}
+  OP(SBC_FXNSUB) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     dyn aa = L[a];
@@ -1007,8 +1205,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_sub);
     }
-    break;}
-  case SBC_FXNMUL: {
+    BREAK;}
+  OP(SBC_FXNMUL) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     dyn aa = L[a];
@@ -1025,8 +1223,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_mul);
     }
-    break;}
-  case SBC_FXNDIV: {
+    BREAK;}
+  OP(SBC_FXNDIV) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     dyn aa = L[a];
@@ -1044,8 +1242,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_div);
     }
-    break;}
-  case SBC_FXNREM: {
+    BREAK;}
+  OP(SBC_FXNREM) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     FXNREM(L[dst],L[a],L[b]);
@@ -1065,8 +1263,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_rem);
     }
-    break;}
-  case SBC_IMMEQ: {
+    BREAK;}
+  OP(SBC_IMMEQ) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a])) {
@@ -1076,8 +1274,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCACHE_CALL(L[dst],L[a],m_eq);
     }
-    break;}
-  case SBC_IMMNE: {
+    BREAK;}
+  OP(SBC_IMMNE) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a])) {
@@ -1087,8 +1285,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCACHE_CALL(L[dst],L[a],m_ne);
     }
-    break;}
-  case SBC_FXNLT: {
+    BREAK;}
+  OP(SBC_FXNLT) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1097,8 +1295,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_lt);
     }
-    break;}
-  case SBC_FXNGT: {
+    BREAK;}
+  OP(SBC_FXNGT) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1107,8 +1305,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_gt);
     }
-    break;}
-  case SBC_FXNLTE: {
+    BREAK;}
+  OP(SBC_FXNLTE) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1117,8 +1315,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_lte);
     }
-    break;}
-  case SBC_FXNGTE: {
+    BREAK;}
+  OP(SBC_FXNGTE) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1127,8 +1325,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_gte);
     }
-    break;}
-  case SBC_FXNAND: {
+    BREAK;}
+  OP(SBC_FXNAND) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1137,8 +1335,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_and);
     }
-    break;}
-  case SBC_FXNIOR: {
+    BREAK;}
+  OP(SBC_FXNIOR) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1147,8 +1345,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_ior);
     }
-    break;}
-  case SBC_FXNXOR: {
+    BREAK;}
+  OP(SBC_FXNXOR) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1157,8 +1355,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_xor);
     }
-    break;}
-  case SBC_FXNSHL: {
+    BREAK;}
+  OP(SBC_FXNSHL) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1167,8 +1365,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_shl);
     }
-    break;}
-  case SBC_FXNSHR: {
+    BREAK;}
+  OP(SBC_FXNSHR) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     if (TAGIS(T_INT, L[a]) && TAGIS(T_INT, L[b])) {
@@ -1177,41 +1375,41 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST2(L[a],L[b]);
       MCALL(L[dst],L[a],m_shr);
     }
-    break;}
-  case SBC_SAME: {
+    BREAK;}
+  OP(SBC_SAME) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     IMMEQ(L[dst],L[a],L[b]);
-    break;}
-  case SBC_VARY: {
+    BREAK;}
+  OP(SBC_VARY) {
     int dst = RD16; int a = RD16; int b = RD16;
     CHKREG(dst); CHKREG(a); CHKREG(b);
     IMMNE(L[dst],L[a],L[b]);
-    break;}
-  case SBC_TINIT: {
+    BREAK;}
+  OP(SBC_TINIT) {
     int type = RD16;
     int size = RD16;
     int name = RD24;
     set_type_size_and_name((int64_t)sbc->ty[type],size,sbc->tx[name]);
-    break;}
-  case SBC_TINITI: {
+    BREAK;}
+  OP(SBC_TINITI) {
     int tag = RD16;
     int size = RD16;
     dyn name = (dyn)RD64; //FIXTEXT READ
     set_type_size_and_name((int64_t)sbc->ty[tag],size,name);
-    break;}
-  case SBC_SUBTYPE: {
+    BREAK;}
+  OP(SBC_SUBTYPE) {
     int super = RD16;
     int sub = RD16;
     add_subtype((int)(int64_t)sbc->ty[super],(int)(int64_t)sbc->ty[sub]);
-    break;}
-  case SBC_DMET: {
+    BREAK;}
+  OP(SBC_DMET) {
     int tyidx = RD16;
     int mtidx = RD24;
     int handler = RD16;
     add_method((int)(int64_t)sbc->ty[tyidx], sbc->mt[mtidx], L[handler]);
-    break;}
-  case SBC_INC: {
+    BREAK;}
+  OP(SBC_INC) {
     int dst = RD16; int a = RD16; 
     CHKREG(dst); CHKREG(a);
     dyn aa = L[a];
@@ -1221,8 +1419,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST1(L[a]); //cant use aa and bb here, cuz GC could have run
       MCALL(L[dst],L[a],m_inc);
     }
-    break;}
-  case SBC_DEC: {
+    BREAK;}
+  OP(SBC_DEC) {
     int dst = RD16; int a = RD16; 
     CHKREG(dst); CHKREG(a);
     dyn aa = L[a];
@@ -1232,103 +1430,103 @@ dyn sbc_exec_fn(uint8_t *pin) {
       ARGLIST1(L[a]); //cant use aa and bb here, cuz GC could have run
       MCALL(L[dst],L[a],m_dec);
     }
-    break;}
-  case SBC_NOT: {
+    BREAK;}
+  OP(SBC_NOT) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src] ? FXN(0) : FXN(1);
-    break;}
-  case SBC_GOT: {
+    BREAK;}
+  OP(SBC_GOT) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src]!=No ? FXN(1) : FXN(0);
-    break;}
-  case SBC_NO: {
+    BREAK;}
+  OP(SBC_NO) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = L[src]==No ? FXN(1) : FXN(0);
-    break;}
-  case SBC_GID: {
+    BREAK;}
+  OP(SBC_GID) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = STRIP_TAG(L[src]);
-    break;}
-  case SBC_CURMET: {
+    BREAK;}
+  OP(SBC_CURMET) {
     int dst = RD16;
     CHKREG(dst);
     THIS_METHOD(L[dst]);
-    break;}
-  case SBC_MNAME: {
+    BREAK;}
+  OP(SBC_MNAME) {
     int dst = RD16;
     int src = RD16;
     CHKREG(dst);
     CHKREG(src);
     L[dst] = get_method_name(UNFXN(L[src]));
-    break;}
-  case SBC_FATAL: {
+    BREAK;}
+  OP(SBC_FATAL) {
     int msg = RD16;
     CHKREG(msg);
     FATAL(L[msg]);
-    break;}
-  case SBC_GC0: { GC_DISABLE(); break;}
-  case SBC_GC1: { GC_ENABLE(); break;}
-  case SBC_NFI_INT: {
+    BREAK;}
+  OP(SBC_GC0) { GC_DISABLE(); BREAK;}
+  OP(SBC_GC1) { GC_ENABLE(); BREAK;}
+  OP(SBC_NFI_INT) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_int(tmp, src);
     *(int*)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI_PTR: {
+    BREAK;}
+  OP(SBC_NFI_PTR) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_ptr(tmp, src);
     *(void**)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI_TXT: {
+    BREAK;}
+  OP(SBC_NFI_TXT) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_text(tmp, src);
     *(char**)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI_U4: {
+    BREAK;}
+  OP(SBC_NFI_U4) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_u4(tmp, src);
     *(uint32_t*)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI_FLT: {
+    BREAK;}
+  OP(SBC_NFI_FLT) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_float(tmp, src);
     *(float*)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI_DBL: {
+    BREAK;}
+  OP(SBC_NFI_DBL) {
     int r = RD16;
     CHKREG(r);
     dyn src = L[r];
     FFI_ARG_double(tmp, src);
     *(double*)api.nfi_parg = tmp;
     ++api.nfi_parg;
-    break;}
-  case SBC_NFI: {
+    BREAK;}
+  OP(SBC_NFI) {
     int pfn = RD16; //native function pointer
     int tri = RD16; //trampoline index
     CHKREG(pfn);
@@ -1347,87 +1545,87 @@ dyn sbc_exec_fn(uint8_t *pin) {
     case SBC_NFI_VOID: L[dst] = No;
     case SBC_NFI_INT: {
       FFI_FROM_int(L[dst],*(int*)&retval);
-      break;}
+      BREAK;}
     case SBC_NFI_PTR: {
       FFI_FROM_ptr(L[dst],*(void**)&retval);
-      break;}
+      BREAK;}
     case SBC_NFI_TXT: {
       FFI_FROM_text(L[dst],*(char**)&retval);
-      break;}
+      BREAK;}
     case SBC_NFI_U4: {
       FFI_FROM_u4(L[dst],*(uint32_t*)&retval);
-      break;}
+      BREAK;}
     case SBC_NFI_FLT: {
       FFI_FROM_float(L[dst],*(float*)&retval);
-      break;}
+      BREAK;}
     case SBC_NFI_DBL: {
       FFI_FROM_double(L[dst],*(double*)&retval);
-      break;}
+      BREAK;}
     }
-    break;}
-  case SBC_NLDU1: {
+    BREAK;}
+  OP(SBC_NLDU1) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],uint8_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NLDU2: {
+    BREAK;}
+  OP(SBC_NLDU2) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],uint16_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NLDU4: {
+    BREAK;}
+  OP(SBC_NLDU4) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],uint32_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NLDS1: {
+    BREAK;}
+  OP(SBC_NLDS1) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],int8_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NLDS2: {
+    BREAK;}
+  OP(SBC_NLDS2) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],int16_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NLDS4: {
+    BREAK;}
+  OP(SBC_NLDS4) {
     int dst = RD16; int ptr = RD16; int ofs = RD16;
     CHKREG(dst); CHKREG(ptr); CHKREG(ofs);
     FFI_GET(L[dst],int32_t,L[ptr],L[ofs]);
-    break;}
-  case SBC_NSTU1: {
+    BREAK;}
+  OP(SBC_NSTU1) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(uint8_t,L[ptr],L[ofs],L[val]);
-    break;}
-  case SBC_NSTU2: {
+    BREAK;}
+  OP(SBC_NSTU2) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(uint16_t,L[ptr],L[ofs],L[val]);
-    break;}
-  case SBC_NSTU4: {
+    BREAK;}
+  OP(SBC_NSTU4) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(uint32_t,L[ptr],L[ofs],L[val]);
-    break;}
-  case SBC_NSTS1: {
+    BREAK;}
+  OP(SBC_NSTS1) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(int8_t,L[ptr],L[ofs],L[val]);
-    break;}
-  case SBC_NSTS2: {
+    BREAK;}
+  OP(SBC_NSTS2) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(int16_t,L[ptr],L[ofs],L[val]);
-    break;}
-  case SBC_NSTS4: {
+    BREAK;}
+  OP(SBC_NSTS4) {
     int ptr = RD16; int ofs = RD16; int val = RD16;
     CHKREG(val); CHKREG(ptr); CHKREG(ofs);
     FFI_SET(int32_t,L[ptr],L[ofs],L[val]);
-    break;}
+    BREAK;}
 #define CTX_BTLAND 0
 #define CTX_BTJUMP 1
-  case SBC_CTX: {
+  OP(SBC_CTX) {
     int type = RD8;
     if (type == CTX_BTLAND) {
       int dst = RD16;
@@ -1470,8 +1668,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     } else {
       fprintf(stderr, "SBC_CTX: bad type=%d\n", type);
     }
-    break;}
-  default: {
+    BREAK;}
+  DEFAULT {
 #if 1
     int opcode = pin[-1];
     fprintf(stderr, "sbc_exec_fn: bad opcode=%x\n", opcode);
@@ -1486,10 +1684,16 @@ dyn sbc_exec_fn(uint8_t *pin) {
     fprintf(stderr, "sbc_exec_fn: bad opcode=%x (%s)\n", opcode, name);
 #endif
     exit(-1);
-    break;}
+    BREAK;}
+#ifndef SBC_THREADED_DISPATCH
   }}
+#endif
   return (dyn)0;
 }
+
+#undef OP
+#undef BREAK
+#undef DEFAULT
 
 dyn sbc_exec(sbc_t *sbc) {
   sbc_prepare(sbc);

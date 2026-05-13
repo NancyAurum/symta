@@ -156,29 +156,51 @@ the commit hash and date appended.
 
 ## Runtime — bytecode interpreter
 
-### \[P1\] **RT-1** Bytecode dispatch via computed gotos
+### \[P3\] **RT-1** Bytecode dispatch via computed gotos — *measured, not a win*
 
-> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `sbc_exec`
-> **Problem:** the main interpreter is one big `switch(RD8)`
-> inside `for (;;)`. GCC compiles to a jump table but the
-> structure prevents the branch predictor from learning
-> opcode-to-opcode transition patterns. Industry-standard
-> threaded dispatch via labels-as-values is 10–30 % faster on
-> every program that lives in tight inner loops (the ECS column
-> walks, the SML drawing loop, etc.).
-> **Fix:** rewrite the dispatch as a labelled threaded
-> interpreter using GCC `&&label`. Clang supports it too;
-> MSVC doesn't, but we're already on MinGW via w64devkit.
-> Stage it carefully: keep the `switch` under an `#ifdef`, ship
-> a binary that runs both, default to switch, verify, flip to
-> threaded, verify, remove switch. The risk surface is subtle
-> dispatch-related correctness bugs that the existing test
-> suite might not catch, hence the staging.
-> **Regression strategy:** all 8 test suites pass; verify
-> with the drift test (`tests/bootstrap/drift.sh`); profile
-> against the game's `--profile=management` baseline before/
-> after to confirm the win.
-> `effort: weekend`
+> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `sbc_exec_fn`
+> **Status:** done as far as code goes — the dispatch loop
+> can compile in either mode and both pass the full test
+> suite (9 suites, 165 tests) + drift (3-round bootstrap).
+> But the threaded variant turned out to be **~8 % slower on
+> average** on the w64devkit gcc 12 / Intel i7-12700H combo,
+> not the 10-30 % faster the literature predicts. The toggle
+> stays in the tree at `#ifdef SBC_THREADED_DISPATCH` for
+> future re-experimentation, default off.
+> **Original hypothesis:** the main interpreter is one big
+> `switch(RD8)` inside `for (;;)` -- the centralised indirect
+> branch can't learn per-opcode transition patterns. Threaded
+> dispatch via `&&label` gives each opcode its own indirect
+> branch site, which the CPU predictor can specialise.
+> **What actually happens:** GCC re-emits `lea dt(%rip),%reg`
+> at *every* per-opcode dispatch site instead of pinning the
+> table address into a register. Each per-opcode dispatch is
+> 3 instructions (load opcode, recompute table base, indexed
+> indirect jump) totalling ~15 bytes vs ~25 bytes for the
+> switch's centralised dispatch -- but spread across 128 sites,
+> so the function grows from 31 KB to 36 KB (+16 %) and the
+> i-cache footprint grows similarly. Adding `register
+> __asm__("r13")` binding to the table pointer didn't change
+> codegen (GCC ignored the hint). Modern Intel BTB + ITTAGE
+> indirect-branch prediction also closes most of the gap for
+> the centralised switch.
+> See [`benchmark/rt/`](benchmark/rt/) for the suite and
+> [`benchmark/rt/baseline-{switch,threaded}.txt`](benchmark/rt/)
+> for the measurements.
+> **Re-experiment ideas** (low priority — only worth doing if
+> someone's hot to chase the 8 %):
+> - Linux build with `-fno-pic` (small-model addressing might
+>   let GCC fold the table base).
+> - Hand-roll the dispatch in inline asm for one ABI -- pin
+>   the table in a callee-saved register explicitly.
+> - Wait for a future GCC that handles the pinning hint.
+> - Try clang -- different optimiser, might get different
+>   codegen.
+> **Test verification:** the toggle has been exercised on both
+> settings; all 9 test suites + 3-round drift pass on the
+> threaded build too. No correctness regression.
+> `effort: weekend (already spent)` — research closed, code
+> kept for future experimentation.
 
 ### \[P2\] **RT-2** Expose explicit `gc()` to Symta code
 
