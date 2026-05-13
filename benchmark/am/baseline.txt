@@ -1,52 +1,52 @@
 # AM benchmark baseline.
-# Captured: 2438e33+AM-pack-v2 - packed {key,val,hash} slots
+# Captured: 4ee8c14+AM-7b+AM-8+AM-9 - amSet aligns to BITMAP0; iteration snapshot pinned
 # Machine: w64devkit gcc 12.2.0 / Win64
 # Variance: ±10-20% run-to-run typical.
 
 [bn_int]
 # N=100000 warmup=1000
-insert 100000: 0.010324 s, 103 ns/op
-hit    100000: 0.004116 s, 41 ns/op
-miss   100000: 0.006509 s, 65 ns/op
-del    100000: 0.004158 s, 41 ns/op
-iter   100000: 0.017335 s, 173 ns/op
+insert 100000: 0.010728 s, 107 ns/op
+hit    100000: 0.005311 s, 53 ns/op
+miss   100000: 0.007517 s, 75 ns/op
+del    100000: 0.004056 s, 40 ns/op
+iter   100000: 0.016424 s, 164 ns/op
 
 [bn_text]
 # N=30000 warmup=300
-insert 30000: 0.00359 s, 119 ns/op
-hit    30000: 0.002739 s, 91 ns/op
-miss   30000: 0.00351399 s, 117 ns/op
-del    30000: 0.001376 s, 45 ns/op
-iter   30000: 0.00498199 s, 166 ns/op
+insert 30000: 0.003707 s, 123 ns/op
+hit    30000: 0.002829 s, 94 ns/op
+miss   30000: 0.003212 s, 107 ns/op
+del    30000: 0.00134501 s, 44 ns/op
+iter   30000: 0.004656 s, 155 ns/op
 
 [bn_generic]
 # N=10000 warmup=200
-insert 10000: 0.00756998 s, 756 ns/op
-hit    10000: 0.00646301 s, 646 ns/op
-miss   10000: 0.00451399 s, 451 ns/op
-del    10000: 0.00467502 s, 467 ns/op
-iter   10000: 0.00127801 s, 127 ns/op
+insert 10000: 0.00704499 s, 704 ns/op
+hit    10000: 0.005557 s, 555 ns/op
+miss   10000: 0.004223 s, 422 ns/op
+del    10000: 0.00442399 s, 442 ns/op
+iter   10000: 0.00113299 s, 113 ns/op
 
 [bn_bitmap]
 # N=100000 warmup=1000
-b0_set 100000: 0.00350299 s, 35 ns/op
-b0_get 100000: 0.002875 s, 28 ns/op
-b1_set 100000: 0.00267801 s, 26 ns/op
-b1_get 100000: 0.002802 s, 28 ns/op
-b0_refs 100000: 0.000229 s, 2 ns/op
+b0_set 100000: 0.00328799 s, 32 ns/op
+b0_get 100000: 0.003022 s, 30 ns/op
+b1_set 100000: 0.002639 s, 26 ns/op
+b1_get 100000: 0.00287901 s, 28 ns/op
+b0_refs 100000: 0.00015099 s, 1 ns/op
 
 [bn_promote]
-b0->int pop=1000 rounds=200: 0.014396 s, 71 ns/entry
-b1->int pop=1000 rounds=200: 0.01092599 s, 54 ns/entry
-b0->gen pop=1000 rounds=200: 0.01229599 s, 61 ns/entry
-int->gen pop=1000 rounds=200: 0.021357 s, 106 ns/entry
-text->gen pop=200 rounds=1000: 0.22364798 s, 1118 ns/entry
+b0->int pop=1000 rounds=200: 0.012431 s, 62 ns/entry
+b1->int pop=1000 rounds=200: 0.011218 s, 56 ns/entry
+b0->gen pop=1000 rounds=200: 0.01208198 s, 60 ns/entry
+int->gen pop=1000 rounds=200: 0.02425401 s, 121 ns/entry
+text->gen pop=200 rounds=1000: 0.21899399 s, 1094 ns/entry
 
 [bn_iter]
 # N=50000
-int_l  50000: 0.00844404 s, 168 ns/entry
-int_ks 50000: 0.00039697 s, 7 ns/entry
-text_l 10000: 0.00167298 s, 167 ns/entry
-gen_l 10000: 0.00194097 s, 194 ns/entry
-b0_refs 50000: 0.00006098 s, 1 ns/entry
-b1_l   50000: 0.00737798 s, 147 ns/entry
+int_l  50000: 0.00883803 s, 176 ns/entry
+int_ks 50000: 0.00040904 s, 8 ns/entry
+text_l 10000: 0.00162804 s, 162 ns/entry
+gen_l 10000: 0.00172603 s, 172 ns/entry
+b0_refs 50000: 0.00008303 s, 1 ns/entry
+b1_l   50000: 0.00704998 s, 140 ns/entry

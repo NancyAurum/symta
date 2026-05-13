@@ -752,46 +752,59 @@ state-of-the-art ECS frameworks.
 > other three adaptive-map headers; Linux + osx Makefiles
 > already had `am.h`, brought to feature parity).
 
-### \[P2\] **AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0
+### ~~\[P2\] **AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0~~ (DONE)
 
-> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `AM_EMPTY` branch
-> **Problem:** sibling discrepancy with `amGidSet`. On an empty
-> table, writing `FXN(0)` with an integer key goes:
->   - `amGidSet` -> `AM_BITMAP0` (1 bit per key)
->   - `amSet` -> `AM_INT` (16 B per key)
-> Same observable behaviour (`T.has K`, `T.K` both behave
-> identically); different memory cost. Documented in the am.h
-> header but not fixed. The choice is intentional in spirit --
-> general-purpose users writing `T.K=0` usually mean to store a
-> real 0 value, not a membership marker -- but the inconsistency
-> is worth fixing once we have a clear answer (e.g. a separate
-> `tbl_set_marker` API, or by demoting INT->BITMAP0 on the next
-> rehash if the value distribution warrants).
-> **Fix:** either align `amSet` with `amGidSet` (pick BITMAP0 on
-> first-FXN(0) too -- one-line change), or expose an explicit
-> `T.mark K` builtin that always picks the bitmap path.
-> `effort: 30 min` (align) / `afternoon` (new builtin)
+> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `AM_EMPTY`
+> branch
+> **Resolution:** aligned `amSet` with `amGidSet`. First write
+> of `FXN(0)` to an empty table now picks `AM_BITMAP0` (~1
+> bit/key), matching what `amGidSet` did all along. Same
+> observable behaviour as the previous `AM_INT` choice
+> (`T.has K → 1`, `T.K → 0`) but ~16x less memory per key on
+> dense-zero workloads. The two paths used to diverge on the
+> theory that user code writing `T.K = 0` "stored a value",
+> but in practice the value is recoverable through `T.K` either
+> way and the memory delta matters more.
+>
+> The `AM_BITMAP0 → AM_INT` promotion path is unchanged: as
+> soon as a third value (anything other than 0) gets written,
+> all existing keys migrate to AM_INT carrying value 0.
+> Drift PASS in 3 rounds; the compiler doesn't depend on
+> whether int-keyed tables internally pick BITMAP0 vs INT for
+> their first FXN(0) write.
 
-### \[P2\] **AM-8** Iteration during mutation has no guard
+### ~~\[P2\] **AM-8** Iteration during mutation has no guard~~ (DONE — already snapshot)
 
-> **Where:** [`runtime/am.h:573`](runtime/am.h) (`amL`),
-> `src/core_.s` tbl iteration
-> **Problem:** `for K,V T:` over an INT or TEXT table whose
-> body mutates can rehash and invalidate the iterator
-> (`stb_ds`'s `hmput` reallocates on grow). Currently silent
-> misbehaviour; a Lua / Python equivalent would error.
-> **Fix:** snapshot the keys list before iteration in the
-> `tbl.l`-style helpers, or stamp a generation counter on the
-> table and check it during iteration.
-> `effort: afternoon`
+> **Where:** [`runtime/am.h`](runtime/am.h) (`amL`, `amKs`),
+> [`tests/am/src/tc_iteration.s`](tests/am/src/tc_iteration.s)
+> (new snapshot test)
+> **Resolution:** the original concern was that
+> `for K,V T:`-style iteration over a mutating table could
+> invalidate the iterator. Already moot: `amL` and `amKs`
+> eagerly build a fresh list and return it; the iteration
+> walks the snapshot, mutation after the call returns affects
+> only the live table, not the returned list. Pinned this
+> behaviour with a new test in `tc_iteration` that captures
+> `T.l`, mutates the table (`T.K = V`, `T.del K`,
+> `T.K = newV`), and verifies the snapshot's pairs are stable
+> while the live table reflects the mutations. The contract is
+> now load-bearing through tests.
+>
+> An *internal* NH_FOR walker (e.g. inside a finalizer or a
+> custom iteration helper that doesn't go through `amL`) is
+> still on its own -- those have no snapshot. The C-side
+> contract for direct nh_t iteration is "don't mutate while
+> iterating," same as any standard library hash-map.
 
-### \[P3\] **AM-9** `nh_t` capacity is `uint32_t`
+### \[P3\] **AM-9** `nh_t` capacity is `uint32_t` — DEFERRED
 
-> **Where:** [`runtime/nh.h:67`](runtime/nh.h)
-> **Problem:** caps tables at 2³² entries. Fine for almost
-> anything, but a many-billion-relation ECS world would hit it.
-> **Fix:** widen to `uint64_t`. Costs 4 B per table header.
-> Defer until someone actually needs it.
+> **Where:** [`runtime/nh.h`](runtime/nh.h)
+> **Status:** caps tables at 2³² entries. With Symta's heap
+> layout (`GID_BITS = 48` for the gid encoding, ~24 GB heap
+> max), no realistic workload reaches anywhere near 2³² entries
+> in a single table. Widening to `uint64_t` would cost 4 B per
+> table header for a capability no one currently needs. Will
+> revisit when a real workload demands it.
 > `effort: 30 min` (when wanted)
 
 ### \[P3\] **AM-10** String interning shared with `AM_TEXT`

@@ -50,22 +50,24 @@
       void_val that's not in your value alphabet (the default No
       is usually right), or use T.del K explicitly.
 
-  --- AM_EMPTY initial-mode selection asymmetry ---
+  --- AM_EMPTY initial-mode selection (AM-7b: aligned) ---
 
-  amGidSet (component-column setter, used by cls fields) and
-  amSet (user-facing T.K=V) pick different initial modes for an
-  empty table when the first value is FXN(0):
+  Both amSet (user-facing T.K=V) and amGidSet (component-column
+  setter, used by cls fields) pick the same initial mode for an
+  empty table:
 
-    amGidSet, value == FXN(0) -> AM_BITMAP0
-    amSet,    value == FXN(0) -> AM_INT
+    value == FXN(0) -> AM_BITMAP0
+    value == FXN(1) -> AM_BITMAP1
+    other int       -> AM_INT
+    text key        -> AM_TEXT
+    other key       -> AM_GENERIC
 
-  Same observable behaviour (`T.has K` returns 1, `T.K` returns
-  0 in both); different memory cost. amSet's choice optimises
-  for the common case where T.K=0 is a real stored value rather
-  than a membership marker, accepting the AM_INT footprint.
-  ECS-style component columns go through amGidSet, which picks
-  BITMAP0 for the dense-zero case. amSet matches amGidSet for
-  FXN(1) (both pick AM_BITMAP1) -- the asymmetry is only on 0.
+  Observable behaviour is the same across BITMAP and INT modes
+  (`T.has K` returns 1, `T.K` returns the stored value); the
+  bitmap choice saves ~16 B/key over AM_INT for the dense-zero
+  and dense-one cases. Promotion to AM_INT happens on the
+  first divergent value (e.g., a third value in a 0/1 table
+  becomes AM_INT carrying all prior keys).
 
   --- iteration / mutation ---
 
@@ -542,7 +544,21 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_TEXT);
     } else if (O_TAG(key) == T_INT) {
-      if (value == FXN(1)) {
+      /* AM-7b: pick BITMAP0/1 for the first FXN(0)/FXN(1) write,
+       * matching amGidSet's behaviour. The two paths used to
+       * diverge -- amSet preferred AM_INT for FXN(0) on the
+       * theory that the user "stored a value", but the
+       * observable behaviour is identical between AM_INT and
+       * AM_BITMAP0 (T.has K → 1, T.K → 0) and the memory cost
+       * difference is ~16 B/key (INT slot) vs ~1 bit/key
+       * (bitmap). Users writing T.K = 0 in a loop now get the
+       * compact representation by default. */
+      if (value == FXN(0)) {
+        nb_t nb = nbAlloc();
+        nbSet(&nb,UNFXN(key));
+        AM_BASE(o) = nb;
+        AM_SET_TYPE(o, AM_BITMAP0);
+      } else if (value == FXN(1)) {
         nb_t nb = nbAlloc();
         nbSet(&nb,UNFXN(key));
         AM_BASE(o) = nb;

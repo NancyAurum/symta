@@ -98,3 +98,27 @@ tc_iteration =
   TG.42    = \ans
   TG.\hi   = \greet
   check_triplet 'generic' TG [[x y] 42 \hi]
+
+  // SNAPSHOT semantics: .l / .ks / `for K,V T:` must walk a
+  // snapshot. Mutating the table after the snapshot is taken
+  // must NOT disturb the snapshot or invalidate iteration.
+  // AM-8 (TODO.md): this is the contract.
+  TS (!)
+  TS.\a = 1
+  TS.\b = 2
+  TS.\c = 3
+  Snap TS.l   // capture before mutation
+  TS.\d = 4   // add a new key
+  TS.del \a   // remove an existing key
+  TS.\b = 99  // mutate a value
+  check 'snap.n unchanged'    3   Snap.n
+  // The snapshot's pair for \b should still carry the
+  // original value 2, not the mutated 99.
+  OrigB 0
+  for [K V] Snap: when K >< \b: OrigB = V
+  check 'snap pair stable'    2   OrigB
+  // The LIVE table reflects mutations.
+  check 'live n'              3   TS.n   // -\a +\d, \b stays
+  check 'live \\a gone'       0   (TS.has \a)
+  check 'live \\d present'    1   (TS.has \d)
+  check 'live \\b=99'         99  TS.\b

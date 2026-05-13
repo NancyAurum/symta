@@ -25,3 +25,9 @@ PASS generic.n
 PASS generic.l.n
 PASS generic.ks.n
 PASS generic.ks set
+PASS snap.n unchanged
+PASS snap pair stable
+PASS live n
+PASS live \a gone
+PASS live \d present
+PASS live \b=99
