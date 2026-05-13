@@ -291,22 +291,46 @@ state-of-the-art ECS frameworks.
 > equal. `FXN(0)` (= 0) works -- a text dyn always has T_TEXT
 > or T_FIXTEXT in its tag bits, never zero. Filed as AM-6b.
 
-### \[P2\] **AM-6b** AM_TEXT still on stb_ds
+### \[P2\] **AM-6b** AM_TEXT still on stb_ds — blocked on iteration-order contract
 
 > **Where:** [`runtime/am.h`](runtime/am.h)
 > **Problem:** the AM-6 standardisation completed for AM_INT,
 > but AM_TEXT still uses stb_ds's `sh*` string-keyed hashmap.
 > Different probing strategy, different growth heuristic,
 > different memory layout from ih_t / dh_t.
-> **Fix:** create `th.h` (text-keyed Symta hash) that
-> instantiates `nh_t` with `NH_KEY=dyn` (storing the text dyn
-> directly), `NH_KEY_NIL=FXN(0)` (impossible value -- a text
-> dyn always has a non-zero tag), `NH_HASH` calls dhAdler_ on
-> the bigtext bytes (or folds the fixtext bits), `NH_EQUAL`
-> calls texts_equal. Routes AM_TEXT through the same Robin
-> Hood + 75% load as INT and GENERIC. AM_TEXT → AM_GENERIC
-> promotion stays as-is.
-> `effort: afternoon`
+> **Blocker:** `examples/18-tables.s` documents (line 41) that
+> "`for K,V T:` walks the table; insertion order is preserved."
+> stb_ds happens to preserve insertion order; nh_t doesn't
+> (Robin Hood places entries by hash). A first try at AM-6b
+> (a `th.h` instantiation analogous to `ih.h`, plus a
+> gc_types.h AM_TEXT branch that marks dyn keys) built clean
+> but broke 4 runtime tests + 25 compiler-output goldens
+> because example output relies on insertion order. The drift
+> test still passes -- the compiler is deterministic against
+> its own output -- but the goldens themselves were captured
+> under stb_ds's insertion-order iteration.
+>
+> **Resolution options:**
+> - **(a) Order-preserving th_t**: add a parallel insertion-
+>   order array (and free-list of recycled slots) on top of
+>   nh_t. Iteration walks the order array; lookup uses the
+>   hash. ~2x storage overhead, similar to Lua's array-part.
+> - **(b) Drop the contract**: update examples to sort before
+>   iteration (the way 07-map and 18-tables already do for
+>   GENERIC tables). Symta becomes "iteration order is
+>   unspecified" across all modes; user code that needs
+>   determinism sorts explicitly.
+> - **(c) Per-call sort**: have `amL` / `amKs` always return
+>   sorted output for AM_TEXT. Cheap if the test surface is
+>   small; doesn't help streaming iteration.
+>
+> Note: AM-6 (AM_INT) already broke insertion-order for int
+> tables. No test caught it because (i) compiler internals
+> don't iterate AM_INT user-visibly and (ii) no example
+> iterates an int-keyed table whose output matters. So in
+> practice the contract was already partially broken; AM-6b
+> just makes the break visible.
+> `effort: afternoon (drop contract) / weekend (order-preserving)`
 
 ### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
 
