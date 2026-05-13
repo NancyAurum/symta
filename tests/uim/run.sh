@@ -69,6 +69,7 @@ CASES=(
   "gallery800 60 800 600"
   "isometric  60 640 480"
   "synthetic  60 640 480"
+  "windows    60 640 480"
 )
 
 passed=0

@@ -120,6 +120,7 @@ a regression:
 | `test-macros`     | Macro expander + DSL behaviors                          |
 | `test-runtime`    | Single-file `.s` examples, golden stdout comparison     |
 | `test-compiler`   | Compiler-output (`.sbc`) byte-equality goldens          |
+| `test-gfx`        | C blitter (ffi/gfx.ffi) golden-image regression         |
 | `test-uim`        | UIM widget gallery, headless screenshot diffs           |
 | `test-drift`      | 5-stage self-hosting bootstrap byte-equality            |
 

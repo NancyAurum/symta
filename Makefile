@@ -7,22 +7,21 @@
 # Xcode CLT on macOS, build-essential on Linux). See BUILDING.md.
 #
 # Quick reference:
-#   make                build runtime + plugins + examples + tests
+#   make                build runtime + plugins + examples
 #   make plugins        just the C FFI plugins (gfx, ui, ttf, svg, vfx)
 #   make runtime        just symta(.exe) + libcinvoke
 #   make cinvoke        just libcinvoke.a
 #   make examples       compile every example under examples/
-#   make tests          compile the in-tree pure-Symta test harness
-#   make test           run the gfx golden / FFI smoke harness
-#   make test-tokenizer run tokenizer regression tests
-#   make test-reader    run reader/parser regression tests
-#   make test-macros    run macro/DSL behavior tests
-#   make test-runtime   run Symta single-file regression tests
-#   make test-compiler  run compiler-output (.sbc) regression tests
-#   make test-uim       run UIM widget regression tests (headless)
+#   make test-gfx       gfx-FFI golden image tests
+#   make test-tokenizer tokenizer regression tests
+#   make test-reader    reader/parser regression tests
+#   make test-macros    macro/DSL behavior tests
+#   make test-runtime   Symta single-file regression tests
+#   make test-compiler  compiler-output (.sbc) regression tests
+#   make test-uim       UIM widget regression tests (headless)
 #   make test-drift     5-stage bootstrap drift test (no codegen drift)
 #   make test-all       all of the above (bottom-up order)
-#   make screenshots    capture baseline UIM PNGs (needs a display)
+#   make screenshots    recapture UIM baselines (needs a display)
 #   make clean          delete every build artifact
 
 # ------------------------------------------------------------------ platform
@@ -84,14 +83,14 @@ endif
 
 # ------------------------------------------------------------------ targets
 
-.PHONY: all help plugins runtime cinvoke examples tests \
-        test test-tokenizer test-reader test-runtime test-compiler \
+.PHONY: all help plugins runtime cinvoke examples \
+        test-gfx test-tokenizer test-reader test-runtime test-compiler \
         test-macros test-uim test-drift test-all \
         screenshots check-tools \
         clean clean-plugins clean-runtime clean-examples clean-tests \
         $(PLUGINS)
 
-all: plugins runtime examples tests
+all: plugins runtime examples
 
 help:
 	@echo "Symta build — platform: $(PLATFORM)"
@@ -101,9 +100,8 @@ help:
 	@echo "  make <plugin>           build a single plugin: $(PLUGINS)"
 	@echo "  make runtime            build symta executable (+ libcinvoke)"
 	@echo "  make cinvoke            just libcinvoke.a"
-	@echo "  make examples           compile every examples/*.s example"
-	@echo "  make tests              compile the test harness package"
-	@echo "  make test               run gfx golden / FFI tests"
+	@echo "  make examples           compile every examples/*/ project"
+	@echo "  make test-gfx           gfx-FFI golden image tests"
 	@echo "  make test-tokenizer     tokenizer regression tests"
 	@echo "  make test-reader        reader/parser regression tests"
 	@echo "  make test-macros        macro/DSL regression tests"
@@ -147,7 +145,7 @@ $(foreach p,$(PLUGINS),$(eval $(call PLUGIN_RULE,$(p))))
 
 plugins: $(PLUGINS)
 
-# --- examples + tests ----------------------------------------------
+# --- examples ------------------------------------------------------
 #
 # `symta <dir>` compiles every changed `.s` to `.sbc` and (re)links
 # the dir's `go.exe`. examples/ contains many subdirs and a handful
@@ -163,21 +161,15 @@ examples: runtime plugins
 	  ( cd "$$d" && "../../$(SYMTA_EXE)" . ) || exit 1; \
 	done
 
-tests: runtime plugins
-	@if [ -d tests/harness ]; then \
-	  echo "[symta] tests/harness"; \
-	  ( cd tests/harness && "../../$(SYMTA_EXE)" . ); \
-	fi
-
 # --- test suites ---------------------------------------------------
+#
+# Each suite lives under tests/<name>/ with its own run.sh driver.
+# They all use the runtime + (for tests that need plugins) the FFI
+# blobs in ffi/, which `make plugins` populates.
 
-test: runtime plugins
-	@if [ -d tests/harness ]; then \
-	  echo "[run] gfx + FFI smoke tests"; \
-	  cd tests/harness && ./go.exe; \
-	else \
-	  echo "(no tests/harness yet — skipping)"; \
-	fi
+test-gfx: runtime plugins
+	@echo "[run] gfx-FFI golden-image tests"
+	@bash tests/gfx/run.sh
 
 test-tokenizer: runtime
 	@echo "[run] tokenizer regression tests"
@@ -210,13 +202,14 @@ test-drift: runtime
 	@bash tests/bootstrap/drift.sh
 
 test-all: test-tokenizer test-reader test-macros test-runtime \
-          test-compiler test-uim test-drift
+          test-compiler test-gfx test-uim test-drift
 	@echo "[ok] all symta test suites passed"
 
-# Snap a PNG of each UIM widget gallery test. Requires a display;
-# the UIM screenshot path still opens a window. Output lands in
-# tests/uim/baselines/.
-screenshots: runtime plugins tests
+# Recapture every UIM baseline PNG. Useful after an intentional
+# rendering change; review with `git diff --stat tests/uim/baselines/`
+# afterwards. Requires a display since SDL still opens a window in
+# screenshot mode.
+screenshots: runtime plugins
 	@mkdir -p tests/uim/baselines
 	@bash tests/uim/run.sh --capture
 
@@ -246,9 +239,11 @@ clean-examples:
 	done
 
 clean-tests:
-	-@rm -rf tests/harness/sbc tests/harness/lib tests/harness/go.exe
+	-@rm -rf tests/gfx/sbc tests/gfx/lib tests/gfx/cache tests/gfx/go.exe tests/gfx/out
+	-@rm -rf tests/uim/sbc tests/uim/lib tests/uim/ffi tests/uim/cache tests/uim/go.exe
+	-@rm -rf tests/uim/actual tests/uim/build.log
+	-@rm -rf tests/uim/pic tests/uim/ttf tests/uim/*.dll
 	-@rm -rf tests/compiler/build
-	-@rm -rf tests/uim/build tests/uim/actual
 
 clean: clean-runtime clean-plugins clean-examples clean-tests
 	@echo "all cleaned"

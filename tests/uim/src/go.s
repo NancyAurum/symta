@@ -17,6 +17,7 @@
 
 use cls uim rgb store
     tc_buttons tc_inputs tc_lists tc_gallery tc_isometric tc_synthetic
+    tc_windows
 
 // Defaults — overridable on the command line.
 RunCase \gallery640
@@ -42,4 +43,5 @@ case RunCase:
   'gallery800' = tc_gallery    800 600
   'isometric'  = tc_isometric  W H
   'synthetic'  = tc_synthetic  W H
+  'windows'    = tc_windows    W H
   Else         = say "no such case: [RunCase]"
