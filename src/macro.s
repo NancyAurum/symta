@@ -1789,6 +1789,28 @@ stage_ui_dlls Root Build =
   | when SF.exists: copy_ffi SF DF
 | 0
 
+// Compiler-supplied default fonts staged from symta/ttf/ into a
+// project's ttf/. We only do this for projects that DON'T already
+// have a ttf/ directory of their own — that's the signal "I have
+// my own font collection, please don't drop strangers in". The
+// SoM game ships ttf/sarabun*; touching nothing keeps Sarabun the
+// game's default. A fresh symta project gets Inter (OFL, designed
+// for screens). See symta/ttf/README.md for swap-out steps.
+TTFBundle ['inter.ttf' 'inter_license.txt']
+
+stage_ttf_fonts Root Build =
+| TTFDir "[Build]ttf/"
+| less TTFDir.exists:
+  | TTFDir.mkpath
+  | Src "[Root]ttf/"
+  | less Src.exists:
+    | mex_error "Missing [Src] (ttf plugin needs default fonts staged from symta/ttf/)"
+  | for F TTFBundle:
+    | SF "[Src][F]"
+    | DF "[TTFDir][F]"
+    | when SF.exists: copy_ffi SF DF
+| 0
+
 FFI_AutoExport 0
 
 ffi_begin AutoExport Name =
@@ -1799,7 +1821,8 @@ ffi_begin AutoExport Name =
 | less RootFFI.exists: mex_error "Missing [RootFFI]"
 | "[Build]ffi/".mkpath
 | copy_ffi RootFFI BldFFI
-| when Name >< \ui: stage_ui_dlls Root Build
+| when Name >< \ui:  stage_ui_dlls   Root Build
+| when Name >< \ttf: stage_ttf_fonts Root Build
 | FFI_Lib = form \Name
 | 0
 

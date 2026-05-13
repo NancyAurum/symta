@@ -1,5 +1,5 @@
 use gfx cache sml store rgb
-export ttf get_font
+export ttf get_font set_default_font default_font
 
 ffi_begin macro ttf
 ffi ttf_load.ptr Filename.text
@@ -79,8 +79,21 @@ ttf.width FH Text =
 //FIXME: use time stamps and a single cache scheme for all needs
 FontPaths ["[main_path]ttf/" "c:/windows/fonts/"]
 Fonts!
+
+// Per-project default font. The `ffi_begin macro ttf` macro stages
+// the compiler-supplied default (`symta/ttf/inter.ttf`, OFL — see
+// symta/ttf/README.md) into `<project>/ttf/` on first compile,
+// unless the project already has a `ttf/` directory of its own.
+// Projects with a different aesthetic — the SoM game wants the
+// Sarabun face it has shipped since day one — call `set_default_font`
+// in their entry-point module before the first UIM widget is built.
+DefaultFontName \inter
+
+default_font = DefaultFontName
+set_default_font N = DefaultFontName = N
+
 get_font N =
-  if no N: N = \sarabun
+  if no N: N = DefaultFontName
   have Fonts.N:
     FP N
     less FP.exists:

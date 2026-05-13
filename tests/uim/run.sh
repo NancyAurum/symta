@@ -40,19 +40,14 @@ done
 
 mkdir -p "$ACTUAL" "$EXPECT"
 
-# Stage only the application-level assets that aren't already
-# materialised for us:
-#   - ttf/      fonts; cloned from 16-ui because the harness needs
-#               actual font files (no ttf-defaults autogen yet).
-#   - pic/test/ a couple of example pictograms tc_windows references;
-#               cloned from 16-ui for the same reason.
-#
-# Everything else (pic/ui/, the SDL DLLs) is staged automatically:
-# uimgen materialises pic/ui/*.svg on first import of `uim`, and
-# the ffi_begin macro stages symta/sdl/*.dll the first time the
-# harness compiles its uim use.
+# Stage the one application-level asset that isn't auto-staged:
+# the pic/test/ subset, a couple of example pictograms tc_windows.s
+# references for its `pic 'test/hourglass'` decoration. Everything
+# else (pic/ui/, ttf/, SDL DLLs) is materialised automatically:
+#   * uimgen   writes pic/ui/*.svg on first import of `uim`
+#   * ffi_begin (ttf) stages symta/ttf/inter.ttf into ./ttf/
+#   * ffi_begin (ui)  stages symta/sdl/*.dll next to go.exe
 ASSET_SRC="$ROOT/examples/16-ui"
-[ -d "$BUILD/ttf" ]      || cp -r "$ASSET_SRC/ttf" "$BUILD/ttf"
 [ -d "$BUILD/pic/test" ] || { mkdir -p "$BUILD/pic"
                               cp -r "$ASSET_SRC/pic/test" "$BUILD/pic/test"; }
 
