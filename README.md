@@ -1,3 +1,5 @@
+<img src="logo.webp" alt="Symta logo" width="128" align="right">
+
 # Symta
 
 > A list-processing Lisp dialect where one terse line replaces fifty
