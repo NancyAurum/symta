@@ -88,7 +88,9 @@ for spec in "${CASES[@]}"; do
   golden="$EXPECT/$name.png"
   rm -f "$out"
 
-  ( cd "$BUILD" && ./go.exe \
+  GO="$BUILD/go.exe"
+  [ -x "$GO" ] || GO="$BUILD/go"
+  ( cd "$BUILD" && "$GO" \
       --case=$name --w=$w --h=$h \
       --screenshot=actual/$name.png --screenshot-frame=$frame \
   ) >"$ACTUAL/$name.log" 2>&1
