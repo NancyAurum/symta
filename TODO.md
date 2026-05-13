@@ -290,6 +290,33 @@ state-of-the-art ECS frameworks.
 > actually trips on it in real code; the doc paragraph is enough
 > for now.
 
+### ~~\[P0\] **AM-12** `amHas` / `amGot` `AM_BITMAP0` predicate inverted~~ (DONE)
+
+> **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot`
+> `AM_BITMAP0` branches
+> **Bug:** both functions returned `FXN(nbGet == 0)` for the
+> BITMAP0 case -- i.e., 1 when the bit is NOT set, 0 when it
+> IS set. The BITMAP1 sibling correctly returns
+> `FXN(nbGet != 0)`. Every other adaptive-map op (amSet's
+> BITMAP0 branch, amGet's BITMAP0 branch, amGidGet's BITMAP0
+> branch) agreed on the "bit set ↔ key present" semantic; the
+> two predicates were the lone holdouts, likely surviving a
+> refactor that flipped the meaning of the bit.
+> **Resolution:** flip the BITMAP0 condition to `nbGet != 0` so
+> the predicate matches what every other touchpoint observes.
+> The new tc_void test exercises the BITMAP0-via-gid_set_ delete
+> path, which was the only configuration that hit amHas with a
+> true BITMAP0 table.
+>
+> Surface area in production code: zero today. amHas is the
+> backing of `T.has K`, and the previously-existing AM regression
+> suite never put a table into true AM_BITMAP0 mode -- the
+> `T.K = 0`-from-empty path goes to AM_INT in amSet, and tc_gid
+> (the only suite that did use the BITMAP0 amGidSet path) only
+> tested amGidGet, not amHas. cls.s and the SoM game also
+> never hit it. The bug existed for the entire life of the
+> adaptive map; tc_void is what surfaced it.
+
 ### ~~\[P0\] **AM-11** `amSet` AM_TEXT delete branch missing `return`~~ (DONE)
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `value == void_val`

@@ -348,8 +348,15 @@ INLINE dyn amHas(dyn o, dyn key) { //Key exists
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
   GOT(AM_BITMAP0)
+    /* AM-12 (TODO.md): bit set ↔ key present (see amSet's
+     * BITMAP0 branch: writing 0 calls nbSet, populating the
+     * bit). amGet, amGidGet, and AM_BITMAP1's amHas all agree
+     * on this semantic. The original `nbGet == 0` was an
+     * inversion left over from when BITMAP0 tracked exceptions
+     * rather than presence. Latent until tc_void exercised it
+     * through `T.has K` on a true BITMAP0 table. */
     nb_t nb = AM_BASE(o);
-    return FXN(nbGet(nb, UNFXN(key)) == 0);
+    return FXN(nbGet(nb, UNFXN(key)) != 0);
   GOT(AM_BITMAP1)
     nb_t nb = AM_BASE(o);
     return FXN(nbGet(nb, UNFXN(key)) != 0);
@@ -372,8 +379,12 @@ INLINE dyn amGot(dyn o, dyn key) { //key both exists and has value != No
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
   GOT(AM_BITMAP0)
+    /* AM-12 (TODO.md): same inversion fix as in amHas above.
+     * amGot is "present AND value != No"; on BITMAP0 the value
+     * is always FXN(0) which is != No, so amGot collapses to
+     * the same predicate as amHas. */
     nb_t nb = AM_BASE(o);
-    int64_t rr = nbGet(nb, UNFXN(key)) == 0;
+    int64_t rr = nbGet(nb, UNFXN(key)) != 0;
     return FXN(rr);
   GOT(AM_BITMAP1)
     nb_t nb = AM_BASE(o);

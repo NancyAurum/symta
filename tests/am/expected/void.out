@@ -18,3 +18,8 @@ PASS GENERIC delete via void
 PASS GENERIC survivor
 PASS BITMAP1 delete via No
 PASS BITMAP1 survivor
+PASS gid B0 n=3
+PASS gid B0 delete via No
+PASS gid B0 survivor 5
+PASS gid B0 survivor 9
+PASS gid B0 n=2 after del

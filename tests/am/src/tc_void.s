@@ -99,3 +99,20 @@ tc_void =
   TB.5 = No
   check 'BITMAP1 delete via No'   0  (TB.has 5)
   check 'BITMAP1 survivor'        1  TB.7
+
+  // ---- BITMAP0 via gid_set_ ----
+  // amSet on empty + FXN(0) goes to AM_INT (documented in
+  // am.h). To exercise true BITMAP0 mode we have to use the
+  // gid setter which prefers the bitmap representation. Then
+  // delete via void must still work.
+  TB0 (!)
+  gid_set_ TB0 5 0   // -> AM_BITMAP0
+  gid_set_ TB0 7 0
+  gid_set_ TB0 9 0
+  check 'gid B0 n=3'              3   TB0.n
+  // Delete via void (default No).
+  gid_set_ TB0 7 No
+  check 'gid B0 delete via No'    0   (TB0.has 7)
+  check 'gid B0 survivor 5'       0   (gid_get_ TB0 5)
+  check 'gid B0 survivor 9'       0   (gid_get_ TB0 9)
+  check 'gid B0 n=2 after del'    2   TB0.n
