@@ -88,8 +88,61 @@ stress_generic =
     when T.[I I] <> I: Bad = Bad + 1
   check 'generic M reads'    0    Bad
 
+stress_generic_del =
+  // Robin Hood backshift exercise. Fill GENERIC mode with K
+  // entries that force several grow events (NH_INIT_SZ=4 then
+  // doubling until >= 1.33*K, so K=1000 needs ~10 grows). Delete
+  // every other key from the FRONT so the backshift loop has to
+  // walk long chains of shifted entries. Re-verify the survivors.
+  // Catches: (1) backshift dropping a not-at-home entry, (2)
+  // RH early-exit mis-firing during lookup of a key whose chain
+  // has been disturbed by deletion.
+  T (!)
+  // Tag-key entries to put us in GENERIC. Tags hash via MCALL
+  // (api.m_hash) so this exercises the dhHash_ fallback path
+  // too.
+  K 1000
+  for I K: T.[\g I] = I
+
+  check 'g-del initial n'      K  T.n
+
+  // Delete every odd key.
+  for I K:
+    when I -*- 1: T.del [\g I]
+
+  check 'g-del half n'         K/2 T.n
+
+  // Reads still work: even keys present, odd keys gone.
+  Mismatch 0
+  for I K:
+    if I -*- 1
+      then when (T.has [\g I]) <> 0: Mismatch = Mismatch + 1
+      else when T.[\g I]      <> I: Mismatch = Mismatch + 1
+  check 'g-del post-del reads' 0   Mismatch
+
+  // Re-insert the deleted keys with new values. After this every
+  // key should map to a fresh value -- if RH placement got
+  // confused by the half-empty chains we'd see stale values from
+  // the original insertion.
+  for I K:
+    when I -*- 1: T.[\g I] = I+10000
+
+  check 'g-del refill n'       K   T.n
+
+  Bad 0
+  for I K:
+    Expected (if I -*- 1 then I+10000 else I)
+    when T.[\g I] <> Expected: Bad = Bad + 1
+  check 'g-del refill reads'   0   Bad
+
+  // Drain the whole table.
+  for I K: T.del [\g I]
+  check 'g-del empty n'        0   T.n
+  check 'g-del empty miss'     No  T.[\g 0]
+
 tc_stress =
   stress_int
   stress_text
   stress_bitmap
   stress_generic
+  stress_generic_del
