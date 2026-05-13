@@ -26,14 +26,31 @@ check Label Expected Got =
     else say "FAIL [Label]: expected [Expected] got [Got]"
 
 // Helper: check the .l/.ks/.n triplet on a table.
+//
+// We can't `T.ks.s` (sort) the GENERIC case because cross-type
+// comparison (`42 < \hi`, `[x y] < \hi`) isn't defined -- it
+// raises "cant compare ...". Instead use a sort-free set equality
+// check: same length, and every expected key appears in T.ks.
+
+contains_ Xs X =
+  Found 0
+  for Y Xs: when Y >< X: Found = 1
+  Found
+
+set_eq_ As Bs =
+  if As.n <> Bs.n
+    then 0
+    else
+      OK 1
+      for A As:
+        when not contains_ Bs A: OK = 0
+      OK
+
 check_triplet Name T ExpectedKeys =
   check "[Name].n"          ExpectedKeys.n  T.n
   check "[Name].l.n"        ExpectedKeys.n  T.l.n
   check "[Name].ks.n"       ExpectedKeys.n  T.ks.n
-  // Set equality of T.ks against ExpectedKeys (sort both then cmp).
-  KsSorted T.ks.s
-  ExpSorted ExpectedKeys.s
-  check "[Name].ks set"     ExpSorted KsSorted
+  check "[Name].ks set"     1 (set_eq_ ExpectedKeys T.ks)
 
 tc_iteration =
   // EMPTY.

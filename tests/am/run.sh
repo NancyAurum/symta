@@ -50,6 +50,7 @@ CASES=(
   mixed
   iteration
   stress
+  void
 )
 
 mkdir -p "$HERE/actual" "$HERE/expected"

@@ -452,6 +452,12 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         shdel(hm, text_chars(key));
         AM_BASE(o) = hm;
       }
+      /* AM-11 (TODO.md): without this `return`, control falls out
+       * of the delete-branch switch, past the `if (value==void_val)`
+       * block, and into the regular AM_TEXT insert branch below --
+       * which `shput`s the key right back. T.K = void_val on a
+       * text-keyed table looked like a no-op. */
+      return;
     GOT(AM_INT)
       symta_itbl hm = AM_BASE(o);
       if (O_TAG(key) == T_INT) {

@@ -290,6 +290,32 @@ state-of-the-art ECS frameworks.
 > actually trips on it in real code; the doc paragraph is enough
 > for now.
 
+### ~~\[P0\] **AM-11** `amSet` AM_TEXT delete branch missing `return`~~ (DONE)
+
+> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `value == void_val`
+> branch, `AM_TEXT` case
+> **Bug:** the `GOT(AM_TEXT)` case in the delete-branch switch
+> `shdel`s the key, but doesn't `return`. Control falls out of
+> the inner switch (via the implicit `break` injected by the next
+> `GOT`), past the `if (value == void_val)` block, and into the
+> regular insert switch -- which `shput`s the key right back
+> with the void value. Net effect: `T.K = void_val` on an
+> `AM_TEXT` table is a silent no-op; the key stays present, but
+> with the void value. Every other mode has the matching `return`.
+> Almost certainly a copy-paste omission when the AM_TEXT delete
+> path was added.
+> **Resolution:** add `return;`. Surfaced by the new
+> `tests/am/tc_void.s` regression, which exercises the void_val
+> delete contract on every mode (EMPTY, INT, TEXT, GENERIC,
+> BITMAP1) -- nothing else in the existing test suite ever wrote
+> the void value to an AM_TEXT table.
+>
+> Also added `am.h`, `nb.h`, `nh.h` to `HDRSB` in
+> [`Makefile.w64`](Makefile.w64) so future header edits trigger
+> .o recompilation (the original list had `dh.h` but not the
+> other three adaptive-map headers; Linux + osx Makefiles
+> already had `am.h`, brought to feature parity).
+
 ### \[P2\] **AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `AM_EMPTY` branch

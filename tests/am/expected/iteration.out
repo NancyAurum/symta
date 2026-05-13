@@ -24,13 +24,4 @@ PASS text.ks set
 PASS generic.n
 PASS generic.l.n
 PASS generic.ks.n
-UNHANDLED ERROR
-int.`<`: arg 1 is not int
-Stack Trace:
-  0000000000000000:int.`<`:0,0,builtin
-  0000000000000000:merge:904,12,REPO/src/core_.s
-  0000000000000000:sort_asc:918,12,REPO/src/core_.s
-  0000000000000000:list.s:928,11,REPO/src/core_.s
-  0000000000000000:check_triplet:29,34,./src/tc_iteration.s
-  0000000000000000:tc_iteration:38,13,./src/tc_iteration.s
-  0000000000000000:<toplevel>:14,17,./src/go.s
+PASS generic.ks set

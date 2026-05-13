@@ -8,7 +8,7 @@
 
 use cls
     tc_empty tc_bitmap0 tc_bitmap1 tc_int tc_text tc_generic
-    tc_promote tc_gid tc_mixed tc_iteration tc_stress
+    tc_promote tc_gid tc_mixed tc_iteration tc_stress tc_void
 
 RunCase \empty
 for A main_args():
@@ -27,4 +27,5 @@ case RunCase:
   'mixed'     = tc_mixed
   'iteration' = tc_iteration
   'stress'    = tc_stress
+  'void'      = tc_void
   Else        = say "no such case: [RunCase]"
