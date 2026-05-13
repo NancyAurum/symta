@@ -1,5 +1,0 @@
-1. analyze character frequencies in file.
-2. handle characters with low freqs uniquely
-3. 32 byte table will determine which characters are present.
-4. encode stream using huffman coding
-4. additional stream will determine where to place low freq chars
