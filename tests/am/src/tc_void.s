@@ -116,3 +116,20 @@ tc_void =
   check 'gid B0 survivor 5'       0   (gid_get_ TB0 5)
   check 'gid B0 survivor 9'       0   (gid_get_ TB0 9)
   check 'gid B0 n=2 after del'    2   TB0.n
+
+  // ---- AM-13: non-int key probes on bitmap tables ----
+  // Looking up a text or list key on a bitmap table must
+  // return the void (or "not present"), not silently false-
+  // positive against a populated bit. Before AM-13 the UNFXN
+  // of a non-int pointer fed garbage into nbGet, which could
+  // (rarely) collide with a real bit.
+  TB1b (!)
+  gid_set_ TB1b 5 1   // -> AM_BITMAP1
+  gid_set_ TB1b 7 1
+  check 'B1 has \\hi -> 0'        0   (TB1b.has \hi)
+  check 'B1 has [1 2] -> 0'       0   (TB1b.has [1 2])
+  check 'B1 get \\hi -> No'       No  TB1b.\hi
+  check 'B1 got [3] -> 0'         0   (TB1b.got [3])
+  // Real int keys still work.
+  check 'B1 has 5 stays 1'        1   (TB1b.has 5)
+  check 'B1 has 6 stays 0'        0   (TB1b.has 6)

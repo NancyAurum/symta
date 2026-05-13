@@ -354,10 +354,17 @@ INLINE dyn amHas(dyn o, dyn key) { //Key exists
      * on this semantic. The original `nbGet == 0` was an
      * inversion left over from when BITMAP0 tracked exceptions
      * rather than presence. Latent until tc_void exercised it
-     * through `T.has K` on a true BITMAP0 table. */
+     * through `T.has K` on a true BITMAP0 table.
+     *
+     * AM-13: the T_INT guard rejects non-int keys before they
+     * reach nbGet -- otherwise UNFXN(non-int) feeds garbage to
+     * the bitmap and can rarely false-positive against a
+     * populated bit. (`T.has "hello"` on a B0 table.) */
+    if (O_TAG(key) != T_INT) return 0;
     nb_t nb = AM_BASE(o);
     return FXN(nbGet(nb, UNFXN(key)) != 0);
   GOT(AM_BITMAP1)
+    if (O_TAG(key) != T_INT) return 0;
     nb_t nb = AM_BASE(o);
     return FXN(nbGet(nb, UNFXN(key)) != 0);
   ESAC
@@ -382,11 +389,13 @@ INLINE dyn amGot(dyn o, dyn key) { //key both exists and has value != No
     /* AM-12 (TODO.md): same inversion fix as in amHas above.
      * amGot is "present AND value != No"; on BITMAP0 the value
      * is always FXN(0) which is != No, so amGot collapses to
-     * the same predicate as amHas. */
+     * the same predicate as amHas. AM-13: same T_INT guard. */
+    if (O_TAG(key) != T_INT) return 0;
     nb_t nb = AM_BASE(o);
     int64_t rr = nbGet(nb, UNFXN(key)) != 0;
     return FXN(rr);
   GOT(AM_BITMAP1)
+    if (O_TAG(key) != T_INT) return 0;
     nb_t nb = AM_BASE(o);
     int64_t rr = nbGet(nb, UNFXN(key)) != 0;
     return FXN(rr);
@@ -412,9 +421,12 @@ INLINE dyn amGet(dyn o, dyn key) {
     r = dhGet(hm, key);
     if (r == NIL) r = AM_VOID(o);
   GOT(AM_BITMAP0)
+    /* AM-13: same T_INT defence as amHas/amGot. */
+    if (O_TAG(key) != T_INT) return AM_VOID(o);
     nb_t nb = AM_BASE(o);
     r = nbGet(nb, UNFXN(key)) ? FXN(0) : AM_VOID(o);
   GOT(AM_BITMAP1)
+    if (O_TAG(key) != T_INT) return AM_VOID(o);
     nb_t nb = AM_BASE(o);
     r = nbGet(nb, UNFXN(key)) ? FXN(1) : AM_VOID(o);
   ESAC

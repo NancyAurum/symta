@@ -23,3 +23,9 @@ PASS gid B0 delete via No
 PASS gid B0 survivor 5
 PASS gid B0 survivor 9
 PASS gid B0 n=2 after del
+PASS B1 has \hi -> 0
+PASS B1 has [1 2] -> 0
+PASS B1 get \hi -> No
+PASS B1 got [3] -> 0
+PASS B1 has 5 stays 1
+PASS B1 has 6 stays 0

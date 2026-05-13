@@ -290,6 +290,31 @@ state-of-the-art ECS frameworks.
 > actually trips on it in real code; the doc paragraph is enough
 > for now.
 
+### ~~\[P2\] **AM-13** Bitmap mode probes missing `T_INT` guard~~ (DONE)
+
+> **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot` /
+> `amGet` `AM_BITMAP0` / `AM_BITMAP1` branches
+> **Problem:** `T.has K`, `T.got K`, and `T.K` on a bitmap-mode
+> table called `nbGet(nb, UNFXN(key))` without first checking
+> that `key` was actually an integer. For non-int keys (text,
+> list, closure, …), `UNFXN(key)` extracted the upper bits of
+> the dyn -- often a raw heap pointer -- and fed it to the
+> bitmap as if it were a gid. Almost always missed (point in
+> the page directory unlikely to match a populated page), but a
+> sufficiently small or aligned pointer could in principle
+> false-positive against a real bit and silently report the key
+> as present.
+> **Resolution:** added `if (O_TAG(key) != T_INT) return …;` to
+> all six bitmap probe branches (3 functions × 2 bitmap modes).
+> The return value matches what the equivalent AM_TEXT /
+> AM_INT miss path returns: `0` for has/got, `AM_VOID(o)` for
+> get. amSet's BITMAP0/1 paths already had the guard; this is
+> just bringing the read side to feature parity.
+> Tests in `tc_void.s` cover `T.has \hi`, `T.has [1 2]`,
+> `T.\hi`, `T.got [3]` on a true BITMAP1 table -- previously
+> these all happened to return correct results, but only by
+> luck of pointer mod page-size.
+
 ### ~~\[P0\] **AM-12** `amHas` / `amGot` `AM_BITMAP0` predicate inverted~~ (DONE)
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot`
