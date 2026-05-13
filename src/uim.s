@@ -1,4 +1,4 @@
-use cls sexp heap gfx font svg rgb cache store prof
+use cls sexp heap gfx font svg rgb cache store prof uimgen
 export uim gui uim_stl bg spc frm ftx knob btn pic slider htabs tabs lay
        chkbx lbox edln edbx drpl msgbx
        pic9 wnd fsview menubar tip

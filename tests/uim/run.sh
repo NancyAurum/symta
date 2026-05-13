@@ -40,15 +40,21 @@ done
 
 mkdir -p "$ACTUAL" "$EXPECT"
 
-# Stage application-level assets (pic / ttf) from the 16-ui example
-# so the renderer can find its pictograms and fonts. The SDL runtime
-# DLLs are auto-staged by the ffi_begin macro (see symta/sdl/) the
-# first time the harness compiles its uim use, so they aren't our
-# problem here.
+# Stage only the application-level assets that aren't already
+# materialised for us:
+#   - ttf/      fonts; cloned from 16-ui because the harness needs
+#               actual font files (no ttf-defaults autogen yet).
+#   - pic/test/ a couple of example pictograms tc_windows references;
+#               cloned from 16-ui for the same reason.
+#
+# Everything else (pic/ui/, the SDL DLLs) is staged automatically:
+# uimgen materialises pic/ui/*.svg on first import of `uim`, and
+# the ffi_begin macro stages symta/sdl/*.dll the first time the
+# harness compiles its uim use.
 ASSET_SRC="$ROOT/examples/16-ui"
-for d in pic ttf; do
-  [ -d "$BUILD/$d" ] || cp -r "$ASSET_SRC/$d" "$BUILD/$d"
-done
+[ -d "$BUILD/ttf" ]      || cp -r "$ASSET_SRC/ttf" "$BUILD/ttf"
+[ -d "$BUILD/pic/test" ] || { mkdir -p "$BUILD/pic"
+                              cp -r "$ASSET_SRC/pic/test" "$BUILD/pic/test"; }
 
 # Build the harness once; uses cached sbc on subsequent runs.
 ( cd "$BUILD" && "$SYMTA" . ) >"$BUILD/build.log" 2>&1 || {
