@@ -11,10 +11,15 @@
     AM_BITMAP0  - bitmap of present integer keys; values are
                   implicitly FXN(0). Set bit -> get returns 0.
     AM_BITMAP1  - bitmap; values implicitly FXN(1).
-    AM_INT      - stb_ds hashmap, integer-keyed.
-    AM_TEXT     - stb_ds hashmap, string-keyed.
+    AM_INT      - nh_t-derived ih_t hashmap, integer-keyed
+                  (AM-6: replaced stb_ds; Robin Hood + 75% load).
+    AM_TEXT     - stb_ds hashmap, string-keyed. The last
+                  stb_ds use in the adaptive map; see AM-6b in
+                  TODO.md for the switch-to-th_t plan and the
+                  insertion-order blocker that's keeping it on
+                  stb_ds today.
     AM_GENERIC  - nh_t-derived dh_t hashmap, dyn-keyed
-                  (any mix of types).
+                  (any mix of types; Robin Hood + 75% load).
 
   Mode transitions happen lazily inside amSet/amGidSet: every
   promotion path widens the underlying type (the inverse demotion
@@ -283,6 +288,9 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       ihSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_INT);
+      nbFree(nb); /* AM-14: pre-existing leak -- the old bitmap
+                   * pages were never freed on BITMAP→INT
+                   * promotion. */
     }
   GOT(AM_BITMAP1)
     nb_t nb = AM_BASE(o);
@@ -295,6 +303,7 @@ INLINE void amGidSet(dyn o, dyn ref, dyn value) {
       ihSet(&hm, key, value);
       AM_BASE(o) = hm;
       AM_SET_TYPE(o, AM_INT);
+      nbFree(nb); /* AM-14 */
     }
   ESAC
 }
@@ -593,6 +602,7 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         ihSet(&hm, key, value);
         AM_BASE(o) = hm;
         AM_SET_TYPE(o, AM_INT);
+        nbFree(nb); /* AM-14 */
       }
     } else {
       dh_t *dh = dhAlloc();
@@ -614,6 +624,7 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         ihSet(&hm, key, value);
         AM_BASE(o) = hm;
         AM_SET_TYPE(o, AM_INT);
+        nbFree(nb); /* AM-14 */
       }
     } else {
       dh_t *dh = dhAlloc();

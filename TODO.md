@@ -378,6 +378,27 @@ state-of-the-art ECS frameworks.
 > these all happened to return correct results, but only by
 > luck of pointer mod page-size.
 
+### ~~\[P1\] **AM-14** BITMAP→INT promotion leaked the underlying `nb_t`~~ (DONE)
+
+> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` and
+> `amGidSet`, AM_BITMAP0/1 → AM_INT branches
+> **Problem:** when a BITMAP-mode column promotes to AM_INT
+> (caller writes a value that diverges from the implicit 0 or
+> 1), the promotion code allocated a fresh `ih_t` / `symta_itbl`
+> and migrated the bitmap's gids in, but didn't call
+> `nbFree(nb)` on the old bitmap. The matching BITMAP→GENERIC
+> branches DID free; the BITMAP→INT branches always leaked.
+> The leak was small per promotion (one `nh_t` page directory
+> plus 8 64-byte words per populated page) but ran every time
+> a column transitioned, which for ECS apps happens often.
+> Pre-existing; the bug pre-dated AM-6 (carried over from the
+> stb_ds version verbatim).
+> **Resolution:** added `nbFree(nb)` to all four affected
+> BITMAP→INT branches (2 in amSet, 2 in amGidSet). Tagged
+> with `/* AM-14 */` so a future audit doesn't re-remove them.
+> Verified with the full sweep + drift -- no behavioural
+> change, just plugs the leak.
+
 ### ~~\[P0\] **AM-12** `amHas` / `amGot` `AM_BITMAP0` predicate inverted~~ (DONE)
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot`
