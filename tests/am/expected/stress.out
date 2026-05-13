@@ -1,0 +1,13 @@
+PASS int N entries
+PASS int N reads
+PASS int N/2 after del
+PASS int post-del integrity
+PASS text N entries
+PASS text N reads
+PASS b1 N entries
+PASS b1 N reads
+PASS b1->int after promote
+PASS b1 keys survived
+PASS b1->int n
+PASS generic M entries
+PASS generic M reads

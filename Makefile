@@ -90,7 +90,7 @@ endif
 
 .PHONY: all help plugins runtime examples \
         test-gfx test-tokenizer test-reader test-runtime test-compiler \
-        test-macros test-uim test-ffi test-drift test-all \
+        test-macros test-uim test-ffi test-am test-drift test-all \
         screenshots check-tools \
         clean clean-plugins clean-runtime clean-examples clean-tests \
         $(PLUGINS)
@@ -113,6 +113,7 @@ help:
 	@echo "  make test-compiler      compiler-output (.sbc) regression"
 	@echo "  make test-uim           UIM widget regression tests (headless)"
 	@echo "  make test-ffi           FFI dispatcher (sffi) regression suite"
+	@echo "  make test-am            adaptive-map regression suite"
 	@echo "  make test-drift         5-stage bootstrap byte-equality check"
 	@echo "  make test-all           run every test suite bottom-up"
 	@echo "  make screenshots        capture baseline UIM PNGs"
@@ -205,12 +206,16 @@ test-ffi: runtime
 	@echo "[run] FFI dispatcher (sffi) regression suite"
 	@bash tests/ffi/run.sh
 
+test-am: runtime
+	@echo "[run] adaptive-map regression suite"
+	@bash tests/am/run.sh
+
 test-drift: runtime
 	@echo "[run] self-hosting compiler drift (5-stage bootstrap)"
 	@bash tests/bootstrap/drift.sh
 
 test-all: test-tokenizer test-reader test-macros test-runtime \
-          test-compiler test-gfx test-uim test-ffi test-drift
+          test-compiler test-gfx test-uim test-ffi test-am test-drift
 	@echo "[ok] all symta test suites passed"
 
 # Recapture every UIM baseline PNG. Useful after an intentional

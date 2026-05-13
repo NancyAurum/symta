@@ -1,0 +1,36 @@
+PASS empty.n
+PASS empty.l.n
+PASS empty.ks.n
+PASS empty.ks set
+PASS bitmap0.n
+PASS bitmap0.l.n
+PASS bitmap0.ks.n
+PASS bitmap0.ks set
+PASS bitmap0 all V==0
+PASS bitmap1.n
+PASS bitmap1.l.n
+PASS bitmap1.ks.n
+PASS bitmap1.ks set
+PASS bitmap1 all V==1
+PASS int.n
+PASS int.l.n
+PASS int.ks.n
+PASS int.ks set
+PASS int .l/point match
+PASS text.n
+PASS text.l.n
+PASS text.ks.n
+PASS text.ks set
+PASS generic.n
+PASS generic.l.n
+PASS generic.ks.n
+UNHANDLED ERROR
+int.`<`: arg 1 is not int
+Stack Trace:
+  0000000000000000:int.`<`:0,0,builtin
+  0000000000000000:merge:904,12,REPO/src/core_.s
+  0000000000000000:sort_asc:918,12,REPO/src/core_.s
+  0000000000000000:list.s:928,11,REPO/src/core_.s
+  0000000000000000:check_triplet:29,34,./src/tc_iteration.s
+  0000000000000000:tc_iteration:38,13,./src/tc_iteration.s
+  0000000000000000:<toplevel>:14,17,./src/go.s
