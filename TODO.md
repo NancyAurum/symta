@@ -42,40 +42,42 @@ the commit hash and date appended.
 
 ## FFI — cinvoke replacement
 
-### \[P1\] **FFI-1** Drop cinvoke; ship custom x86-64 trampolines
+### \[P1\] **FFI-1** Drop cinvoke; ship custom trampolines (Phase 1 landed)
 
-> **Where:** [`cinvoke/`](cinvoke/), [`runtime/bltin.c`](runtime/bltin.c)
-> (`_ffi_call`), [`src/macro.s`](src/macro.s) (`ffi_begin`)
-> **Problem:** `cinvoke/` is the only third-party component that
-> isn't dual-MIT/Apache (modified BSD-3 with a non-endorsement
-> clause). Legally compatible, but it forces every redistributor
-> to retain cinvoke's notice and makes Symta's own
-> licence-purity claim ("dual MIT / Apache-2 throughout")
-> technically false. Performance side: cinvoke is general-purpose
-> (supports runtime-dynamic signatures, struct-by-value, …),
-> and Symta uses a strict subset (`int`, `u4`, `s4`, `ptr`,
-> `float`, `double`, `text`, `void`). Cinvoke costs ~50–100 ns
-> per call; with ~50 K gfx calls per frame in the Management
-> window that's ~2.5–5 ms / frame in trampolines alone.
-> **Fix:** hand-coded inline-asm trampoline tailored to Symta's
-> signatures, for two ABIs: x86-64 Windows (rcx/rdx/r8/r9
-> register passing) and x86-64 SysV (rdi/rsi/rdx/rcx/r8/r9). The
-> Symta side knows the signature at FFI declaration time, so the
-> trampoline just does per-argument register/stack loads from a
-> `dyn` array, indirect call, and return-value marshalling.
-> ~300 lines of inline asm per ABI plus a dispatch table.
-> Estimated 30–50 % faster per call than cinvoke. Implement
-> Windows x64 first (developer's platform); keep cinvoke as a
-> `--use-cinvoke` build flag for the SysV path until that's
-> tested too. Net: `cinvoke/` directory deleted,
-> `runtime/Makefile.w64` no longer links `-lcinvoke`,
-> `LICENSE` claim becomes literally true.
-> **Regression strategy:** new `tests/ffi/` project exercising
-> every FFI type combo (return × argument × variadic-ish patterns
-> the gfx setters use). Run all 29 gfx tests through the new
-> trampoline. The `--profile=management` harness should produce
-> identical counts (blits, get_pic), faster timings.
-> `effort: multi-week`
+> **Where:** [`runtime/sffi/`](runtime/sffi/) — new in-tree
+> replacement; [`cinvoke/`](cinvoke/) — slated for deletion in
+> Phase 3.
+> **Status:** Phase 0 (architecture + scaffolding) and Phase 1
+> (x86-64 Windows backend) landed in commit … (May 2026). The
+> Symta-side build for w64devkit no longer links `-lcinvoke`;
+> the runtime calls into `sffi_call` instead of
+> `cinv_function_invoke` for every `SBC_NFI` op.
+> **Design recap:** see [`runtime/sffi/ARCHITECTURE.md`](runtime/sffi/ARCHITECTURE.md).
+> Three-function API (`sffi_bind`, `sffi_call`, `sffi_free`).
+> One backend `.c` per ABI, ~200 lines each. No JIT, no
+> executable memory — the trampoline is statically compiled,
+> arg classification runs once per FFI declaration at
+> `sbc_prepare` time, the hot path is just the per-ABI
+> register-load + indirect call.
+> **Remaining work:**
+> - **Phase 2:** stand up the x86-64 SysV backend
+>   ([`runtime/sffi/arch_x64_sysv.c`](runtime/sffi/arch_x64_sysv.c)
+>   already written but unverified). Unblocks the
+>   Linux + macOS port.
+> - **Phase 3:** delete `cinvoke/` from the tree. Net licence
+>   claim: dual MIT / Apache-2 throughout.
+> - **Phase 4:** additional ABIs as they're needed —
+>   i386 Win95 (`arch_x86_win.c`), i386 Linux
+>   (`arch_x86_sysv.c`), AArch32 RISC OS (`arch_arm32.c`),
+>   AArch64 Linux/macOS (`arch_arm64.c`). All four stubs are in
+>   tree with their calling-convention notes documented; bring
+>   them up when somebody actually needs the target.
+> - **Phase 5:** [`tests/ffi/`](tests/ffi/) project — a small
+>   C `.dll` / `.so` exposing one function per (return × arg-type)
+>   combo at arities 0..6, called from Symta and asserted
+>   against an expected value. Tier-3 of the regression net
+>   (see `symta_speedup.md` cross-cutting strategy).
+> `effort: multi-week` (Phase 1 done; Phases 2-5 remaining)
 
 ---
 

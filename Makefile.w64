@@ -1,5 +1,5 @@
 TARGET = symta
-INCLUDE = -I ./runtime -I ./runtime/w64 -I ./cinvoke/lib
+INCLUDE = -I ./runtime -I ./runtime/w64
 PREFIX =
 CC = $(PREFIX)gcc
 rt="./runtime/w64/"
@@ -33,7 +33,7 @@ ASFLAGS = $(LOC) -Wall
 
 LD = $(CC) -Wl,--stack,67108864
 # -Wl,-allow_stack_execute
-LDFLAGS = $(LOC) -Wl,--exclude-all-symbols -Wl,--exclude-libs,ALL -L ./cinvoke/lib -lcinvoke
+LDFLAGS = $(LOC) -Wl,--exclude-all-symbols -Wl,--exclude-libs,ALL
 AR = $(PREFIX)ar
 ARFLAGS = rcs
 
@@ -43,9 +43,10 @@ RM = rm -f
 
 SRCS = main.c gc.c ncm.c bltin.c tokenize.c reader.c ng.c \
        sif.c fs.c sbc.c sif2sbc.c \
+       sffi/sffi.c sffi/arch_x64_win.c \
        w64/ctx.c w64/compat.c w64/dlfcn.c w64/mman.c
 
-HDRSB = symta.h common.h ng.h prf.h dh.h fs.h sif.h flt16.h flt16_x86.h reader.h
+HDRSB = symta.h common.h ng.h prf.h dh.h fs.h sif.h flt16.h flt16_x86.h reader.h sffi/sffi.h
 
 HDRS = $(addprefix runtime/,$(HDRSB))
 
@@ -75,6 +76,7 @@ build/rt/gc.o: runtime/gc_types.h
 
 build/rt/w64:
 	@mkdir build\rt\w64
+	@mkdir build\rt\sffi
 
 build/rt/%.o: runtime/%.c $(HDRS)
 	@echo CC $<

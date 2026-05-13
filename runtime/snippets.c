@@ -60,48 +60,10 @@ uint8_t *emit_curry_hook(uint8_t *dst, void *target, void *payload) {
 
 
 
-#include <cinvoke.h>
-
-NOINLINE void target1(int arg) {
-  fprintf(stderr, "target1: %d\n", arg);
-}
-
-NOINLINE void target2(int arg, int arg2) {
-  fprintf(stderr, "target2: %d, %d\n", arg, arg2);
-}
-
-NOINLINE double target3(int arg, int arg2, int arg3) {
-  fprintf(stderr, "target3: %d, %d, %d\n", arg, arg2, arg3);
-  return 123.456;
-}
-
-void test_cinvoke() {
-  CInvContext *ctx = cinv_context_create();
-
-  int a1 = 123, a2 = 456, a3 = 789;
-  void *args1[] = {&a1};
-  void *args2[] = {&a1, &a2};
-  void *args3[] = {&a1, &a2, &a3};
-  void *retval;
-  double fretval;
-
-  CInvFunction *proto1 = cinv_function_create(ctx, CINV_CC_DEFAULT, "", "i");
-  CInvFunction *proto2 = cinv_function_create(ctx, CINV_CC_DEFAULT, "", "ii");
-  CInvFunction *proto3 = cinv_function_create(ctx, CINV_CC_DEFAULT, "d", "iii");
-
-  cinv_function_invoke(ctx, proto1, &target1, &retval, args1);
-  cinv_function_invoke(ctx, proto2, &target2, &retval, args2);
-  cinv_function_invoke(ctx, proto3, &target3, &fretval, args3);
-  
-  fprintf(stderr, "ret=%f\n", fretval);
-
-  cinv_function_delete(ctx, proto1);
-  cinv_function_delete(ctx, proto2);
-  cinv_function_delete(ctx, proto3);
-
-  cinv_context_delete(ctx);
-  exit(-1);
-}
+/* The old `test_cinvoke()` probe was removed when sffi replaced
+ * cinvoke (commit ...). For an equivalent sanity check against
+ * sffi, see tests/ffi/ (when it lands) — same idea but exercises
+ * the full type matrix instead of the three hand-coded targets. */
 
 
 uint8_t buf[128];

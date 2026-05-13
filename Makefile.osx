@@ -1,5 +1,5 @@
 TARGET = symta
-INCLUDE = -I ./runtime -I ./runtime/osx -I ./cinvoke/lib
+INCLUDE = -I ./runtime -I ./runtime/osx
 PREFIX =
 CC = $(PREFIX)gcc
 rt="./runtime/osx/"
@@ -15,7 +15,7 @@ ASFLAGS = $(LOC) -Wall
 LD = $(CC) -Wl,-no_pie -Wl,-image_base -Wl,0x100000000 \
            -Wl,-stack_size -Wl,0xA00000
 # -Wl,-allow_stack_execute
-LDFLAGS = $(LOC) -L ./cinvoke/lib -lcinvoke
+LDFLAGS = $(LOC)
 AR = $(PREFIX)ar
 ARFLAGS = rcs
 
@@ -23,11 +23,12 @@ STRIP = $(PREFIX)strip
 CP = cp -fp
 RM = rm -f
 
-SRCS = main.c gc.c ncm.c bltin.c tokenize.c ng.c \
+SRCS = main.c gc.c ncm.c bltin.c tokenize.c reader.c ng.c \
        sif.c fs.c sbc.c sif2sbc.c \
+       sffi/sffi.c sffi/arch_x64_sysv.c \
        osx/ctx.c osx/compat.c
 
-HDRSB = symta.h common.h ng.h prf.h dh.h am.h fs.h sif.h flt16.h flt16_x86.h
+HDRSB = symta.h common.h ng.h prf.h dh.h am.h fs.h sif.h flt16.h flt16_x86.h sffi/sffi.h
 
 HDRS = $(addprefix runtime/,$(HDRSB))
 
@@ -57,6 +58,7 @@ build/rt/gc.o: runtime/gc_types.h
 
 build/rt/osx:
 	@mkdir -p build/rt/osx
+	@mkdir -p build/rt/sffi
 
 build/rt/%.o: runtime/%.c $(HDRS)
 	@echo CC $<

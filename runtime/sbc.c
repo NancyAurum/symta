@@ -1,10 +1,10 @@
 #include <ctype.h>
-#include <cinvoke.h>
 #include <float.h>
 
 #include "sif.h"
 #include "ng.h"
 #include "fs.h"
+#include "sffi/sffi.h"
 
 #define MCACHE_DIV 4
 
@@ -63,15 +63,16 @@ void sbc_free(sbc_t *sbc) {
       //FIXME: ensure it gets unloaded from the runtime
       if (sbc->rtot[i].table) free(sbc->rtot[i].table);
     }
-    if (sbc->nfi_ctx) {
-      CInvContext* ctx = (CInvContext*)sbc->nfi_ctx;
-      if (sbc->nfi_trmps) {
-        for (int i = 0; i < arrlen(sbc->nfi_trmps); i++) {
-          cinv_function_delete(ctx, (CInvFunction*)sbc->nfi_trmps[i]);
-        }
-        arrfree(sbc->nfi_trmps);
+    /* sffi sigs were allocated one-per-FFI at sbc_prepare. Release
+     * them here. nfi_ctx isn't used by sffi (it was cinvoke's
+     * context handle); we keep the field in sbc_t for ABI
+     * compatibility with code that still reads it, but it's now
+     * always NULL. */
+    if (sbc->nfi_trmps) {
+      for (int i = 0; i < arrlen(sbc->nfi_trmps); i++) {
+        sffi_free((sffi_sig_t *)sbc->nfi_trmps[i]);
       }
-      cinv_context_delete(ctx);
+      arrfree(sbc->nfi_trmps);
     }
   }
   if (sbc->filename) free(sbc->filename);
@@ -224,24 +225,18 @@ void sbc_init_tables(sbc_t *sbc) {
 static int sbcs_loaded = 0;
 static sbc_t *sbcs[SBCS_MAX];
 
-static int nvi2cinvoke(int id) {
-  int r = -1;
+/* SBC_NFI_* opcode → sffi_type. Returns -1 on unrecognised. */
+static int sbc2sffi(int id) {
   switch (id) {
-  case SBC_NFI_VOID: r = 0; break;
-  //SBC_NFI_CHAR: r = 'c'; break;
-  //SBC_NFI_SHORT: r = 's'; break;
-  case SBC_NFI_INT:  r = 'i'; break;
-  //SBC_NFI_LONG: r = 'l'; break;
-  //SBC_NFI_LONG2: r = 'e'; break; //long long
-  case SBC_NFI_PTR:  r = 'p'; break;
-  case SBC_NFI_TXT:  r = 'p'; break;
-  //SBC_NFI_U2:   r = '2'; break;
-  case SBC_NFI_U4:   r = '4'; break;
-  //SBC_NFI_U8:   r = '8'; break;
-  case SBC_NFI_FLT:  r = 'f'; break;
-  case SBC_NFI_DBL:  r = 'd'; break;
+  case SBC_NFI_VOID: return SFFI_VOID;
+  case SBC_NFI_INT:  return SFFI_I32;
+  case SBC_NFI_PTR:  return SFFI_PTR;
+  case SBC_NFI_TXT:  return SFFI_PTR;  /* char* — same ABI as void* */
+  case SBC_NFI_U4:   return SFFI_U32;
+  case SBC_NFI_FLT:  return SFFI_F32;
+  case SBC_NFI_DBL:  return SFFI_F64;
   }
-  return r;
+  return -1;
 }
 
 void sbc_prepare(sbc_t *sbc) {
@@ -253,33 +248,44 @@ void sbc_prepare(sbc_t *sbc) {
   sbcs[sbcs_loaded++] = sbc;
   sbc_emit_hooks(sbc, sbc_id);
 
-  if (sbc->nrs_sz) {
-    sbc->nfi_ctx = cinv_context_create();
-  }
+  /* sffi has no per-SBC context (was a cinvoke thing). Keep the
+   * field NULL; nothing else reads it. */
+  sbc->nfi_ctx = 0;
 
-  //relocate functions
+  /* Walk the per-FFI argument-type stream and bind a sffi sig for
+   * each. Stored in sbc->nfi_trmps[] so SBC_NFI invocations can
+   * grab the sig by index. */
   uint8_t *pin = sbc->nrs;
   for (int i = 0; i < sbc->nrs_sz; i++) {
-    char *type = 0;
-    char rtype[8];
+    sffi_type arg_types[SFFI_MAX_ARGS];
+    int n_args = 0;
     int ofs = RD24;
     uint8_t *p = sbc->code + ofs;
     uint8_t *e = sbc->code + sbc->code_sz;
-    arrfree(type);
     while (*p != SBC_NFI && p < e) {
-      int c = nvi2cinvoke(*p);
-      arrput(type, c);
+      int t = sbc2sffi(*p);
+      if (t < 0 || n_args >= SFFI_MAX_ARGS) {
+        fprintf(stderr, "sbc_prepare: bad SBC_NFI arg type 0x%02x "
+                        "in %s\n", *p, sbc->filename);
+        exit(-1);
+      }
+      arg_types[n_args++] = (sffi_type)t;
       p += 3;
     }
-    arrput(type,0);
     p += 5;
-    int c = nvi2cinvoke(*p);
-    //if (c == -1) {} //should never happen
-    rtype[0] = c;
-    rtype[1] = 0;
-    CInvFunction *trmp =
-        cinv_function_create(sbc->nfi_ctx, CINV_CC_DEFAULT, rtype, type);
-    arrput(sbc->nfi_trmps, trmp);
+    int rt = sbc2sffi(*p);
+    if (rt < 0) {
+      fprintf(stderr, "sbc_prepare: bad SBC_NFI return type 0x%02x "
+                      "in %s\n", *p, sbc->filename);
+      exit(-1);
+    }
+    sffi_sig_t *sig = sffi_bind((sffi_type)rt, n_args, arg_types);
+    if (!sig) {
+      fprintf(stderr, "sbc_prepare: sffi_bind failed for FFI %d "
+                      "in %s\n", i, sbc->filename);
+      exit(-1);
+    }
+    arrput(sbc->nfi_trmps, sig);
   }
 
   sbc_init_tables(sbc);
@@ -1327,11 +1333,12 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int tri = RD16; //trampoline index
     CHKREG(pfn);
     void *target = NFI_DECPTR(L[pfn]);
-    uint64_t retval;
-    cinv_function_invoke((CInvContext*)sbc->nfi_ctx
-                        ,(CInvFunction*)sbc->nfi_trmps[tri]
-                        ,target
-                        ,&retval, api.nfi_aptrs);
+    /* sffi_call returns the raw bit-pattern of the return register
+     * (rax for int/ptr, xmm0 for float/double). The switch below
+     * reinterprets per the declared return type. */
+    uint64_t retval = sffi_call(
+        (const sffi_sig_t *)sbc->nfi_trmps[tri],
+        target, api.nfi_args);
     api.nfi_parg = api.nfi_args;
     int rtid = RD8;
     int dst = RD16;

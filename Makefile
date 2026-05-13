@@ -9,8 +9,7 @@
 # Quick reference:
 #   make                build runtime + plugins + examples
 #   make plugins        just the C FFI plugins (gfx, ui, ttf, svg)
-#   make runtime        just symta(.exe) + libcinvoke
-#   make cinvoke        just libcinvoke.a
+#   make runtime        just symta(.exe)
 #   make examples       compile every example under examples/
 #   make test-gfx       gfx-FFI golden image tests
 #   make test-tokenizer tokenizer regression tests
@@ -88,7 +87,7 @@ endif
 
 # ------------------------------------------------------------------ targets
 
-.PHONY: all help plugins runtime cinvoke examples \
+.PHONY: all help plugins runtime examples \
         test-gfx test-tokenizer test-reader test-runtime test-compiler \
         test-macros test-uim test-drift test-all \
         screenshots check-tools \
@@ -103,8 +102,7 @@ help:
 	@echo "  make                    build everything (default)"
 	@echo "  make plugins            build + install $(PLUGINS)"
 	@echo "  make <plugin>           build a single plugin: $(PLUGINS)"
-	@echo "  make runtime            build symta executable (+ libcinvoke)"
-	@echo "  make cinvoke            just libcinvoke.a"
+	@echo "  make runtime            build symta executable"
 	@echo "  make examples           compile every examples/*/ project"
 	@echo "  make test-gfx           gfx-FFI golden image tests"
 	@echo "  make test-tokenizer     tokenizer regression tests"
@@ -124,13 +122,12 @@ check-tools:
 	@command -v cp >/dev/null   || (echo "ERROR: cp not in PATH"; exit 1)
 	@echo "tools OK (platform=$(PLATFORM))"
 
-# --- cinvoke + runtime ---------------------------------------------
+# --- runtime -------------------------------------------------------
+# sffi (runtime/sffi/) replaces the old cinvoke dependency; it's
+# compiled in-tree as part of the runtime, not as a separate lib.
+# See runtime/sffi/ARCHITECTURE.md for the design.
 
-cinvoke:
-	@echo "[cinvoke]"
-	@$(MAKE) -s -C cinvoke/lib -f Makefile.$(PLATFORM)
-
-runtime: cinvoke
+runtime:
 	@echo "[runtime] symta executable"
 	@$(MAKE) -s -f Makefile.$(PLATFORM)
 
@@ -222,7 +219,6 @@ screenshots: runtime plugins
 
 clean-runtime:
 	-@$(MAKE) -s -f Makefile.$(PLATFORM) clean
-	-@$(MAKE) -s -C cinvoke/lib -f Makefile.$(PLATFORM) clean
 
 clean-plugins:
 	@for p in $(PLUGINS); do \

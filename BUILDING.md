@@ -68,11 +68,12 @@ make help      # list of make targets
 
 The default target runs in dependency order:
 
-1.  `cinvoke` — builds `cinvoke/lib/libcinvoke.a`, the FFI shim.
-2.  `runtime` — builds `symta` (or `symta.exe` on Windows).
-3.  `plugins` — builds `gfx`, `ui`, `ttf`, `svg`, `vfx` and installs
+1.  `runtime` — builds `symta` (or `symta.exe` on Windows). Includes
+    the in-tree FFI dispatcher [`runtime/sffi/`](runtime/sffi/),
+    which replaces the older `cinvoke` dependency.
+2.  `plugins` — builds `gfx`, `ui`, `ttf`, `svg`, `vfx` and installs
     each `.ffi` into `ffi/` so `symta .` finds them automatically.
-4.  `examples` — compiles every subdirectory under `examples/` to
+3.  `examples` — compiles every subdirectory under `examples/` to
     its own `go.exe`.
 
 You can rebuild a single component:
@@ -151,7 +152,9 @@ symta/
   pkg/symta/src/go.s    Entry point invoked when self-rebuilding
   sbc/                  Committed compiler bytecode (bootstrap input)
   runtime/              C runtime (gc, tokenizer, reader, VM, ffi)
-  cinvoke/              Vendored libcinvoke (foreign-call shim)
+    sffi/               In-tree FFI dispatcher (replaces cinvoke)
+  cinvoke/              Old vendored libcinvoke — slated for deletion
+                        once sffi's Phase 2 (SysV backend) lands
   c/{gfx,ui,ttf,svg,vfx}/   FFI plugins, one folder each
   ffi/                  Plugin .ffi files installed here on build
   examples/             Tutorial demos (see examples/README if added)
