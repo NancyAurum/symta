@@ -43,13 +43,14 @@ normalize() {
   # Same shape as tests/runtime/run.sh's normalize. Strips
   # platform-specific path prefixes (Win C:/Users/foo/..., Linux
   # /home/bar/...) from embedded source-position metadata so stack
-  # traces compare equal across operating systems.
+  # traces compare equal across operating systems. The trailing
+  # `symta/+` collapses both single- and double-slash variants.
   tr -d '\r' \
     | sed -e 's/\bgid=[0-9]\{6,\}/gid=XXXXX/g' \
           -e 's/object=[0-9a-fA-F]\{4,\}/object=XXXXX/' \
-          -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/|REPO/|g' \
-          -e 's|/home/[^/]*/[^,]*/symta/|REPO/|g' \
-          -e 's|/Users/[^/]*/[^,]*/symta/|REPO/|g'
+          -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/\{1,\}|REPO/|g' \
+          -e 's|/home/[^/]*/[^,]*/symta/\{1,\}|REPO/|g' \
+          -e 's|/Users/[^/]*/[^,]*/symta/\{1,\}|REPO/|g'
 }
 
 for f in "$CASES"/*.s; do

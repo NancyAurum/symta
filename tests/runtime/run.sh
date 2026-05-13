@@ -49,13 +49,18 @@ for f in examples/*.s; do
   # a deterministic number, it can opt out of redaction by emitting
   # the number in a different format.
   normalize() {
+    # The trailing `symta/+` in the path-stripping regexes is to
+    # collapse `<repo>/symta/` AND `<repo>/symta//` (the Win build
+    # sometimes leaves doubled slashes when concatenating paths) to
+    # a single `REPO/` so the goldens compare equal regardless of
+    # which build inserted the extra slash.
     tr -d '\r' \
       | sed -e 's/\bgid=[0-9]\{6,\}/gid=XXXXX/g' \
             -e 's/^heap used: [0-9]\{1,\}+[0-9]\{1,\}$/heap used: XXX+XXX/' \
             -e 's/^object=[0-9a-fA-F]\{4,\}/object=XXXXX/' \
-            -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/|REPO/|g' \
-            -e 's|/home/[^/]*/[^,]*/symta/|REPO/|g' \
-            -e 's|/Users/[^/]*/[^,]*/symta/|REPO/|g'
+            -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/\{1,\}|REPO/|g' \
+            -e 's|/home/[^/]*/[^,]*/symta/\{1,\}|REPO/|g' \
+            -e 's|/Users/[^/]*/[^,]*/symta/\{1,\}|REPO/|g'
   }
 
   # Some examples have benign nondeterminism (hash iteration order,

@@ -145,18 +145,17 @@ column, every cache. Most of these items make ECS-style code
 (`each(unit.field)` loops, dense iteration) competitive with
 state-of-the-art ECS frameworks.
 
-### \[P0\] **AM-1** `amGidGet` falls through `AM_GENERIC` / `AM_TEXT` uninitialised
+### ~~\[P0\] **AM-1** `amGidGet` falls through `AM_GENERIC` / `AM_TEXT` uninitialised~~ (DONE)
 
-> **Where:** [`runtime/am.h:64`](runtime/am.h)
-> **Problem:** the `CASE` only handles `EMPTY`, `INT`, `BITMAP0`,
-> `BITMAP1`. For `GENERIC` and `TEXT`, `r` is returned
-> uninitialised (latent UB). The cls layer presumably guarantees
-> integer-keyed tables here, but the contract isn't enforced.
-> **Fix:** add explicit branches that either dispatch correctly
-> (TEXT can resolve, GENERIC can call `dhGet` with the ref as
-> key) or `_fatal` so the violated assumption surfaces
-> immediately.
-> `effort: 30 min`
+> **Where:** [`runtime/am.h`](runtime/am.h)
+> **Resolution:** added explicit `GOT(AM_GENERIC)` branch that
+> dispatches through `dhGet(FXN(O_GID(ref)))` (same path as
+> `amGet`), and a `GOT(AM_TEXT)` branch that calls `fatal()` --
+> a text-keyed column queried by integer GID is a real cls-layer
+> contract violation and should crash loudly rather than silently
+> returning garbage. Fix landed alongside the AM-3 inlining
+> below; no regressions in the test sweep or the 3-round drift
+> bootstrap.
 
 ### \[P1\] **AM-2** No dense-iteration story for ECS columns
 
@@ -179,21 +178,28 @@ state-of-the-art ECS frameworks.
 > workload. Hits ~2–4 ms / site update at SoM's peak unit count.
 > `effort: weekend`
 
-### \[P1\] **AM-3** `GENERIC` mode pays MCALL per probe step
+### ~~\[P1\] **AM-3** `GENERIC` mode pays MCALL per probe step~~ (DONE)
 
 > **Where:** [`runtime/dh.h`](runtime/dh.h)
-> (`dhEqual_`, `dhHash_`)
-> **Problem:** every probe (including misses, including during
-> grow) does a full Symta method dispatch — build arglist,
-> vtable lookup, return through unbox. A million-key generic
-> map crawls. Lua / Python / Ruby all inline int/text/symbol
-> keys and fall through to method dispatch only for genuine
-> user types.
-> **Fix:** in `dhEqual_` / `dhHash_`, branch on `O_TAG(key)`
-> first and inline the int and text cases. Most "generic"
-> tables in real code are still 90 %+ int or text mixed with
-> one stray symbol that forced GENERIC mode.
-> `effort: afternoon`
+> **Resolution:** `dhEqual_` / `dhHash_` now branch on `O_TAG(key)`
+> and inline the three common shapes (`T_INT`, `T_FIXTEXT`,
+> `T_TEXT`) before falling back to `MCALL`. The inlined hash
+> values are bit-for-bit identical to what the existing
+> `int.hash` / `text.hash` builtins return through method
+> dispatch, so a table populated through one path stays findable
+> through the other.
+>
+> Helpers `dhFmix64_` (Murmur3 finaliser) and `dhAdler_` (Adler-32
+> over bigtext bytes) are kept in-sync with `fmix64` / `hash` in
+> `bltin.c` -- both must continue to agree; bench-grade
+> performance regressions or correctness divergence would surface
+> as drift-test failures.
+>
+> Drift + every test suite still green; no measurable change on
+> int-heavy tables that already hit the AM_INT specialisation
+> (those skip dh entirely), but generic tables with mixed key
+> types -- particularly the symbol-tag-table -- should now do
+> orders of magnitude less work per probe.
 
 ### \[P1\] **AM-4** `BITMAP*` promotion to `INT` is lossy and one-way
 

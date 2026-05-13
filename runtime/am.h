@@ -78,6 +78,22 @@ INLINE dyn amGidGet(dyn o, dyn ref) {
     nb_t nb = AM_BASE(o);
     dyn key = FXN(O_GID(ref));
     r = nbGet(nb, UNFXN(key)) ? FXN(1) : AM_VOID(o);
+  GOT(AM_GENERIC)
+    /* Column promoted to GENERIC at some point (mixed key types or
+     * a non-int key got written). The keys are stored as full Symta
+     * values; look up by the gid-as-int key the same way amGet would.
+     * AM-1 (TODO.md): fixes the latent UB where amGidGet returned
+     * `r` uninitialised on this branch. */
+    dh_t *hm = AM_BASE(o);
+    r = dhGet(hm, FXN(O_GID(ref)));
+    if (r == NIL) r = AM_VOID(o);
+  GOT(AM_TEXT)
+    /* Text-keyed column being queried by entity GID is a contract
+     * violation -- cls fields are integer-keyed by construction.
+     * Crash loudly so the bug surfaces at the call site instead of
+     * silently returning garbage. (Also AM-1 / TODO.md.) */
+    fatal("amGidGet: AM_TEXT column queried by integer GID\n");
+    r = AM_VOID(o); /* unreachable; keeps the compiler quiet */
   ESAC
   return r;
 }
