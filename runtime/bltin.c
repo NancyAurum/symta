@@ -2007,10 +2007,24 @@ RETURNS(FXN((int64_t)time(0)))
 //  LDFLT(R, (float)clock()/(float)CLOCKS_PER_SEC);
 //RETURNS(R)
 BUILTIN0("clock",clock)
+  /* Symta texts are 32-bit floats; storing a full Unix epoch
+   * (~1.78e9 in 2026) into a float drops all subsecond precision
+   * because the mantissa is only 24 bits. The game's view.update
+   * runs a `till Time < NextUpdate: ... NextUpdate += 1/ups` catch-
+   * up loop that depends on `clock()` advancing within a frame;
+   * if every call returns the same float, the loop runs forever
+   * and the render thread hangs at 100% CPU. Subtracting a fixed
+   * offset captured at first call keeps the value small enough to
+   * survive single-precision rounding (and matches Win32's
+   * QueryPerformanceCounter-style "seconds since program start"
+   * semantics that this code grew up against). */
+  static int initialized = 0;
+  static int64_t base_sec = 0;
   struct timespec time;
   cmt_clock_gettime(CLOCK_REALTIME,&time);
-  float dSeconds = time.tv_sec;
-  float dNanoSeconds = (float)time.tv_nsec/1000000000L;
+  if (!initialized) { base_sec = time.tv_sec; initialized = 1; }
+  float dSeconds = (float)(time.tv_sec - base_sec);
+  float dNanoSeconds = (float)time.tv_nsec/1000000000.0f;
   LDFLT(R, dSeconds+dNanoSeconds);
 RETURNS(R)
 
