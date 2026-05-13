@@ -108,7 +108,24 @@ for name in "${CASES[@]}"; do
   GO="$HERE/go.exe"
   [ -x "$GO" ] || GO="$HERE/go"
   raw=$( cd "$HERE" && "$GO" --case=$name 2>&1 )
-  printf '%s\n' "$raw" | tr -d '\r' > "$out"
+  # Normalise environment-specific noise:
+  #   - CRLF -> LF
+  #   - absolute paths -> REPO/... so Win64 (C:/Users/foo/...) and
+  #     Linux (/home/bar/...) goldens compare equal
+  #   - heap address in segfault traces -> HEAP (different per build
+  #     and per run; we already test "did it segfault here", the
+  #     specific address is noise)
+  #   - shared-library versions in PASS lines (`zlib version = 1.2.13`
+  #     vs `1.3`) -> redacted; we test "library loaded and returned a
+  #     non-empty version string", not the literal version
+  printf '%s\n' "$raw" \
+    | tr -d '\r' \
+    | sed -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/|REPO/|g' \
+          -e 's|/home/[^/]*/[^,]*/symta/|REPO/|g' \
+          -e 's|/Users/[^/]*/[^,]*/symta/|REPO/|g' \
+          -e 's|heap=[0-9a-fA-F]\{1,\}|heap=HEAP|g' \
+          -e 's|version = [0-9][0-9.a-z-]*|version = VERSION|g' \
+    > "$out"
 
   # Fast pre-check: any FAIL in actual = test failed.
   if grep -q '^FAIL' "$out"; then

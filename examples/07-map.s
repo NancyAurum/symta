@@ -29,7 +29,12 @@ say S{@\bad=\good}
 // Frequency table from a string. `~D.?+` says: take the
 // auto-closure table `~D`, look up the current char, post-increment.
 F "hello world"{~D.?+}
-say F
+// Sort the [key value] pairs by key so the printed order is
+// deterministic across hash-seed randomisation. Without this,
+// `say F` prints the table in whatever order hash iteration
+// happens to walk -- fine in practice, awful for golden-file
+// regression tests.
+say F.l.s(| ?.0 < ??.0)
 
 // Reverse a list.
 say [a b c d e].f
@@ -43,7 +48,10 @@ N "1-a, 2-b and 3-c"{d?=~i+}
 say "digits seen: [N]"
 
 // `.s` sorts; with a comparator lambda we can sort by anything.
-// Here, sort words by descending length.
+// Here, sort words by descending length, alphabetical on ties.
+// Without the lexical tie-break the order of equal-length words
+// depends on Symta's internal sort stability, which isn't a
+// contract the test should pin.
 Words: alpha beta gamma delta epsilon zeta
-Sorted Words.s | ?.n > ??.n
+Sorted Words.s | ?.n > ??.n or (?.n >< ??.n and ? < ??)
 say "longest first: [Sorted]"

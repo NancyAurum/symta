@@ -115,7 +115,15 @@ for spec in "${CASES[@]}"; do
     continue
   fi
 
-  if cmp -s "$out" "$golden"; then
+  # Compare by DECODED PIXELS, not by raw PNG bytes. libpng's filter /
+  # zlib-chunk choices vary harmlessly between platforms (Win64
+  # vs Linux can produce a ~5-10 B PNG header delta even with
+  # identical image content), and we don't own that representation.
+  # The harness's --pngcmp mode loads both files through the gfx
+  # plugin and walks them pixel-by-pixel, printing `MATCH` when the
+  # decoded RGB(A) buffers are identical.
+  cmp_result=$( cd "$BUILD" && "$GO" --pngcmp-a="$out" --pngcmp-b="$golden" 2>&1 )
+  if printf '%s' "$cmp_result" | grep -q '^MATCH'; then
     passed=$((passed+1))
   else
     if [ $UPDATE -eq 1 ]; then
@@ -126,7 +134,8 @@ for spec in "${CASES[@]}"; do
       fail_names="$fail_names $name"
       sa=$(wc -c < "$out" | tr -d ' ')
       se=$(wc -c < "$golden" | tr -d ' ')
-      echo "  FAIL   $name   (actual=${sa}B golden=${se}B; see $out)"
+      reason=$(printf '%s' "$cmp_result" | head -1)
+      echo "  FAIL   $name   (actual=${sa}B golden=${se}B; $reason; see $out)"
     fi
   fi
 done

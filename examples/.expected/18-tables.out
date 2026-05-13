@@ -19,8 +19,8 @@ stop?(cat) = 0
 
 top 3 words:
   the: 3
-  quick: 2
   fox: 2
+  quick: 2
 
 Nancy's age:  37
 Bernd's city: Berlin

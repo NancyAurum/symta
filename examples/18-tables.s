@@ -73,7 +73,11 @@ say ""
 Words "the quick brown fox the lazy dog the quick fox".split^' '
 Freq Words{~D.?+}                                   // {} returns ~D
 Pairs Freq.l
-Sorted Pairs.s | ?.1 > ??.1                          // sort by count desc
+// Sort by count descending. We add an alphabetical tie-breaker so
+// words with equal counts ("quick" and "fox" both at 2) come out
+// in a fixed order rather than whatever hash-iteration produces --
+// otherwise the top-N print is non-deterministic across runs.
+Sorted Pairs.s | ?.1 > ??.1 or (?.1 >< ??.1 and ?.0 < ??.0)
 say "top 3 words:"
 for [W N] Sorted[:3]: say "  [W]: [N]"
 say ""

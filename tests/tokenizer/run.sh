@@ -40,9 +40,16 @@ fail_names=""
 mkdir -p "$EXPECT"
 
 normalize() {
+  # Same shape as tests/runtime/run.sh's normalize. Strips
+  # platform-specific path prefixes (Win C:/Users/foo/..., Linux
+  # /home/bar/...) from embedded source-position metadata so stack
+  # traces compare equal across operating systems.
   tr -d '\r' \
     | sed -e 's/\bgid=[0-9]\{6,\}/gid=XXXXX/g' \
-          -e 's/object=[0-9a-fA-F]\{4,\}/object=XXXXX/'
+          -e 's/object=[0-9a-fA-F]\{4,\}/object=XXXXX/' \
+          -e 's|[A-Z]:/[Uu]sers/[^/]*/[^,]*/symta/|REPO/|g' \
+          -e 's|/home/[^/]*/[^,]*/symta/|REPO/|g' \
+          -e 's|/Users/[^/]*/[^,]*/symta/|REPO/|g'
 }
 
 for f in "$CASES"/*.s; do
