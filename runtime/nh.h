@@ -67,6 +67,16 @@ typedef struct {
   uint32_t cap; //capacity
   uint32_t used;
   NH_VAL *vals;
+#ifdef NH_CACHE_HASH
+  // AM-15 (TODO.md): when the keys are dyn values whose hash
+  // requires a MCALL (lists, closures, user types in dh.h), we
+  // store the hash alongside the key so the Robin Hood probe
+  // doesn't have to re-hash the resident on every step. The
+  // cache is exact -- we write it at Add_ time and rebuild it
+  // on Grow_. Adds 4 B/slot of memory; saves one MCALL per
+  // probed-but-not-matching slot.
+  uint32_t *hashes;
+#endif
   NH_KEY keys[1];
 } nh_t;
 
@@ -118,6 +128,9 @@ INLINE uint64_t PRFX(NH_PFX,,Hash_)(uint64_t key) {
 INLINE nh_t *PRFX(NH_PFX,,Alloc_)(int cap) {
   nh_t *nh = (nh_t*)NH_ALLOC(sizeof(nh_t)+sizeof(NH_KEY)*(cap-1));
   nh->vals = NH_ALLOC(sizeof(NH_VAL)*cap);
+#ifdef NH_CACHE_HASH
+  nh->hashes = NH_ALLOC(sizeof(uint32_t)*cap);
+#endif
 #ifdef NH_ZERO_VALS
   memset(nh->vals, 0, sizeof(NH_VAL)*cap);
 #undef NH_ZERO_VALS
@@ -151,6 +164,9 @@ INLINE void PRFX(NH_PFX,,Free)(nh_t *nh) {
 #endif
   {
     NH_FREE(nh->vals);
+#ifdef NH_CACHE_HASH
+    NH_FREE(nh->hashes);
+#endif
     NH_FREE(nh);
   }
 }
@@ -185,7 +201,13 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
   uint32_t cap = nh->cap;
   NH_KEY *ks = nh->keys;
   NH_VAL *vs = nh->vals;
+#ifdef NH_CACHE_HASH
+  uint32_t *hs = nh->hashes;
+  uint32_t hash_my = (uint32_t)NH_HASH(key);
+  uint32_t home_my = hash_my & cap;
+#else
   uint32_t home_my = NH_HASH(key) & cap;
+#endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
 
@@ -194,7 +216,12 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
       if (old) *old = 1;
       return vs+i;
     }
+#ifdef NH_CACHE_HASH
+    uint32_t hash_them = hs[i];
+    uint32_t home_them = hash_them & cap;
+#else
     uint32_t home_them = NH_HASH(ks[i]) & cap;
+#endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) {
       // Robin Hood swap: install our key at this slot, take the
@@ -203,6 +230,10 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
       // so we remember the slot and re-insert the displaced one.
       NH_KEY  k_disp = ks[i];
       NH_VAL  v_disp = vs[i];
+#ifdef NH_CACHE_HASH
+      uint32_t h_disp = hash_them;
+      hs[i] = hash_my;
+#endif
       ks[i] = key;
       NH_VAL *ret = vs + i;
 #ifdef NH_INIT_VAL
@@ -215,20 +246,34 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
       uint32_t j  = (i+1) & cap;
       NH_KEY   k  = k_disp;
       NH_VAL   v  = v_disp;
+#ifdef NH_CACHE_HASH
+      uint32_t h  = h_disp;
+#endif
       uint32_t home_j = home_them;
       uint32_t dib_j  = (j - home_j) & cap;
       for (;; j = (j+1)&cap, dib_j++) {
         if (ks[j] == NH_KEY_NIL) {
           ks[j] = k;
           vs[j] = v;
+#ifdef NH_CACHE_HASH
+          hs[j] = h;
+#endif
           return ret;
         }
+#ifdef NH_CACHE_HASH
+        uint32_t hash_jx = hs[j];
+        uint32_t home_jx = hash_jx & cap;
+#else
         uint32_t home_jx = NH_HASH(ks[j]) & cap;
+#endif
         uint32_t dib_jx  = (j - home_jx) & cap;
         if (dib_jx < dib_j) {
           NH_KEY kt = ks[j]; NH_VAL vt = vs[j];
           ks[j] = k; vs[j] = v;
           k = kt; v = vt;
+#ifdef NH_CACHE_HASH
+          { uint32_t ht = hs[j]; hs[j] = h; h = ht; }
+#endif
           home_j = home_jx;
           dib_j  = dib_jx;
         }
@@ -239,6 +284,9 @@ INLINE NH_VAL *PRFX(NH_PFX,,Add_)(nh_t *nh, NH_KEY key, int *old) {
 
   // Empty slot found before any Robin Hood swap.
   ks[i] = key;
+#ifdef NH_CACHE_HASH
+  hs[i] = hash_my;
+#endif
   nh->used++;
   if (old) *old = 0;
 #ifdef NH_INIT_VAL
@@ -253,12 +301,21 @@ INLINE NH_VAL *PRFX(NH_PFX,,Lookup)(nh_t *nh, NH_KEY key) {
 #endif
   uint32_t cap = nh->cap;
   NH_KEY *ks = nh->keys;
+#ifdef NH_CACHE_HASH
+  uint32_t *hs = nh->hashes;
+  uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
+#else
   uint32_t home_my = NH_HASH(key) & cap;
+#endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
   for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
     if (NH_EQUAL(ks[i], key)) return nh->vals+i;
+#ifdef NH_CACHE_HASH
+    uint32_t home_them = hs[i] & cap;
+#else
     uint32_t home_them = NH_HASH(ks[i]) & cap;
+#endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return 0; // RH invariant -> not in table
   }
@@ -272,12 +329,21 @@ INLINE NH_VAL PRFX(NH_PFX,,Get)(nh_t *nh, NH_KEY key) {
 #endif
   uint32_t cap = nh->cap;
   NH_KEY *ks = nh->keys;
+#ifdef NH_CACHE_HASH
+  uint32_t *hs = nh->hashes;
+  uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
+#else
   uint32_t home_my = NH_HASH(key) & cap;
+#endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
   for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
     if (NH_EQUAL(ks[i], key)) return nh->vals[i];
+#ifdef NH_CACHE_HASH
+    uint32_t home_them = hs[i] & cap;
+#else
     uint32_t home_them = NH_HASH(ks[i]) & cap;
+#endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return NH_VAL_NIL;
   }
@@ -444,7 +510,12 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
   // Robin Hood deletion: find the slot using RH early-exit, then
   // backshift the trailing chain to maintain the "no slot is more
   // displaced than its successor" invariant.
+#ifdef NH_CACHE_HASH
+  uint32_t *hs = nh->hashes;
+  uint32_t home_my = (uint32_t)NH_HASH(key) & cap;
+#else
   uint32_t home_my = NH_HASH(key) & cap;
+#endif
   uint32_t i = home_my;
   uint32_t dib_my = 0;
   for ( ; ks[i] != NH_KEY_NIL; i = (i+1)&cap, dib_my++) {
@@ -459,19 +530,30 @@ INLINE void PRFX(NH_PFX,,Del)(nh_t **pnh, NH_KEY key) {
           ks[j] = NH_KEY_NIL;
           break;
         }
+#ifdef NH_CACHE_HASH
+        uint32_t home_nxt = hs[nxt] & cap;
+#else
         uint32_t home_nxt = NH_HASH(ks[nxt]) & cap;
+#endif
         if (nxt == home_nxt) {  // entry is at home; don't move
           ks[j] = NH_KEY_NIL;
           break;
         }
         ks[j] = ks[nxt];
         vs[j] = vs[nxt];
+#ifdef NH_CACHE_HASH
+        hs[j] = hs[nxt];
+#endif
         j = nxt;
       }
       nh->used--;
       return;
     }
+#ifdef NH_CACHE_HASH
+    uint32_t home_them = hs[i] & cap;
+#else
     uint32_t home_them = NH_HASH(ks[i]) & cap;
+#endif
     uint32_t dib_them = (i - home_them) & cap;
     if (dib_them < dib_my) return; // RH invariant -> not in table
   }
@@ -546,6 +628,10 @@ INLINE NH_VAL *PRFX(NH_PFX,,Val)(nh_t *nh, nh_it_t i) {
 
 #ifdef NH_ROBIN_HOOD
 #undef NH_ROBIN_HOOD
+#endif
+
+#ifdef NH_CACHE_HASH
+#undef NH_CACHE_HASH
 #endif
 
 #if 0

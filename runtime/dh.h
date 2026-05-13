@@ -15,6 +15,17 @@
 // linear probing.
 #define NH_ROBIN_HOOD
 
+// AM-15 (TODO.md): cache the hash alongside each key. dh.h's
+// keys are arbitrary Symta dyns; NH_HASH for list / closure /
+// tag / user-type keys boils down to a MCALL to api.m_hash --
+// ~300 ns/call. Without the cache, every Robin Hood probe step
+// re-hashes the resident to compute its DIB, which is what
+// made AM_GENERIC ops 10-20x slower than AM_INT in
+// benchmark/am/baseline.txt. With the cache the resident's
+// home is a 32-bit AND, no MCALL. The cost is 4 B/slot of
+// memory; the win is most of the per-probe MCALL count.
+#define NH_CACHE_HASH
+
 // AM-5 (TODO.md): grow at ~75% load instead of the previous 50%.
 // At 50% the table doubled at every doubling-point (used*2 > cap)
 // -- we were paying ~2x the memory for the same population. With

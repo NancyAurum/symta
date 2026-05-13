@@ -378,6 +378,55 @@ state-of-the-art ECS frameworks.
 > these all happened to return correct results, but only by
 > luck of pointer mod page-size.
 
+### ~~\[P1\] **AM-15** Cache hashes in dh slots so RH probes skip MCALL~~ (DONE)
+
+> **Where:** [`runtime/nh.h`](runtime/nh.h) (new `NH_CACHE_HASH`
+> template option), [`runtime/dh.h`](runtime/dh.h) (opt in)
+> **Problem:** the first run of `benchmark/am/baseline.txt`
+> showed AM_GENERIC at 10-20x the per-op cost of AM_INT. Tracing
+> through the Robin Hood probe loop: every step recomputes
+> `home_them = NH_HASH(ks[i]) & cap` to evaluate the DIB
+> early-exit condition. For dh.h keys that are lists / closures
+> / user types, `NH_HASH` boils down to an `MCALL` against
+> `api.m_hash` -- ~300 ns per call by itself. With Robin Hood at
+> 75% load factor averaging 1.5 probes per op, that's another
+> ~450 ns per Get on top of the lookup-key's own hash MCALL and
+> the equality MCALL on hit.
+> **Fix:** parallel `uint32_t *hashes` array in nh_t, populated
+> at Add_ time. The cached hash is exact (deterministic function
+> of the key) so we can compare it byte-for-byte with a fresh
+> compute; we don't even need to invalidate on grow because
+> Grow_ migrates via Add_ which re-caches. Guarded behind
+> `#define NH_CACHE_HASH` so the int-keyed `ih_t` (where the
+> hash is already cheap -- one Murmur3 finaliser) and the
+> bitmap-keyed `nhPg_t` skip the overhead. dh.h opts in.
+>
+> **Resolution:** all four RH-mode primitives (`Add_`, `Lookup`,
+> `Get`, `Del` with backshift) updated to read `hs[i] & cap`
+> instead of `NH_HASH(ks[i]) & cap` when probing the resident.
+> Add_'s inner displacement loop carries the displaced entry's
+> cached hash through swaps. Del's backshift shifts hashes
+> along with keys/values. Memory cost: 4 B/slot in dh tables
+> (~25% overhead given dh's 16-B key+value slots; net dh
+> footprint stays well under stb_ds's because we still gain
+> from 75% load factor).
+>
+> Bench delta (benchmark/am, AM-14 → AM-15, single run):
+>
+> | Op           | Before | After | Δ    |
+> |--------------|--------|-------|------|
+> | generic ins  | 1208   | 701   | -42% |
+> | generic hit  | 701    | 596   | -15% |
+> | generic miss | 799    | 463   | -42% |
+> | generic del  | 660    | 478   | -28% |
+> | int / text   | unchanged (don't enable NH_CACHE_HASH)
+>
+> Hit and del benefit less because they probe fewer slots on
+> the hot path; insert and miss probe further (insert until an
+> empty slot, miss until early-exit) so they see more cached
+> hash reads. Variance is ±10%; the deltas above are well
+> outside noise.
+
 ### ~~\[P1\] **AM-14** BITMAP→INT promotion leaked the underlying `nb_t`~~ (DONE)
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `amSet` and
