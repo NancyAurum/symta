@@ -1,0 +1,254 @@
+# Symta — standalone build orchestrator.
+#
+# This Makefile makes ./symta a self-contained portfolio project:
+# the runtime, C FFI plugins, examples, and tests live under symta/
+# and have no dependency on the parent SoM repo. The only external
+# requirement is a working POSIX toolchain (w64devkit on Windows,
+# Xcode CLT on macOS, build-essential on Linux). See BUILDING.md.
+#
+# Quick reference:
+#   make                build runtime + plugins + examples + tests
+#   make plugins        just the C FFI plugins (gfx, ui, ttf, svg, vfx)
+#   make runtime        just symta(.exe) + libcinvoke
+#   make cinvoke        just libcinvoke.a
+#   make examples       compile every example under examples/
+#   make tests          compile the in-tree pure-Symta test harness
+#   make test           run the gfx golden / FFI smoke harness
+#   make test-tokenizer run tokenizer regression tests
+#   make test-reader    run reader/parser regression tests
+#   make test-macros    run macro/DSL behavior tests
+#   make test-runtime   run Symta single-file regression tests
+#   make test-compiler  run compiler-output (.sbc) regression tests
+#   make test-uim       run UIM widget regression tests (headless)
+#   make test-drift     5-stage bootstrap drift test (no codegen drift)
+#   make test-all       all of the above (bottom-up order)
+#   make screenshots    capture baseline UIM PNGs (needs a display)
+#   make clean          delete every build artifact
+
+# ------------------------------------------------------------------ platform
+
+UNAME := $(shell uname -s 2>/dev/null || echo Windows_NT)
+ifeq ($(findstring MINGW,$(UNAME)),MINGW)
+  PLATFORM := w64
+endif
+ifeq ($(findstring MSYS,$(UNAME)),MSYS)
+  PLATFORM := w64
+endif
+ifeq ($(findstring CYGWIN,$(UNAME)),CYGWIN)
+  PLATFORM := w64
+endif
+ifeq ($(UNAME),Windows_NT)
+  PLATFORM := w64
+endif
+ifeq ($(UNAME),Darwin)
+  PLATFORM := osx
+endif
+ifeq ($(UNAME),Linux)
+  PLATFORM := linux
+endif
+PLATFORM ?= w64
+
+SUFFIX_w64 := Makefile.w64
+SUFFIX_osx := Makefile.osx
+SUFFIX_linux := Makefile
+
+# ------------------------------------------------------------------ plugins
+
+PLUGINS := gfx ui ttf svg vfx
+
+gfx_DIR := c/gfx
+ui_DIR  := c/ui
+ttf_DIR := c/ttf
+svg_DIR := c/svg
+vfx_DIR := c/vfx
+
+gfx_MAKEFILE := $(SUFFIX_$(PLATFORM))
+ui_MAKEFILE  := $(SUFFIX_$(PLATFORM))
+ttf_MAKEFILE := Makefile.w64
+svg_MAKEFILE := Makefile.w64
+vfx_MAKEFILE := Makefile
+
+gfx_OUT := lib/gfx.ffi
+ui_OUT  := lib/ui.ffi
+ttf_OUT := lib/ttf.ffi
+svg_OUT := out/svg.ffi
+vfx_OUT := lib/vfx.ffi
+
+FFI_DIR := ffi
+
+ifeq ($(PLATFORM),w64)
+  SYMTA_EXE := ./symta.exe
+else
+  SYMTA_EXE := ./symta
+endif
+
+# ------------------------------------------------------------------ targets
+
+.PHONY: all help plugins runtime cinvoke examples tests \
+        test test-tokenizer test-reader test-runtime test-compiler \
+        test-macros test-uim test-drift test-all \
+        screenshots check-tools \
+        clean clean-plugins clean-runtime clean-examples clean-tests \
+        $(PLUGINS)
+
+all: plugins runtime examples tests
+
+help:
+	@echo "Symta build — platform: $(PLATFORM)"
+	@echo ""
+	@echo "  make                    build everything (default)"
+	@echo "  make plugins            build + install $(PLUGINS)"
+	@echo "  make <plugin>           build a single plugin: $(PLUGINS)"
+	@echo "  make runtime            build symta executable (+ libcinvoke)"
+	@echo "  make cinvoke            just libcinvoke.a"
+	@echo "  make examples           compile every examples/*.s example"
+	@echo "  make tests              compile the test harness package"
+	@echo "  make test               run gfx golden / FFI tests"
+	@echo "  make test-tokenizer     tokenizer regression tests"
+	@echo "  make test-reader        reader/parser regression tests"
+	@echo "  make test-macros        macro/DSL regression tests"
+	@echo "  make test-runtime       Symta single-file regression tests"
+	@echo "  make test-compiler      compiler-output (.sbc) regression"
+	@echo "  make test-uim           UIM widget regression tests (headless)"
+	@echo "  make test-drift         5-stage bootstrap byte-equality check"
+	@echo "  make test-all           run every test suite bottom-up"
+	@echo "  make screenshots        capture baseline UIM PNGs"
+	@echo "  make clean              remove all build outputs"
+
+check-tools:
+	@command -v gcc >/dev/null  || (echo "ERROR: gcc not in PATH"; exit 1)
+	@command -v make >/dev/null || (echo "ERROR: make not in PATH"; exit 1)
+	@command -v cp >/dev/null   || (echo "ERROR: cp not in PATH"; exit 1)
+	@echo "tools OK (platform=$(PLATFORM))"
+
+# --- cinvoke + runtime ---------------------------------------------
+
+cinvoke:
+	@echo "[cinvoke]"
+	@$(MAKE) -s -C cinvoke/lib -f Makefile.$(PLATFORM)
+
+runtime: cinvoke
+	@echo "[runtime] symta executable"
+	@$(MAKE) -s -f Makefile.$(PLATFORM)
+
+# --- plugins -------------------------------------------------------
+#
+# One template per plugin: build, then install the .ffi into ffi/
+# so a freshly-cloned `symta .` picks it up without manual copying.
+
+define PLUGIN_RULE
+$(1):
+	@echo "[plugin] $(1)"
+	@$$(MAKE) -s -C $($(1)_DIR) -f $($(1)_MAKEFILE)
+	@mkdir -p $(FFI_DIR)
+	@cp -f $($(1)_DIR)/$($(1)_OUT) $(FFI_DIR)/$(1).ffi
+endef
+$(foreach p,$(PLUGINS),$(eval $(call PLUGIN_RULE,$(p))))
+
+plugins: $(PLUGINS)
+
+# --- examples + tests ----------------------------------------------
+#
+# `symta <dir>` compiles every changed `.s` to `.sbc` and (re)links
+# the dir's `go.exe`. examples/ contains many subdirs and a handful
+# of single-file demos; we compile only the subdir examples here so
+# `make examples` is quick. The single-file examples are exercised
+# by the runtime test sweep instead.
+
+EXAMPLE_DIRS := $(wildcard examples/*/)
+
+examples: runtime plugins
+	@for d in $(EXAMPLE_DIRS); do \
+	  echo "[symta] $$d"; \
+	  ( cd "$$d" && "../../$(SYMTA_EXE)" . ) || exit 1; \
+	done
+
+tests: runtime plugins
+	@if [ -d tests/harness ]; then \
+	  echo "[symta] tests/harness"; \
+	  ( cd tests/harness && "../../$(SYMTA_EXE)" . ); \
+	fi
+
+# --- test suites ---------------------------------------------------
+
+test: runtime plugins
+	@if [ -d tests/harness ]; then \
+	  echo "[run] gfx + FFI smoke tests"; \
+	  cd tests/harness && ./go.exe; \
+	else \
+	  echo "(no tests/harness yet — skipping)"; \
+	fi
+
+test-tokenizer: runtime
+	@echo "[run] tokenizer regression tests"
+	@bash tests/tokenizer/run.sh
+
+test-reader: runtime
+	@echo "[run] reader regression tests"
+	@bash tests/reader/run.sh
+
+test-runtime: runtime
+	@echo "[run] runtime regression tests"
+	@bash tests/runtime/run.sh
+	@echo "[run] line-number regression tests"
+	@bash tests/runtime/lineno-check.sh
+
+test-compiler: runtime
+	@echo "[run] compiler-output regression tests"
+	@bash tests/compiler/run.sh
+
+test-macros: runtime
+	@echo "[run] macro/DSL regression tests"
+	@bash tests/macros/run.sh
+
+test-uim: runtime plugins
+	@echo "[run] UIM widget regression tests"
+	@bash tests/uim/run.sh
+
+test-drift: runtime
+	@echo "[run] self-hosting compiler drift (5-stage bootstrap)"
+	@bash tests/bootstrap/drift.sh
+
+test-all: test-tokenizer test-reader test-macros test-runtime \
+          test-compiler test-uim test-drift
+	@echo "[ok] all symta test suites passed"
+
+# Snap a PNG of each UIM widget gallery test. Requires a display;
+# the UIM screenshot path still opens a window. Output lands in
+# tests/uim/baselines/.
+screenshots: runtime plugins tests
+	@mkdir -p tests/uim/baselines
+	@bash tests/uim/run.sh --capture
+
+# --- clean ---------------------------------------------------------
+
+clean-runtime:
+	-@$(MAKE) -s -f Makefile.$(PLATFORM) clean
+	-@$(MAKE) -s -C cinvoke/lib -f Makefile.$(PLATFORM) clean
+
+clean-plugins:
+	@for p in $(PLUGINS); do \
+	  $(MAKE) -s -C c/$$p -f $$( \
+	    case $$p in \
+	      gfx|ui) echo Makefile.$(PLATFORM) ;; \
+	      ttf|svg) echo Makefile.w64 ;; \
+	      vfx) echo Makefile ;; \
+	    esac \
+	  ) clean 2>/dev/null || true; \
+	done
+	@# Only nuke .ffi files we know how to rebuild; leave prebuilt
+	@# blobs (e.g. zlib.ffi) alone.
+	@for p in $(PLUGINS); do rm -f $(FFI_DIR)/$$p.ffi; done
+
+clean-examples:
+	@for d in $(EXAMPLE_DIRS); do \
+	  rm -rf "$$d/sbc" "$$d/lib" "$$d/go.exe" "$$d/cache"; \
+	done
+
+clean-tests:
+	-@rm -rf tests/harness/sbc tests/harness/lib tests/harness/go.exe
+	-@rm -rf tests/compiler/build
+	-@rm -rf tests/uim/build tests/uim/actual
+
+clean: clean-runtime clean-plugins clean-examples clean-tests
+	@echo "all cleaned"
