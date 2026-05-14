@@ -70,11 +70,11 @@ parse_if Sym =
   Cnd let GInput RawHead: parse_xs 1
   if is_next `then`:
     T expect `then` Sym
-    Then = parse_offside 0 0 T.src.0 OCol
+    Then = parse_offside 'if' 0 T.src.0 OCol
   else
     less is_next `:`: parser_error "missing `:` for" Sym
     T expect `:` Sym
-    Then = parse_offside 0 0 T.src.0 OCol
+    Then = parse_offside 'if' 0 T.src.0 OCol
   Else:
   if is_next `elif`:
     T expect `elif` Sym
@@ -392,13 +392,14 @@ parse_offside Type ExpectEOL ORow OCol =
     | Col X.src.1
     | when Col < SCol: done
     | V X.value
-    | when Type >< 'if' and V >< `then`: done
+    | when Type >< 'if' and Col >< SCol
+           and (V >< `then` or V >< `else` or V >< `elif`)
+           and (Ys.end or not Ys.~.is_token or Ys.~.value <> `if`): done
     | when Col >< SCol and not Ys.end
            and V <> `|`  and V <> `else` and V <> `elif` and V <> `then`:
-      | less Type >< 'if': 
-        | Bar token `|` `|` BSrc 0
-        | push [Bar @Ys.f] Zs
-        | Ys =:
+      | Bar token `|` `|` BSrc 0
+      | push [Bar @Ys.f] Zs
+      | Ys =:
   | pop GInput
   | push X Ys
 | Bar token `|` `|` BSrc 0

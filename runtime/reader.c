@@ -1334,24 +1334,49 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
       int col = (int)UNFXN(tok_col(x));
       if (col < s_col) break;
       dyn v = tok_value(x);
-      if (text_eq_c(type, KW_if_) && text_eq_c(v, KW_then)) break;
+      /* CORE-4: when collecting an `if X:` body, a same-indent
+       * `then` / `else` / `elif` ends the body so parse_if's
+       * outer trailer-handling can attach it.  Without this, e.g.
+       *   if X > 0:
+       *     say "positive"
+       *     else say "no"
+       * dropped `else` into the body's token stream and the
+       * inner parse_tokens_inner failed with "unexpected else".
+       *
+       * Suppress the break if the current segment (`ys`) begins
+       * with an `if` keyword -- the else/elif belongs to that
+       * inner one-line if, e.g.
+       *   if A:
+       *     if X: 1
+       *     else 2
+       * keeps the inner else attached to `if X: 1`. */
+      if (text_eq_c(type, KW_if_) && col == s_col &&
+          (text_eq_c(v, KW_then) || text_eq_c(v, KW_else_) ||
+           text_eq_c(v, KW_elif))) {
+        int yn = arrlen(ys);
+        dyn first = yn > 0 ? ys[yn - 1] : 0;
+        int has_open_if = yn > 0 && is_tok(first) &&
+                          text_eq_c(tok_value(first), KW_if_);
+        if (!has_open_if) break;
+      }
       if (col == s_col && arrlen(ys) > 0 &&
           !text_eq_c(v, KW_pipe) && !text_eq_c(v, KW_else_) &&
           !text_eq_c(v, KW_elif) && !text_eq_c(v, KW_then)) {
-        // less Type >< 'if': auto-bar insert.
-        // (We preserve the original Symta behaviour exactly, even
-        // though the broader B7 discussion would prefer different
-        // semantics. Don't touch without flipping B7.)
-        if (!text_eq_c(type, KW_if_)) {
-          dyn bar = make_bar(bsrc_row, bsrc_col, bsrc_orig);
-          int yn = arrlen(ys);
-          dyn block;
-          LIST(block, yn + 1);
-          LGET(block, 0) = bar;
-          for (int i = 0; i < yn; i++) LGET(block, i + 1) = ys[i];
-          arrput(zs, block);
-          arrfree(ys); ys = 0;
-        }
+        /* Always insert an auto-bar at same-indent statement
+         * boundaries.  The original Symta source had a
+         * `less Type >< 'if'` guard here that suppressed the
+         * bar in if-bodies -- dead code because parse_if used to
+         * call parse_offside with Type=0, but it fired once we
+         * began passing Type='if' for CORE-4 and joined separate
+         * if-body statements into one expression. */
+        dyn bar = make_bar(bsrc_row, bsrc_col, bsrc_orig);
+        int yn = arrlen(ys);
+        dyn block;
+        LIST(block, yn + 1);
+        LGET(block, 0) = bar;
+        for (int i = 0; i < yn; i++) LGET(block, i + 1) = ys[i];
+        arrput(zs, block);
+        arrfree(ys); ys = 0;
       }
     }
     arrput(ys, p_pop(p));

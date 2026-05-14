@@ -428,35 +428,6 @@ catches things without dragging in the rest of Symta.
 > already knows it's catching.
 > `effort: 30 min`
 
-### \[P1\] **CORE-4** Multi-line `if X:` body needs `|` for `else` at body indent
-
-> **Where:** [`runtime/reader.c`](runtime/reader.c)
-> `parse_offside` / `parse_if`
-> **Problem:** writing
->
-> ```symta
-> if X > 0:
->   say "positive"
->   say "and"
->   else say "no"
-> ```
->
-> fails with `unexpected else` because `parse_offside` treats
-> the body as one multi-arg expression and `else` has nowhere
-> to land. The fix attempted in the Symta parser broke real
-> game code; one of the motivations for the C parser port was
-> to make stack-based tracking of pending `if`s tractable.
-> **Fix:** stack-based "pending-`if`" flag in `parse_offside`;
-> auto-terminate the body on a same-indent `else` if the most
-> recent open construct is an `if`. The C parser has explicit
-> state now, so the fix that was infeasible in Symta is
-> straightforward here.
-> **Regression strategy:** add a fixture case to
-> `tests/reader/` that pins both the new shape and the
-> existing `else if A then B else C` chain shape (which is
-> what broke the previous attempt).
-> `effort: weekend`
-
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c),
@@ -519,11 +490,6 @@ These were filed during the May 2026 reading-the-game pass.
 None block the runtime / compiler tests; all surface as
 "documented in `sbe.txt`, broken in practice" papercuts for
 example-writers.
-
-### \[P2\] **B7** Multi-line `if X:` else handling (see CORE-4 above)
-
-Filed as a duplicate of CORE-4 with its own history; both
-point at the same fix.
 
 ### \[P2\] **B10** `[@list]` inside string splice triggers `_insert` bug
 
@@ -865,6 +831,30 @@ point at the same fix.
 All NCM bug fixes pinned by `examples/25-lexmacro.s`
 section 11 (Symta-side integration) + the standalone
 `symta/ncm/tests/cases/` suite (NCM-only).
+
+### Reader / compiler core (May 2026)
+
+- ~~**CORE-4** Multi-line `if X:` body needs `|` for `else` at
+  body indent.~~ Root cause was a three-way interaction in
+  `src/reader.s` `parse_offside`:  `parse_if` passed `Type=0`
+  for body collection, leaving the existing `Type >< 'if' and
+  V >< \`then\`: done` shortcut as unreachable dead code; the
+  bar-insertion path had a `less Type >< 'if'` guard that
+  suppressed auto-bars only when the (never-set) `'if'` marker
+  fired.  Fix: `parse_if` now passes `Type='if'` for both
+  `then`-and `:`-introduced bodies; `parse_offside` breaks on
+  same-indent `then`/`else`/`elif` *only when the current
+  segment isn't itself an open if* (the `Ys.~ == \`if\``
+  suppression keeps nested `if X: 1 / else 2` at body indent
+  attached to the inner if); the dead-code `less Type >< 'if'`
+  guard is removed so auto-bars insert at same-indent
+  statement boundaries inside if-bodies the same way they do
+  in regular function bodies.  Mirrored in `runtime/reader.c`
+  to keep the parser-compare parity test green.  Pinned by
+  `tests/reader/cases/13-core4-else-at-body.s` (CORE-4
+  reproducer, elif-at-body-indent, and the nested one-line
+  if/else that must keep inner binding).  5-round drift test
+  reaches fixed point in stage 1.
 
 ### Infrastructure (earlier)
 
