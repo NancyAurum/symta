@@ -1199,6 +1199,14 @@ static dyn cls_get_(uint8_t *pin) {
   dyn ref = getArg(0);
   dyn tbl = LGET(P,0);
   dyn r = amGidGet(tbl, ref);
+  /* RT-8b: BLTIN_PROLOGUE allocated frame_t on our stack and
+   * linked it into api.frame.  Direct callers (cls_get_stub_)
+   * invoke us without going through the CALL macro, so the
+   * caller's save/restore-api.frame pattern doesn't apply --
+   * if we return without unwinding, api.frame is left dangling
+   * at our just-deallocated frame.  CLOSE_FRAME reads
+   * frm_->prev (set by PROLOGUE) and restores. */
+  CLOSE_FRAME;
   return r;
 }
 
@@ -1210,15 +1218,30 @@ static dyn cls_set_(uint8_t *pin) {
   dyn val = getArg(1);
   dyn tbl = LGET(P,0);
   amGidSet(tbl, ref, val);
+  /* RT-8b: see cls_get_ above for why this is needed. */
+  CLOSE_FRAME;
   return No;
 }
 
 BUILTIN2("cls_get_stub_",cls_get_stub_,C_ANY,o,C_ANY,tbl)
-  api.frame->clsr = nativize_method(api.method, o, cls_get_, tbl);
+  /* RT-8b: cls_get_'s PROLOGUE reads `frm_->clsr` from
+   * `api.clsr_pending` (caller-callee handoff slot), not from
+   * the caller's frame -- so writing only to `api.frame->clsr`
+   * (which is OUR frame, the stub's) leaves cls_get_'s P
+   * pointing at whatever closure last went through the CALL
+   * macro.  Stage the patched closure into clsr_pending too. */
+  dyn _met = nativize_method(api.method, o, cls_get_, tbl);
+  api.frame->clsr = _met;
+  api.clsr_pending = _met;
   O_SIZE(api.args) = 1; //since we call cls_get_
 RETURNS(cls_get_(0))
 BUILTIN3("cls_set_stub_",cls_set_stub_,C_ANY,o,C_ANY,v,C_ANY,tbl)
-  api.frame->clsr = nativize_method(api.method, o, cls_set_, tbl);
+  /* RT-8b: see cls_get_stub_ above for why both frame->clsr
+   * and api.clsr_pending need to point at the patched
+   * closure. */
+  dyn _met = nativize_method(api.method, o, cls_set_, tbl);
+  api.frame->clsr = _met;
+  api.clsr_pending = _met;
   O_SIZE(api.args) = 2; //since we call cls_set_
   cls_set_(0);
 RETURNS(No)
