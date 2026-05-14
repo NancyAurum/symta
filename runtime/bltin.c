@@ -1448,6 +1448,18 @@ BUILTIN0("rtstat",rtstat)
   show_runtime_info();
 RETURNS(0)
 
+/* Force a minor GC.  The collector chooses the generation based
+ * on the usual triggers (gen0 fill, magnet/dirty signals); we just
+ * call into it synchronously.  Useful for:
+ *   - deterministic finalizer-firing in tests
+ *   - GC-pause cost measurement in benchmarks
+ *   - debugging suspected write-barrier / root-scan / age-tracking
+ *     bugs (force a collection at a known point and verify the
+ *     program still produces correct output) */
+BUILTIN0("gc",gc)
+  api.gc();
+RETURNS(No)
+
 BUILTIN0("stack_trace",stack_trace)
   fatal("FIXME: implement stack_trace");
   /*void **p;
@@ -2296,6 +2308,7 @@ static struct {
   B(dbg)
   B(say_)
   B(rtstat)
+  B(gc)
   B(stack_trace)
   B(get_file_)
   B(set_file_)

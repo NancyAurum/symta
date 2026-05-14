@@ -1,0 +1,46 @@
+# RT-bench baseline: pre-RT-4..8 cache-locality work.
+# Captured: 6e45078 + RT-2 (gc() builtin) + bn_gc.
+# Machine: w64devkit gcc 12.2.0 / Win64 / Intel i7-12700H class.
+# Methodology: single representative run; numbers are ±10-15%
+# variance even with the bench-setup-windows.ps1 mitigations.
+# Goal: track cache-locality work (RT-4 / RT-5 / RT-6 / RT-7 / RT-8)
+# against these reference points.  Each RT item's "after" baseline
+# goes in its own file.
+
+[bn_loop]
+count    30000000:  21-22 ns/op
+xor      30000000:  21-23 ns/op
+
+[bn_arith]
+mix1      5000000:  24-25 ns/op
+mix2      5000000:  27-28 ns/op
+bits      5000000:  21-23 ns/op
+
+[bn_branch]
+alt       5000000:  31-35 ns/op
+tri3      5000000:  58    ns/op
+
+[bn_call]
+1arg      2000000:  53-55 ns/op
+2arg      2000000:  59-64 ns/op
+
+[bn_mcall]
+negneg    1000000:  63-73 ns/op
+abs       1000000:  52-57 ns/op
+
+[bn_list]
+iget      2000000:  53-54 ns/op
+iset      2000000:  23-24 ns/op
+lsize     2000000:  38-42 ns/op
+
+[bn_gc.wbarrier]   # RT-4 target
+wbarrier   500000:  74-80 ns/op
+
+[bn_gc.megamcall]  # RT-6/7 target
+megamcall  500000:  88-100 ns/op
+
+[bn_gc.closure]    # RT-5 target
+closure    500000:  395-583 ns/op
+
+[bn_gc.deepgc]     # RT-8 target
+deepgc        200:  ~0.9-1.2 ms per 64-frame gc()

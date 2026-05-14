@@ -12,7 +12,7 @@
 // where it matters most.
 
 use cls
-    bn_loop bn_arith bn_branch bn_call bn_mcall bn_list
+    bn_loop bn_arith bn_branch bn_call bn_mcall bn_list bn_gc
 
 RunCase \all
 for A main_args():
@@ -26,6 +26,7 @@ case RunCase:
   'call'   = bn_call
   'mcall'  = bn_mcall
   'list'   = bn_list
+  'gc'     = bn_gc
   'all' =
     bn_loop
     bn_arith
@@ -33,4 +34,5 @@ case RunCase:
     bn_call
     bn_mcall
     bn_list
+    bn_gc
   Else = say "no such case: [RunCase]"

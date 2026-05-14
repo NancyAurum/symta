@@ -1,0 +1,19 @@
+1 finalizer firing under gc():
+  finalizers fired (>=30): 1
+
+2 generation promotion preserves content:
+  P.x + P.y = 42
+
+3 old-list keeps young child across gc():
+  sum of x+y over 4 entries = 66
+
+4 deep-stack frame walk:
+  recurse(32) = 1584
+
+5 many roots preserved across repeated gc():
+  sum across 200 roots = 40000
+
+6 closures pin captured state:
+  captured-tag sum >= 45: 1
+
+done
