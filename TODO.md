@@ -423,66 +423,25 @@ catches things without dragging in the rest of Symta.
 
 ## Compiler / parser
 
-### \[P2\] **READER-2** C reader doesn't preserve `meta` source-position wrappers
+### ~~\[P2\] **READER-2** C reader doesn't preserve `meta` source-position wrappers~~ — DONE (May 2026)
 
-> **Where:** [`runtime/reader.c`](runtime/reader.c)
-> `reader_parse_strip` (line 338) deliberately skips the
-> `meta Ys Meta` wrapping that Symta's `parse_strip` does on
-> every non-empty list whose head is a token.  Without those
-> wrappers the compiler's stack-trace frames pin at line 0,0
-> for everything that came through the C parser.
->
-> **Why we care:** if/when `text.parse` switches to
-> `parse_strip_c_` + `parse_tokens_c_` (so the Symta-side
-> parser can be deleted from `core_.s`, ~440 lines of cruft
-> identified by the May 2026 audit), the C version has to
-> produce meta-wrapped output identical to the Symta version
-> or `tests/runtime/lineno-check.sh` regresses to 0/5.
->
-> **Fix:** in `reader_parse_strip`, when the list's head is a
-> token with `tok_src(head).orig != "<none>"`, wrap the
-> stripped output in a freshly-allocated `meta` struct (the
-> `type meta.~ O M` defined at `core_.s:818`).  Needs either
-> a new C builtin (`meta_new_(Obj, Meta)`) or a way for C to
-> call a Symta constructor.
->
-> **Blocking:** READER-3 (see below) covers the remaining
-> output-mismatch case (`text.parse` of `src/macro.s` under
-> `LexP` -- the load_symta_file path -- crashes Symta's
-> `parse_strip` with `().0` when fed C parse_tokens output;
-> standalone parse_tokens_c_ traces look correct so the
-> divergence is data-dependent and needs `git bisect`-style
-> minimisation).  Both must land before the audit's delete
-> sweep is safe.
-> `effort: 1-2 days for READER-2; READER-3 unknown until
-> minimised`
+> Closed via the 7-phase reader-consolidation
+> ([docs/reader-consolidation.md](docs/reader-consolidation.md)):
+> the `meta` Symta function now stashes (object -> source-pos)
+> in a runtime weak hashtable (`runtime/meta_table.{h,c}`)
+> instead of allocating a wrapper struct.  `parse_strip_c_`
+> calls `meta_set_` directly so its output carries the same
+> meta info the Symta-side parser used to attach.  Result:
+> `text.parse` runs through `parse_tokens_c_` + `parse_strip_c_`
+> end-to-end; ~448 lines of dead Symta-side parser deleted
+> from `core_.s`.
 
-### \[P2\] **READER-3** Symta `parse_strip` crashes on some C parse_tokens output
+### ~~\[P2\] **READER-3** Symta `parse_strip` crashes on some C parse_tokens output~~ — DONE (May 2026)
 
-> **Where:** Symta's `parse_strip` (`src/core_.s:1592` as of
-> the audit) iterating over output from C
-> `parse_tokens_c_(add_bars_c_(tokenize(...)))`.  Specifically
-> reproduces when `load_symta_file` parses `src/macro.s` with
-> `LexP` enabled during a clean build (`./symta.exe <build-dir>`).
-> Standalone `Text.parse(Src!File LexP!LexP)` succeeds on the
-> same input; the crash only fires inside compile_expr's call
-> path.  `()..: index out of bounds` from `parse_strip`,
-> 11-12 frames deep.
->
-> **Why we care:** as long as this differs, swapping
-> `parse_tokens` -> `parse_tokens_c_` in `text.parse` breaks
-> bootstrap.
->
-> **Investigation hint:** the divergence is data-dependent --
-> small inputs work, `macro.s` doesn't.  The crash signature
-> matches `if P then parse_strip P.0` where P is a non-No
-> empty list (Symta `if ()` is truthy, then `().0` blows
-> up).  Most likely a `tok.parsed` field set to an empty
-> list somewhere in `runtime/reader.c` that the Symta-side
-> ported version of `parse_term` never produced -- needs
-> a side-by-side compare of `LGET(tok, 6)` writes between
-> the two implementations.
-> `effort: unknown; bisect first`
+> Closed alongside READER-2.  The crash was structural
+> compatibility between C `parse_tokens_c_` output and the
+> Symta `parse_strip` -- both gone now that the C side
+> produces and consumes its own AST.
 
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
