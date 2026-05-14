@@ -1,6 +1,6 @@
-PASS sum f644
-PASS sum f644 alt
-PASS sum f646
-PASS sum f648
-PASS sum f6410
-PASS sum f6410 neg
+PASS sum f64×4
+PASS sum f64×4 alt
+PASS sum f64×6
+PASS sum f64×8
+PASS sum f64×10
+PASS sum f64×10 neg
