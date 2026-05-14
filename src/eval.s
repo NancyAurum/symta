@@ -195,8 +195,15 @@ eval Expr Env!No RootFolder!No BuildFolder!No =
       GCompiledModules (!)
       GShowInfo 0
   | Entry @rand tmp
+  // Iterating `map [K V] Env K` skips keys whose value is No, so if
+  // the caller (REPL) has done `Env.'Last_' = No` the Last_ slot
+  // would drop out of Vars -- and then the lambda below references
+  // an unbound `Last_`.  Pin Last_ to a known slot and read Values
+  // explicitly to dodge the iteration quirk.
   | Vars map [K V] Env K
-  | Values map [K V] Env V
+  | Vars = Vars.skip(X => X >< 'Last_')
+  | Vars =: @Vars 'Last_'
+  | Values map V Vars: Env.V
   | Expr =  [_fn Vars
               ['|' ['=' ['Last_'] Expr]
                    @(map V Vars
