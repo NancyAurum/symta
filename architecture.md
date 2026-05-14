@@ -108,9 +108,6 @@ symta/
   ttf/             Default font (Inter Regular, OFL); staged by
                    ffi_begin macro ttf into projects that don't
                    already ship their own ttf/.
-  cinvoke/         Vendored libcinvoke — FFI trampoline lib
-                   (BSD-3, no source modifications). Slated for
-                   replacement; see TODO.md / FFI-1.
   pkg/symta/       The "self-rebuild me" project (compiles src/
                    into a refreshed sbc/).
   examples/        Tutorial demos (00-hello through 31-isometric).
@@ -339,9 +336,12 @@ same code in a loop.
 
 ## Foreign function interface
 
-Two strategies, both routed through [`cinvoke/`](cinvoke/) (a
-vendored third-party library that builds platform-specific call
-trampolines at runtime):
+Two strategies, both routed through [`runtime/sffi/`](runtime/sffi/)
+(the in-tree FFI dispatcher; one ~200-line `arch_<abi>.c` per ABI,
+no JIT, no executable memory — the trampoline is statically
+compiled, arg classification runs once per FFI declaration at
+`sbc_prepare` time, the hot path is just the per-ABI register-load
++ indirect call):
 
 1. **Low-level**: `_ffi_call (RetType @ArgTypes) Pointer @Args`
    calls any C function given its address. `ffi_load` resolves
@@ -354,9 +354,11 @@ trampolines at runtime):
    the project's `ffi/` folder, and (for ui/ttf) sidecar
    dependencies are staged from `Root/sdl/` and `Root/ttf/`.
 
-The cinvoke dependency is slated for replacement with a custom
-x86-64 trampoline (Windows + SysV ABIs) for licensing and
-performance reasons — see [`TODO.md`](TODO.md) item `FFI-1`.
+x86-64 Windows and SysV ABIs are in production; i386 (both),
+AArch32, and AArch64 are stubbed in [`runtime/sffi/`](runtime/sffi/)
+with calling-convention notes and brought up on demand. The
+predecessor (vendored libcinvoke, BSD-3 non-endorsement) was
+dropped in May 2026; Symta is now dual MIT / Apache-2 end to end.
 
 Native modules that ship with Symta:
 

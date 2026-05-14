@@ -1,26 +1,28 @@
 # sffi — Symta's purpose-built FFI
 
-sffi (Symta FFI) is the in-house replacement for the vendored
-[cinvoke](https://www.cinvoke.org/) library. The motivation is laid
-out in [`../../TODO.md`](../../TODO.md) `FFI-1`; this document is
-the implementation plan.
+sffi (Symta FFI) is the in-house FFI dispatcher.  It replaced the
+vendored [cinvoke](https://www.cinvoke.org/) library in May 2026;
+cinvoke's source was deleted from the tree once both x86-64
+backends shipped a release.  This document is the design rationale
++ the per-ABI implementation map.
 
 ## Goals
 
 1. **Licensing purity** — drop the only non-dual-MIT/Apache
-   component (cinvoke is BSD-3 with a non-endorsement clause).
-   Source-of-record under the same MIT / Apache-2 dual licence
+   component (cinvoke was BSD-3 with a non-endorsement clause).
+   Source-of-record now under the same MIT / Apache-2 dual licence
    as the rest of Symta.
-2. **Lower per-call latency** — cinvoke spends most of its time
+2. **Lower per-call latency** — cinvoke spent most of its time
    on generality Symta doesn't need (format-string parsing,
    `parmtypes[]` malloc, hashtable lookups). On the i7-12700H
-   we measured ~50–100 ns / call; the target is 20–40 ns.
+   we measured ~50–100 ns / call; sffi runs 20–40 ns.
 3. **Robust port surface** — one C source per ABI, ~200 lines
    each. Adding a new ABI is a single file drop-in, not a
-   surgery into a 3,500-line third-party library. Slated
-   downstream platforms: x86-64 Linux/macOS/BSD (SysV),
-   i386 Win95 (stdcall + cdecl), AArch32 RISC OS (APCS-32),
-   AArch64 Linux/macOS, possibly more.
+   surgery into a 3,500-line third-party library. Already in
+   tree: x86-64 Windows + x86-64 SysV (in production); i386
+   Win95 (stdcall + cdecl), AArch32 RISC OS (APCS-32), AArch64
+   Linux/macOS (stubbed with calling-convention notes, brought
+   up on demand).
 4. **No JIT, no executable memory** — keep the W^X story
    trivial. RISC OS, Win95, and signed-binary-only platforms
    (iOS, modern macOS) all benefit. We pay one indirect call
@@ -28,9 +30,10 @@ the implementation plan.
    `VirtualAlloc(PAGE_EXECUTE_READWRITE)` /
    `mprotect(PROT_EXEC)` / `MAP_JIT+pthread_jit_write_protect`
    surface area we'd otherwise need.
-5. **Same call surface as cinvoke** at the Symta-runtime boundary
-   — no SBC opcode changes, no `ffi_begin` macro changes, no
-   user-visible language differences.
+5. **Same call surface as cinvoke had** at the Symta-runtime
+   boundary — no SBC opcode changes, no `ffi_begin` macro
+   changes, no user-visible language differences.  The
+   migration was invisible to Symta source code.
 
 The "no JIT" choice is the one place where we deliberately don't
 match the absolute fastest FFI libraries (LuaJIT, dyncall in
@@ -39,9 +42,9 @@ of that 10–20 ns last-mile gain doesn't justify the platform
 surface area; see "alternatives considered" below.
 
 
-## What we're replacing — current cinvoke flow
+## Call pipeline — end to end
 
-Symta's existing FFI path, end to end:
+Symta's FFI path, top to bottom:
 
 1. **Symta-side** (`src/macro.s::ffi_begin` and the `ffi` macro
    per-function) expands `ffi gfx_blit.ptr Gfx.ptr X.int Y.int
@@ -51,24 +54,17 @@ Symta's existing FFI path, end to end:
    stream of `SBC_NFI_<type>` arg ops followed by an `SBC_NFI`
    call op and an `SBC_NFI_<rettype>` result op.
 3. **Load time** (`runtime/sbc.c::sbc_prepare`) walks the
-   `nrs[]` table, builds a parameter-format string for each
-   trampoline (e.g. `"ppii p"`), and calls
-   `cinv_function_create(ctx, CINV_CC_DEFAULT, rt, pt)` to
-   register the signature. The returned `CInvFunction*` lives
-   in `sbc->nfi_trmps[]`.
+   `nrs[]` table, classifies each FFI signature into reg/stack
+   buckets per the active ABI, and stores the resulting
+   `sffi_sig_t*` in `sbc->nfi_trmps[]`.  All the per-call
+   dispatch cost is paid here, once per FFI declaration.
 4. **Per-call** (`runtime/sbc.c::sbc_exec` case `SBC_NFI`):
    - Arg coercion ops fill `api.nfi_args[NFI_MAX_ARGS]`
-     (a `uint64_t[32]`) and `api.nfi_aptrs[]` (an array of
-     pointers into the same).
-   - `cinv_function_invoke(ctx, trmp, target, &retval, aptrs)`
-     does the actual call.
+     (a `uint64_t[32]`).
+   - `sffi_call(sig, target, args)` walks the pre-classified
+     plan: loads reg args, pushes stack args, indirect-calls
+     the target.  Returns the raw rax/xmm0 bit pattern.
    - Return value is unboxed via `FFI_FROM_<type>` macros.
-
-What sffi changes: the **load-time** signature registration and
-the **per-call** dispatch are replaced. The Symta side and the
-SBC opcode layout are unchanged. The arg buffer
-(`api.nfi_args` / `api.nfi_aptrs`) is still where args land —
-sffi just consumes it more directly.
 
 
 ## Architecture — the call pipeline
@@ -133,9 +129,9 @@ typedef enum {
 } sffi_type;
 ```
 
-`SFFI_TXT` from cinvoke maps to `SFFI_PTR` — they're the same at
-the ABI level. The conversion from Symta `dyn` to `char*` is
-done upstream by the existing `FFI_ARG_text` macro.
+There's no separate text type — `text` maps to `SFFI_PTR`, since
+they're the same at the ABI level. The conversion from Symta `dyn`
+to `char*` is done upstream by the existing `FFI_ARG_text` macro.
 
 The arg buffer convention is unchanged: each arg gets one
 8-byte slot, and the upstream `FFI_ARG_*` macros put the value
@@ -264,13 +260,12 @@ Reference: [ARM AAPCS64](https://github.com/ARM-software/abi-aa/blob/main/aapcs6
 
 Two viable techniques for the per-call dispatch:
 
-### Option A: hand-written assembly via inline asm
+### Option A (chosen): hand-written assembly via inline asm
 
-The cinvoke approach: one big `__asm__` block per ABI that
-loads parameter registers from a struct and does `call *%ptr`.
-Works on GCC + Clang + MinGW. Doesn't work on MSVC (no inline
-asm). The cinvoke proof-of-concept already builds on w64devkit
-which is our shipping toolchain.
+One big `__asm__` block per ABI that loads parameter registers
+from a struct and does `call *%ptr`.  Works on GCC + Clang +
+MinGW.  Doesn't work on MSVC (no inline asm).  Since Symta
+ships on w64devkit (MinGW), MSVC is a non-issue.
 
 ### Option B: standalone `.S` files per ABI
 
@@ -278,10 +273,8 @@ Hand-write the call site in pure assembly, assembled by gas /
 yasm / fasm. Maximally portable across compilers (no inline-asm
 syntax flavour required). Slightly more build-system surface.
 
-**Decision:** Option A for the first cut (matches the
-cinvoke proof-of-concept and avoids the build-system delta);
-revisit Option B if we ever need to support a non-GCC-family
-compiler.
+**Decision:** Option A.  Revisit Option B only if we ever need
+a non-GCC-family compiler.
 
 
 ## Sig pre-pass — example walk-through
@@ -318,7 +311,7 @@ encode as `(stack offset / 8) + 0x20`.
 
 ## Per-call cost — back of envelope
 
-cinvoke (current):
+cinvoke (predecessor):
 - format-string parsing: ~10 ns
 - per-arg type-check + classification: ~10 ns × n_args
 - `alloca` + memcpy stack args: ~10 ns
@@ -327,18 +320,18 @@ cinvoke (current):
 
 Total for a 4-arg call: ~70 ns.
 
-sffi (target):
+sffi:
 - per-arg load (already classified): ~1 ns × n_args
 - one indirect call: ~5 ns
 - return value extraction: ~2 ns
 
 Total for a 4-arg call: ~12 ns.
 
-Net: ~5–6× faster on the per-call path. At ~50K gfx calls / frame
-in SoM's Management window, that's ~3 ms / frame budget freed.
-
-These are estimates. Will measure with `--profile=management`
-once the implementation lands.
+Net: ~5–6× faster on the per-call path.  At ~50K gfx calls /
+frame in SoM's Management window, that's ~3 ms / frame budget
+freed.  Numbers are estimates from instruction counts; in-tree
+measurement still pending under the `--profile=management`
+flag once a frame-time micro-benchmark is wired up.
 
 
 ## Testing strategy
@@ -366,46 +359,35 @@ font libs build textual output that the parser consumes via
 failure.
 
 
-## Migration plan
+## Migration history
 
-Phase 0 — **research + docs** (this commit):
-  - Architecture doc.
-  - `sffi.h`, `sffi.c` skeletons.
-  - Backend stubs for every targeted ABI (`#error not
-    implemented` on the unsupported ones — keeps the build
-    surface honest).
+Phases 0–3 done (May 2026).  Phase 4 (additional ABIs) brought
+up on demand.
 
-Phase 1 — **x86-64 Windows backend** (the developer machine):
-  - Implement `sffi_x64_win.c` end-to-end.
-  - Wire `runtime/sbc.c` to call `sffi_*` instead of `cinv_*`.
-  - Run `make test-all` on Windows; verify byte-for-byte
-    parity with the cinvoke build on the uim / gfx / runtime
-    suites + game smoke test + voxpie smoke test.
-  - Drop the `-lcinvoke` link from `Makefile.w64`.
-  - cinvoke source stays in tree under `../cinvoke/` for one
-    more release, gated by `SFFI_FALLBACK_CINVOKE` build flag
-    in case we need to bisect.
+- **Phase 0 — research + docs.**  Architecture doc, `sffi.h` /
+  `sffi.c` skeletons, backend stubs for every targeted ABI
+  (`#error not implemented` on unsupported ones — keeps the
+  build surface honest).
+- **Phase 1 — x86-64 Windows backend.**  Implemented
+  `arch_x64_win.c`; wired `runtime/sbc.c` to call `sffi_*` in
+  place of the cinvoke trampolines.  Verified by the full
+  Windows test sweep + the FFI regression suite + drift
+  bootstrap.
+- **Phase 2 — x86-64 SysV backend.**  Implemented
+  `arch_x64_sysv.c`; brings up Linux + macOS support.
+  Verified on WSL Ubuntu 24.04 / gcc 13.3 -- full sweep
+  green, drift PASSES (3-round byte-identical bootstrap).
+- **Phase 3 — delete cinvoke.**  `../cinvoke/` removed.
+  Net licence claim: dual MIT / Apache-2 throughout.
 
-Phase 2 — **x86-64 SysV backend**:
-  - Implement `sffi_x64_sysv.c`.
-  - Brings up Linux + macOS support, which unblocks the
-    Linux-port goal the user called out.
-  - Update `Makefile.osx`. Add `Makefile.linux` if it doesn't
-    exist.
+Phase 4 — **additional ABIs as needed.**  Stubs exist for:
+  - i386 Win95 (stdcall + cdecl): legacy Windows.
+  - i386 SysV: legacy Linux.
+  - AArch32 RISC OS (APCS-32 softfp): RISC OS port.
+  - AArch64 Linux / macOS / iOS: modern ARM.
 
-Phase 3 — **Delete cinvoke**:
-  - After both x64 backends are in production and a release
-    has shipped on each, delete `../cinvoke/`.
-  - Drop the `SFFI_FALLBACK_CINVOKE` build flag.
-  - Net licence claim: dual MIT / Apache-2 throughout.
-
-Phase 4 — **Additional ABIs** (as needed):
-  - i386 Win95 (stdcall + cdecl): brings up legacy Windows.
-  - AArch32 RISC OS (APCS-32 softfp): brings up RISC OS.
-  - AArch64 Linux / macOS / iOS: brings up modern ARM.
-
-Each Phase-4 backend is independent. Pick the order by which
-platform Nancy needs first.
+Each backend is independent and ~200 lines.  Pick the order by
+which platform comes up first.
 
 
 ## Alternatives considered
@@ -418,12 +400,12 @@ substantially more dependency than the 200-line-per-ABI in-tree
 approach buys.
 
 **dyncall.** Smaller than libffi, BSD-2 (cleaner licence than
-cinvoke), comparable per-call cost to sffi's design. The
-chattier API (`dcArgInt` / `dcArgDouble` / `dcCallVoid`) doesn't
-fit naturally with Symta's "signature known upfront, all args
-in a buffer" pattern — we'd be re-shaping the calling code on
-both sides. The dependency cost is real though smaller than
-libffi.
+cinvoke's BSD-3-with-non-endorsement-clause), comparable per-call
+cost to sffi's design.  The chattier API (`dcArgInt` /
+`dcArgDouble` / `dcCallVoid`) doesn't fit naturally with Symta's
+"signature known upfront, all args in a buffer" pattern — we'd
+be re-shaping the calling code on both sides.  The dependency
+cost is real though smaller than libffi.
 
 **Per-signature JIT thunk** (LuaJIT-style). Lowest possible
 per-call cost: the thunk is straight-line code, ~2 ns/arg + one
@@ -453,12 +435,10 @@ requires a regen step. Doesn't compose with Symta's existing
    take `SDL_Rect` are wrapped at the C side via pointer-and-
    memcpy. Should sffi reserve the design space for adding
    struct-by-value later, or formally declare it out of scope?
-3. **Callbacks** (C calling Symta). cinvoke supports this via
-   `arch_callback_stub` — generates an executable thunk. sffi
-   declares "no executable memory" as a goal, but a one-time
-   alloc at FFI-bind for a callback is arguably acceptable. SoM
-   doesn't use FFI callbacks today; voxpie doesn't either.
-   Defer or fold in?
+3. **Callbacks** (C calling Symta).  sffi declares "no executable
+   memory" as a goal, but a one-time alloc at FFI-bind for a
+   callback is arguably acceptable.  SoM doesn't use FFI callbacks
+   today; voxpie doesn't either.  Defer or fold in?
 
 My recommendation on all three: defer to Phase 4+. The
 existing FFI surface is what Symta + SoM + voxpie + the test

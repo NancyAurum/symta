@@ -46,9 +46,6 @@ c/*/lib/*.ffi
 c/*/lib/*.dll
 c/*/out/
 
-# cinvoke leaves stale .o around
-cinvoke/lib/*.o
-
 # ncm / ncc / ncu intermediate files (we keep ncm.exe though)
 ncm/lib/
 ncc/lib/

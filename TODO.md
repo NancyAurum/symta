@@ -40,50 +40,44 @@ the commit hash and date appended.
 
 ---
 
-## FFI — cinvoke replacement
+## FFI
 
-### \[P1\] **FFI-1** Drop cinvoke; ship custom trampolines (Phase 1 landed)
+### \[done\] **FFI-1** Drop cinvoke; ship custom trampolines — DONE
 
-> **Where:** [`runtime/sffi/`](runtime/sffi/) — new in-tree
-> replacement; [`cinvoke/`](cinvoke/) — slated for deletion in
-> Phase 3.
-> **Status:** Phase 0 (architecture + scaffolding) and Phase 1
-> (x86-64 Windows backend) landed in commit … (May 2026). The
-> Symta-side build for w64devkit no longer links `-lcinvoke`;
-> the runtime calls into `sffi_call` instead of
-> `cinv_function_invoke` for every `SBC_NFI` op.
-> **Design recap:** see [`runtime/sffi/ARCHITECTURE.md`](runtime/sffi/ARCHITECTURE.md).
+> **Where:** [`runtime/sffi/`](runtime/sffi/) — in-tree FFI dispatcher.
+> **Status:** Phases 0–3 done (May 2026); the vendored
+> `cinvoke/` tree was removed.  Symta is now dual MIT / Apache-2
+> end to end with no third-party FFI dependency.
+> **Design recap:** see
+> [`runtime/sffi/ARCHITECTURE.md`](runtime/sffi/ARCHITECTURE.md).
 > Three-function API (`sffi_bind`, `sffi_call`, `sffi_free`).
-> One backend `.c` per ABI, ~200 lines each. No JIT, no
+> One backend `.c` per ABI, ~200 lines each.  No JIT, no
 > executable memory — the trampoline is statically compiled,
 > arg classification runs once per FFI declaration at
 > `sbc_prepare` time, the hot path is just the per-ABI
 > register-load + indirect call.
-> **Remaining work:**
-> - **Phase 2:** stand up the x86-64 SysV backend
->   ([`runtime/sffi/arch_x64_sysv.c`](runtime/sffi/arch_x64_sysv.c)
->   already written but unverified). Unblocks the
->   Linux + macOS port.
-> - **Phase 3:** delete `cinvoke/` from the tree. Net licence
->   claim: dual MIT / Apache-2 throughout.
-> - **Phase 4:** additional ABIs as they're needed —
->   i386 Win95 (`arch_x86_win.c`), i386 Linux
->   (`arch_x86_sysv.c`), AArch32 RISC OS (`arch_arm32.c`),
->   AArch64 Linux/macOS (`arch_arm64.c`). All four stubs are in
->   tree with their calling-convention notes documented; bring
->   them up when somebody actually needs the target.
-> - **Phase 5:** [`tests/ffi/`](tests/ffi/) — comprehensive
->   regression suite. **Landed in commit … (May 2026).** 17
->   cases covering every (return × arg-type × arity) combination
->   the language exposes, plus realistic-library tests (libc
->   strlen/memset/memcpy and zlib compress/uncompress/crc32).
->   Catches: pool-vs-slot confusion (interleave), stack-arg
->   sign-extension (arity_i32 with negatives), xmm pool
->   overflow (arity_f64 with 10 doubles), per-call state leakage
->   (stress with 1000 sequential calls). See
->   [`tests/ffi/README.md`](tests/ffi/README.md) for the full
->   matrix.
-> `effort: multi-week` (Phase 1 + Phase 5 done; Phases 2-4 remaining)
+> **Verified backends:**
+> - x86-64 Windows ([`arch_x64_win.c`](runtime/sffi/arch_x64_win.c)).
+>   Production since Phase 1; full Windows test sweep + drift
+>   bootstrap green.
+> - x86-64 SysV ([`arch_x64_sysv.c`](runtime/sffi/arch_x64_sysv.c)).
+>   Verified on WSL Ubuntu 24.04 / gcc 13.3; full Linux test
+>   sweep green (FFI suite 17/17, drift PASSES the 3-round
+>   byte-identical bootstrap).
+> **Stubbed backends, brought up on demand:**
+> i386 Win95 (`arch_x86_win.c`), i386 Linux (`arch_x86_sysv.c`),
+> AArch32 RISC OS (`arch_arm32.c`), AArch64 Linux/macOS
+> (`arch_arm64.c`). All four have their calling-convention
+> notes documented in the source.
+> **Test suite:** [`tests/ffi/`](tests/ffi/) — 17 cases covering
+> every (return × arg-type × arity) combination the language
+> exposes, plus realistic-library tests (libc strlen/memset/
+> memcpy and zlib compress/uncompress/crc32).  Catches: pool-vs-
+> slot confusion (interleave), stack-arg sign-extension (arity_i32
+> with negatives), xmm pool overflow (arity_f64 with 10 doubles),
+> per-call state leakage (stress with 1000 sequential calls).
+> See [`tests/ffi/README.md`](tests/ffi/README.md) for the full
+> matrix.
 
 ### \[done\] **FFI-2** `ffi_load` segfaults on missing library — FIXED
 

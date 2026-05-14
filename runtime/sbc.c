@@ -64,10 +64,9 @@ void sbc_free(sbc_t *sbc) {
       if (sbc->rtot[i].table) free(sbc->rtot[i].table);
     }
     /* sffi sigs were allocated one-per-FFI at sbc_prepare. Release
-     * them here. nfi_ctx isn't used by sffi (it was cinvoke's
-     * context handle); we keep the field in sbc_t for ABI
-     * compatibility with code that still reads it, but it's now
-     * always NULL. */
+     * them here.  nfi_ctx is a vestigial pointer field on sbc_t
+     * that's always NULL under sffi; we keep the field for ABI
+     * compatibility with code that still reads it. */
     if (sbc->nfi_trmps) {
       for (int i = 0; i < arrlen(sbc->nfi_trmps); i++) {
         sffi_free((sffi_sig_t *)sbc->nfi_trmps[i]);
@@ -248,7 +247,7 @@ void sbc_prepare(sbc_t *sbc) {
   sbcs[sbcs_loaded++] = sbc;
   sbc_emit_hooks(sbc, sbc_id);
 
-  /* sffi has no per-SBC context (was a cinvoke thing). Keep the
+  /* sffi has no per-SBC context.  Keep the vestigial nfi_ctx
    * field NULL; nothing else reads it. */
   sbc->nfi_ctx = 0;
 

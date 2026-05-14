@@ -1,8 +1,0 @@
-all:
-	cd lib && $(MAKE) -f Makefile.w64
-#	cd test && $(MAKE) -f Makefile.w64
-	cp -f lib\arch\gcc_x64_win.h lib\cinvoke-archspec.h
-
-clean:
-	cd lib && $(MAKE) -f Makefile.w64 clean
-	cd test && $(MAKE) -f Makefile.w64 clean

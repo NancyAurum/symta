@@ -60,10 +60,9 @@ uint8_t *emit_curry_hook(uint8_t *dst, void *target, void *payload) {
 
 
 
-/* The old `test_cinvoke()` probe was removed when sffi replaced
- * cinvoke (commit ...). For an equivalent sanity check against
- * sffi, see tests/ffi/ (when it lands) — same idea but exercises
- * the full type matrix instead of the three hand-coded targets. */
+/* For an FFI sanity check, see tests/ffi/ — it exercises the
+ * full (return × arg-type × arity) matrix against a small
+ * in-tree C library. */
 
 
 uint8_t buf[128];

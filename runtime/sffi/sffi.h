@@ -1,7 +1,7 @@
 /* sffi — Symta's in-house Foreign Function Interface dispatcher.
  *
- * Replaces the vendored cinvoke library. See ARCHITECTURE.md in this
- * directory for the design rationale; this header is the API surface.
+ * See ARCHITECTURE.md in this directory for the design rationale;
+ * this header is the API surface.
  *
  * Three calls. That's it.
  *

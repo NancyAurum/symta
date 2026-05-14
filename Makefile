@@ -126,9 +126,9 @@ check-tools:
 	@echo "tools OK (platform=$(PLATFORM))"
 
 # --- runtime -------------------------------------------------------
-# sffi (runtime/sffi/) replaces the old cinvoke dependency; it's
-# compiled in-tree as part of the runtime, not as a separate lib.
-# See runtime/sffi/ARCHITECTURE.md for the design.
+# sffi (runtime/sffi/) is the in-tree FFI dispatcher.  Compiled as
+# part of the runtime, not as a separate lib.  See
+# runtime/sffi/ARCHITECTURE.md for the design.
 
 runtime:
 	@echo "[runtime] symta executable"
