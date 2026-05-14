@@ -989,7 +989,11 @@ uint8_t *sif2sbc(sif_t *sif) {
    * function. */
   int tot_sz = 7 + 3;
 
-  EMIT16(0); //descriptor
+  /* Format identification: 4-byte magic + 2-byte revision.
+   * `sbc_new` checks both before touching anything else.  See
+   * `runtime/sif.h` for the revision history. */
+  EMIT32(SBC_MAGIC);
+  EMIT16(SBC_REVISION);
   int src_text_ofs = shget(l2o,src_label);
   EMIT24(src_text_ofs);
   int deps_text_ofs = deps_label ? shget(l2o,deps_label) : 0;

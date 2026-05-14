@@ -12,8 +12,33 @@ sbc_t *sbc_new(uint8_t *pin, int64_t size, char *path) {
   sbc_t *sbc = malloc(sizeof(sbc_t));
   sbc->file = pin;
 
-  //FIXME: better idea would be storing these as offsets
-  uint32_t descriptor = RD16;
+  /* Format identification: 4-byte magic "SymB" followed by a
+   * 2-byte revision.  Both are mandatory and validated up-front
+   * so future format changes can fail at load with a clear
+   * diagnostic instead of a misaligned read or a crash deep
+   * in the dispatch loop. */
+  if (size < 6) {
+    fprintf(stderr, "sbc_load: %s is too short (%lld B) to be an SBC.\n"
+           ,path, (long long)size);
+    free(sbc);
+    return 0;
+  }
+  uint32_t magic = (uint32_t)RD32;
+  if (magic != SBC_MAGIC) {
+    fprintf(stderr, "sbc_load: %s isn't an SBC file "
+            "(magic=0x%08x, expected 0x%08x).\n",
+            path, magic, SBC_MAGIC);
+    free(sbc);
+    return 0;
+  }
+  uint32_t rev = (uint32_t)RD16;
+  if (rev != SBC_REVISION) {
+    fprintf(stderr, "sbc_load: %s has format revision %u, "
+            "this runtime supports revision %u -- recompile.\n",
+            path, rev, SBC_REVISION);
+    free(sbc);
+    return 0;
+  }
   sbc->src_file_string = RD24;
   sbc->deps_string = RD24;
   sbc->export_string = RD24;

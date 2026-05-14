@@ -3,6 +3,36 @@
 
 #include "common.h"
 
+/* SBC file format identification.  Emitted at the very first
+ * bytes of every SBC; the runtime's `sbc_new` reads them and
+ * rejects mismatches up-front with a clear "this isn't a
+ * symta SBC" or "wrong revision -- recompile" message.
+ *
+ * SBC_MAGIC: 32-bit little-endian "SymB" (Symta Bytecode).
+ *   The capital S, lowercase y/m, and B-for-bytecode make it
+ *   distinct from random binary file headers and stable
+ *   forever.  Identifies the file as ours.
+ *
+ * SBC_REVISION: 16-bit format revision.  Bumped every time the
+ *   on-disk layout changes in a way the runtime needs to know
+ *   about.  Future runtimes can branch on this to support
+ *   multiple revisions if backwards compat is ever desired;
+ *   for now the runtime accepts only the current revision and
+ *   prints "recompile" otherwise.
+ *
+ * Revision history:
+ *   1 -- initial.  Post-RT-7-stage-2, post-SBC_LSRC-drop,
+ *        post-lineno-side-table.  Header layout is
+ *        [magic:4][rev:2][src:3][deps:3][export:3]
+ *        [tot_sz:2][code_sz:3][data_sz:3][tbls_sz:3]
+ *        [fntbl_sz:3] followed by tot_sz tot entries.
+ *
+ * Bumps should increment SBC_REVISION here and add an entry
+ * to the history.  The runtime check in `sbc_new` keeps the
+ * compiled binary self-describing. */
+#define SBC_MAGIC    0x426D7953u  /* "SymB" -- bytes S, y, m, B little-endian */
+#define SBC_REVISION 1
+
 enum {
 /*00*/ SBC_NOP,
 /*01*/ SBC_SUBR,
