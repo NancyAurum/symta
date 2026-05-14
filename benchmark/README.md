@@ -13,6 +13,14 @@ timings you eyeball or diff between revisions.
 - `parser/` -- `text.parse` throughput. Compares the in-tree
   C parser (`runtime/reader.c`) against the Symta-side reader
   when rebuilt to use that path.
+- `rt/` -- interpreter dispatch microbenchmarks (bn_loop,
+  bn_call, bn_mcall, bn_list, bn_gc).  Single-opcode-in-a-tight-
+  loop measurements; useful for spotting dispatch regressions.
+- `game/` -- full Spell-of-Mastery rebuild (~22k lines,
+  ~125 modules).  Real-world workload exercising the compiler,
+  macroexpander, SIF assembler, and SBC loader end to end.
+  Every commit that touches `runtime/` or `src/` should attach
+  a fresh `[game cold]` / `[game warm]` line to its message.
 
 ## Conventions
 
