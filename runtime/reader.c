@@ -19,6 +19,7 @@
 #include "ng.h"
 #include "am.h"
 #include "reader.h"
+#include "meta_table.h"
 
 // ====================================================================
 // Token introspection.
@@ -332,7 +333,18 @@ dyn reader_add_bars(dyn xs) {
 }
 
 // ====================================================================
-// parse_strip -- mirror of reader.s:460-472 (no meta wrapping).
+// parse_strip -- mirror of reader.s:460-472.
+//
+// Walks the token tree, replacing each token with its parsed value
+// (or raw value), and for each non-empty list whose head is a token
+// with a real source position, stashes that [row col orig] triple
+// in the runtime weak meta table keyed by the freshly-built list.
+// Consumers later read it back via `X.meta_` (which routes through
+// `meta_lookup_`).
+//
+// Symta's `parse_strip` does the same via the `meta` function (which
+// since Phase 3 of reader-consolidation routes heap objects through
+// `meta_attach_`).  We call `meta_set_` directly here for symmetry.
 // ====================================================================
 
 dyn reader_parse_strip(dyn x) {
@@ -345,12 +357,34 @@ dyn reader_parse_strip(dyn x) {
   uint64_t n = LIST_SIZE(x);
   if (n == 0) return x;
 
+  kw_init();  /* needed for KW_none below */
+
+  /* Capture meta from the unstripped head before recursing -- once
+   * we replace it with the stripped value we lose the source info. */
+  dyn meta_src = 0;
+  dyn head = LGET(x, 0);
+  if (is_tok(head)) {
+    dyn orig = tok_orig(head);
+    /* Skip `<none>` source: matches the Symta-side
+     * `Meta.2 <> '<none>'` guard. */
+    if (!text_eq_c(orig, KW_none)) {
+      LIST(meta_src, 3);
+      LGET(meta_src, 0) = tok_row(head);
+      LGET(meta_src, 1) = tok_col(head);
+      LGET(meta_src, 2) = orig;
+    }
+  }
+
   GC_DISABLE();
   dyn out; LIST(out, n);
   for (uint64_t i = 0; i < n; i++) {
     LGET(out, i) = reader_parse_strip(LGET(x, i));
   }
   GC_ENABLE();
+
+  if (meta_src) {
+    meta_set_(out, meta_src);
+  }
   return out;
 }
 
