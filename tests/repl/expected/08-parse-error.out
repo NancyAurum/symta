@@ -1,0 +1,9 @@
+Symta vXXX
+Copyright (C) 2022 Nancy Sadkov
+See LICENSE for copying conditions
+Type `usage` to list command line arguments.
+> 1
+> `<none>`:1,20: EOF in string
+
+> `<none>`:1,1: unclosed `(`
+> 

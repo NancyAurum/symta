@@ -1,0 +1,10 @@
+Symta vXXX
+Copyright (C) 2022 Nancy Sadkov
+See LICENSE for copying conditions
+Type `usage` to list command line arguments.
+> unknown:0,0: undefined variable `no_such_variable`
+> _fixtext_ has no method `no_such_method`
+object=XXXXX (tag=2)
+
+> division by zero
+> 
