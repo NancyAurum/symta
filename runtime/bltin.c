@@ -1460,6 +1460,53 @@ BUILTIN0("gc",gc)
   api.gc();
 RETURNS(No)
 
+/* RT-3: runtime tuning hooks for the GC.
+ *
+ * gc_set_gen0_pages N  --  resize gen0's *trigger threshold* to N
+ * pages and return the previous value (in pages).  The underlying
+ * heap region is fixed at boot; this only moves the `ts` pointer
+ * up or down so collections fire sooner or later.  Useful for:
+ *   - shrinking gen0 in stress tests so finalizers fire on small
+ *     allocation counts (no need for `times I 10000` filler)
+ *   - growing gen0 in steady-state benches so the measured kernel
+ *     doesn't get a surprise GC pause mid-loop
+ *   - parity with the SYMTA_GEN0_SIZE env knob (this is the same
+ *     thing, exposed to live code)
+ *
+ * If `npages` is below 1 or above the gen's own capacity, we clamp
+ * silently rather than error -- this is a tuning hint, not a hard
+ * configuration.
+ *
+ * Re-sizing recomputes hg0->ts on the spot.  If the new threshold
+ * is already crossed (top < ts), the next allocation triggers GC,
+ * which is the intended semantics. */
+BUILTIN1("gc_set_gen0_pages",gc_set_gen0_pages,C_INT,np)
+  long npages = (long)UNFXN(np);
+  /* hg->size is in 8-byte slots; PAGE_SIZE / 8 slots per page. */
+  long slots_per_page = (long)(PAGE_SIZE / sizeof(void*));
+  long old_slots = (long)api.hg0[0].size;
+  long old_pages = old_slots / slots_per_page;
+  if (npages < 1) npages = 1;
+  /* Don't let the threshold exceed the physical region the gen
+   * occupies (api.hg0[0] runs HEAP_SIZE slots upward from heap0). */
+  long max_pages = (long)HEAP_SIZE / slots_per_page;
+  if (npages > max_pages) npages = max_pages;
+  api.hg0[0].size = (uint32_t)(npages * slots_per_page);
+  api.hg0[0].ts = api.hg0[0].top - api.hg0[0].size;
+RETURNS(FXN(old_pages))
+
+/* Bytes currently allocated in gen0.  Cheap query for tests that
+ * want to assert allocation pressure under a known threshold. */
+BUILTIN0("gc_gen0_used",gc_gen0_used)
+  uint64_t used_slots = (uint64_t)(api.hg0[0].base - api.hg0[0].top);
+RETURNS(FXN(used_slots * sizeof(void*)))
+
+/* gen0's current trigger threshold, in bytes.  Mirrors the bytes
+ * that SYMTA_GEN0_SIZE / gc_set_gen0_pages set. */
+BUILTIN0("gc_gen0_size",gc_gen0_size)
+  uint64_t sz_slots = (uint64_t)api.hg0[0].size;
+RETURNS(FXN(sz_slots * sizeof(void*)))
+
 BUILTIN0("stack_trace",stack_trace)
   fatal("FIXME: implement stack_trace");
   /*void **p;
@@ -2309,6 +2356,9 @@ static struct {
   B(say_)
   B(rtstat)
   B(gc)
+  B(gc_set_gen0_pages)
+  B(gc_gen0_used)
+  B(gc_gen0_size)
   B(stack_trace)
   B(get_file_)
   B(set_file_)

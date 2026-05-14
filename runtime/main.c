@@ -863,7 +863,30 @@ int main(int argc, char **argv) {
   //init_api(16);
   //init_api(32);
   //init_api(GEN_ZERO_SIZE);
-  init_api(GEN_ZERO_SIZE*10);
+  /* RT-3: allow the gen0 size to be overridden via env.
+   * SYMTA_GEN0_SIZE is interpreted as bytes (decimal, hex with 0x,
+   * or octal with leading 0), rounded UP to a page.  Below
+   * PAGE_SIZE silently clamps to one page.  Above HEAP_SIZE/2
+   * silently clamps to the safe ceiling (init_api would otherwise
+   * fall through to the smaller "tail-size" branch). */
+  {
+    int gen0_pages = GEN_ZERO_SIZE * 10;
+    char *gen0_env = getenv("SYMTA_GEN0_SIZE");
+    if (gen0_env && *gen0_env) {
+      long bytes = strtol(gen0_env, 0, 0);
+      if (bytes > 0) {
+        long pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (pages < 1) pages = 1;
+        /* HEAP_SIZE is in 8-byte slots; clamp to a quarter of that
+         * in pages (so even the doubling ladder gen1/gen2/... can
+         * fit before init_api's avail check stops growing). */
+        long max_pages = (HEAP_SIZE / 4) / (PAGE_SIZE / 8);
+        if (pages > max_pages) pages = max_pages;
+        gen0_pages = (int)pages;
+      }
+    }
+    init_api(gen0_pages);
+  }
   //init_api(2560*PAGE_SIZE);
 
   api.sb = (void**)&tmp;

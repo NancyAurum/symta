@@ -102,17 +102,6 @@ commit hash and date.
 > binding, or wait for a future GCC.  Code stays in tree;
 > default is off.
 
-### \[P3\] **RT-3** Generation-size tuning hooks
-
-> **Where:** [`runtime/gc.c`](runtime/gc.c)
-> **Problem:** generation sizes are picked at boot
-> (`init_api(GEN_ZERO_SIZE*10)`), no way to tune for a
-> workload. ECS apps may want bigger gen0; REPL apps may want
-> smaller.
-> **Fix:** envvar `SYMTA_GEN0_SIZE` plus a runtime hook
-> `gc_set_gen_size(gen, bytes)` for advanced users.
-> `effort: afternoon`
-
 ---
 
 ## Runtime — cache locality
