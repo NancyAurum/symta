@@ -168,9 +168,11 @@ enum {
 /*9D*/ SBC_NO,
 /*9E*/ SBC_INC,
 /*9F*/ SBC_DEC,
-/*A0*/ SBC_LSRC,        /* CORE-1: source-line marker.  Updates
-                          api.frame->row/col so stack traces can
-                          report per-instruction positions. */
+/*A0*/ SBC_UNUSEDA0,    /* was SBC_LSRC (CORE-1 v1).  CORE-1 v2
+                          (commit 0b9e2c4) moved linenos to a
+                          side table so no LSRC bytes are ever
+                          emitted; the SIF-side `SBC_LSRC` is
+                          now a virtual opcode (see below). */
 /*A1*/ SBC_UNUSEDA1,
 /*A2*/ SBC_UNUSEDA2,
 /*A3*/ SBC_UNUSEDA3,
@@ -201,6 +203,14 @@ enum {
    * virtual ops lower to SBC_CTX with a sub-type byte. */
   SBC_SET_UNWIND_HANDLER,
   SBC_REMOVE_UNWIND_HANDLER,
+  /* CORE-1 v2: compile-time-only marker that captures source
+   * position.  sif2sbc consumes each `lsrc` instruction into a
+   * per-SBC sorted side table (see `sbc_t.lineno_table`) and
+   * emits no bytecode for it -- print_stack_trace recovers
+   * (row, col) from the table by binary-searching on
+   * `frame->pin`.  Never appears in the runtime dispatch
+   * stream. */
+  SBC_LSRC,
   SBC_IGNORE
 };
 

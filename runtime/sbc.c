@@ -1777,17 +1777,14 @@ dyn sbc_exec_fn(uint8_t *pin) {
       fprintf(stderr, "SBC_CTX: bad type=%d\n", type);
     }
     BREAK;}
-  /* CORE-1 transitional: sif2sbc no longer emits SBC_LSRC bytes
-   * (side-table form keeps linenos out of the bytecode).  But
-   * SBC files compiled BEFORE this refactor still have them, and
-   * the runtime needs to load them long enough to bootstrap a
-   * fresh compiler.sbc without lsrc bytes.  This no-op handler
-   * just advances past the 4-byte payload so dispatch can
-   * continue.  Once every loaded SBC has been re-built it could
-   * be removed (lands on DEFAULT instead). */
-  OP(SBC_LSRC) {
-    pin += 4;   /* 24-bit row + 8-bit col */
-    BREAK;}
+  /* SBC_LSRC was the CORE-1 v1 per-line opcode.  CORE-1 v2
+   * (commit 0b9e2c4) moved line/col into a sorted side table
+   * that print_stack_trace binary-searches by `frame->pin`;
+   * sif2sbc records each lsrc into that table and emits no
+   * bytecode for it.  RT-7 stage 2 (commit ba09259) rejects
+   * any pre-stage-2 SBC at load anyway, so this opcode never
+   * shows up in the dispatch stream and falls through to
+   * DEFAULT (bad-opcode) if a malformed file ever did. */
   DEFAULT {
 #if 1
     int opcode = pin[-1];
