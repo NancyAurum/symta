@@ -392,6 +392,21 @@ void gc_init_collectors() {
 
 
 void gc_set_finalizer(dyn obj, dyn fn) {
+  /* Reject non-closure `fn` up front.  In Symta a bare name like
+   * `fire` (top-level fn) or `&named ...` resolves to a TEXT
+   * immediate -- the *symbol*, not a callable -- because there's
+   * no implicit "function reference" path; only an inline closure
+   * (`| X => ...`) produces a T_CLOSURE.  Passing a symbol used to
+   * defer the failure to GC time: gc_finalizers' CALL(r, fin->fn)
+   * dereferenced `(gc_head_t*)(HEAP_BASE + O_GID(text) - 1)` and
+   * segfaulted on the random "header" it read.  Catch it here so
+   * the error points at the set_finalizer call site. */
+  if (!TAGIS(T_CLOSURE, fn)) {
+    rterr_(fmt("set_finalizer: fn must be a closure (got %s); use "
+               "an inline `| X => ...` wrapper",
+               print_object(fn)));
+    return;
+  }
   gc_finalizer_t fin;
   fin.obj = obj;
   fin.fn = fn;
