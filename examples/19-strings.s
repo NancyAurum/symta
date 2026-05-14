@@ -98,3 +98,20 @@ G "Wave: hi!"
 B G.utf8
 say "bytes ([B.n]): [B.l]"
 say "back:    [B.utf8]"
+say ""
+
+
+// ----------------------------------------------------------------
+// 8. Text multiplication + nested string interpolation.
+//    `text * N` repeats N times.  String interpolation `[...]`
+//    can contain arbitrary expressions including nested `"..."`,
+//    so building structured output like a 10x10 matrix is a one-
+//    liner -- no loop, no buffer, no separator bookkeeping.
+// ----------------------------------------------------------------
+M ("[("0 "*10)]\n") * 10
+say "10x10 zeros ([M.n] chars):"
+say M
+
+// A row of `=` of any width: also `text * N`.
+say "[("=" * 30)]"
+say "separator bar -- 30 chars"

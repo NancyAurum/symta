@@ -10,3 +10,8 @@ incut with expression:
   (((`"` `sum=` ((`+` X Y)))))
 method call inside incut:
   (((`"` `sz=` ((`.` Xs n)))))
+nested string literal inside incut:
+  (((`"` `x=` ((`"` inner)))))
+nested incut with text * N (matrix idiom):
+  (((`"` (((`*` (`"` `0 `) 10))) `
+`)))

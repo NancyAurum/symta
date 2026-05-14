@@ -21,3 +21,9 @@ show '"sum=[X+Y]"'
 
 say "method call inside incut:"
 show '"sz=[Xs.n]"'
+
+say "nested string literal inside incut:"
+show '"x=["inner"]"'
+
+say "nested incut with text * N (matrix idiom):"
+show '"[("0 "*10)]\n"'
