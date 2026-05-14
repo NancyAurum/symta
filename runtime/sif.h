@@ -223,6 +223,22 @@ typedef struct sif_t { //Parsed Symta Instructions File
   labels_t labels;
 } sif_t;
 
+/* RT-7: mcache slots no longer live inline in the bytecode
+ * stream.  Each per-call-site cache used to be an 8-byte
+ * `mcache_t` written into the SBC code section right after the
+ * opcode's args -- which meant every MCALL / FXNLGET / FXNLSET /
+ * IMMEQ / IMMNE / TMCALL site paid 6 bytes of code-section
+ * padding (8 actual cache bytes, 2 saved by the new format)
+ * AND every cache write touched a D-side line that was
+ * otherwise read-only-prefetched as instruction stream data.
+ *
+ * Now the bytecode carries a 2-byte `uint16_t` id at each site;
+ * the runtime allocates `sbc->mcaches[sbc->mcache_cnt]` at SBC
+ * load and the id indexes into that array.  Code-section size
+ * shrinks by 6 bytes per cache-bearing opcode (~9 % of total
+ * code on call-heavy modules); cache writes go to a clean
+ * D-side region that the L1 prefetcher and the bytecode dispatch
+ * loop don't fight over. */
 typedef struct {
   method_node_t *node; //this can be replaced with an int index to method page
 } __attribute__((packed)) mcache_t;
@@ -254,6 +270,11 @@ typedef struct sbc_t {
    * SBC_LSRC opcode on the hot dispatch path. */
   uint8_t *lineno_table;
   int lineno_sz;
+  /* RT-7: D-side mcache slots, indexed by the uint16_t id
+   * embedded in the bytecode at each cache-bearing opcode.
+   * Allocated by `sbc_prepare` once `mcache_cnt` is known. */
+  mcache_t *mcaches;
+  uint32_t mcache_cnt;
   tot_entry_t rtot[7]; //relocated tot
   dyn *tx;
   dyn *ty;

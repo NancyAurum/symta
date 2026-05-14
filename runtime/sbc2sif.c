@@ -89,18 +89,21 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"mt[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;}
   case SBC_MCALLIR: {
     as[0] = afmt(0,"mcall");
     arrput(as, afmt(0,"dummy"));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"mt[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;}
   case SBC_MCALL8: {
     as[0] = afmt(0,"mcall");
     arrput(as, afmt(0,"L[%d]",RD8));
     arrput(as, afmt(0,"L[%d]",RD8));
     arrput(as, afmt(0,"mt[%d]",RD8));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;}
   case SBC_CLOSURE: {
     uint32_t dst = RD16;
@@ -366,12 +369,14 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;
   case SBC_FXNLSET:
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;
   case SBC_FXNLSETIR:
     as[0] = afmt(0,"fxnlset");
@@ -379,6 +384,7 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
     break;
   case SBC_FXNSIZE:
     arrput(as, afmt(0,"L[%d]",RD16));
@@ -388,13 +394,18 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     break;
+  case SBC_IMMEQ:
+  case SBC_IMMNE:
+    arrput(as, afmt(0,"L[%d]",RD16));
+    arrput(as, afmt(0,"L[%d]",RD16));
+    arrput(as, afmt(0,"L[%d]",RD16));
+    pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
+    break;
   case SBC_FXNADD:
   case SBC_FXNSUB:
   case SBC_FXNMUL:
   case SBC_FXNDIV:
   case SBC_FXNREM:
-  case SBC_IMMEQ:
-  case SBC_IMMNE:
   case SBC_FXNLT:
   case SBC_FXNGT:
   case SBC_FXNLTE:
@@ -627,18 +638,21 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"mt[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;}
     case SBC_MCALLIR: {
       as[0] = afmt(0,"mcall");
       arrput(as, afmt(0,"dummy"));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"mt[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;}
     case SBC_MCALL8: {
       as[0] = afmt(0,"mcall");
       arrput(as, afmt(0,"L[%d]",RD8));
       arrput(as, afmt(0,"L[%d]",RD8));
       arrput(as, afmt(0,"mt[%d]",RD8));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;}
     case SBC_CLOSURE: {
       uint32_t dst = RD16;
@@ -892,12 +906,14 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;
     case SBC_FXNLSET:
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;
     case SBC_FXNLSETIR:
       as[0] = afmt(0,"fxnlset");
@@ -905,6 +921,7 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
       break;
     case SBC_FXNSIZE:
       arrput(as, afmt(0,"L[%d]",RD16));
@@ -914,13 +931,18 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       break;
+    case SBC_IMMEQ:
+    case SBC_IMMNE:
+      arrput(as, afmt(0,"L[%d]",RD16));
+      arrput(as, afmt(0,"L[%d]",RD16));
+      arrput(as, afmt(0,"L[%d]",RD16));
+      pin += 8; /* RT-7: skip 2-byte id + 6 NOP filler */
+      break;
     case SBC_FXNADD:
     case SBC_FXNSUB:
     case SBC_FXNMUL:
     case SBC_FXNDIV:
     case SBC_FXNREM:
-    case SBC_IMMEQ:
-    case SBC_IMMNE:
     case SBC_FXNLT:
     case SBC_FXNGT:
     case SBC_FXNLTE:

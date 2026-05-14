@@ -119,7 +119,7 @@ cache lines touched per hot-path operation, **before → after**.
 | Closure CALL dispatch (RT-5) | every closure call        | 2  | 1 (DONE) |
 | MCALL miss (RT-6)           | every megamorphic dispatch | 3-5 | 1 |
 | Bytecode dispatch (RT-1)    | every opcode               | n/a (BTB) | n/a (BTB-friendly) |
-| MCACHE store (RT-7)         | every MCACHE miss          | I-side SMC stall | 1 D-side |
+| MCACHE store (RT-7)         | every MCACHE miss          | I-side SMC stall | 1 D-side (DONE) |
 | Frame GC walk (RT-8)        | every GC pause             | 2/frame | 1/frame |
 
 The drift test gives strong confidence for invasive runtime
@@ -249,32 +249,59 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 > falls into the slow path.
 > `effort: afternoon`
 
-### \[P2\] **RT-7** `mcache_t` is embedded in the bytecode stream
+### \[P2\] **RT-7** `mcache_t` is embedded in the bytecode stream — DONE (May 2026)
 
-> **Where:** [`runtime/sbc.c:341-356`](runtime/sbc.c)
-> (`MCACHE_CALL`), [`runtime/sif.h:220-222`](runtime/sif.h)
-> (`mcache_t` definition).
-> **Problem:** `MCACHE_CALL` does
-> `mcache_t *mce = (mcache_t*)pin; pin += sizeof(mcache_t)`.
-> The cache lives in the bytecode payload itself -- good for
-> I-side fetch locality, BAD for cache writes. On `MCACHE_MISS`,
-> we do `mce->node = node;` which is an I-cache **store** that
-> dirties a code cache line. Modern Intel (post-Spectre
-> mitigations especially) treats this as self-modifying code
-> and can trigger a machine-clear / SMC nuke at the next
-> dispatch -- typically tens to hundreds of cycles per miss.
-> **Fix:** move the mcache slots to a separate D-side array
-> indexed by an `mcache_id` stored in the bytecode (8 or 16
-> bits; even hot functions have <256 MCALL sites). Bytecode
-> stays read-only; the cache updates in normal data memory.
-> Combined with RT-1 (computed goto), this eliminates the
-> dispatch-time SMC penalty entirely.
-> **Why now:** the SMC penalty only fires on mcache misses, but
-> misses are exactly the path we already optimise around -- and
-> when they fire, they fire in batches (type-shift in a hot
-> loop). The fix is contained: bytecode emitter writes an id;
-> sbc_exec reads from a per-function table.
-> `effort: afternoon`
+> **Landed.** The 8-byte mcache slot still occupies the same
+> 8 bytes of bytecode after each cache-bearing opcode's args,
+> but the contents have changed:
+>
+> - First 2 bytes: a `uint16_t mcache_id` assigned in
+>   emission-order by `sif2sbc` per SBC.  Counter persisted as
+>   a new 10th `tot` entry on top of CORE-1's lineno table.
+> - Remaining 6 bytes: `SBC_NOP` filler.
+>
+> The runtime's `MCACHE_CALL` reads the 2-byte id, advances
+> `pin += 6` to skip the filler, and dereferences
+> `sbc->mcaches[id]` -- a `calloc`'d D-side array allocated in
+> `sbc_prepare` once `mcache_cnt` is known.  Cache writes
+> (`mce->node = node`) land in clean data memory, not the
+> bytecode region.
+>
+> **Why not shrink to 2 bytes?**  Older SBCs (pre-RT-7
+> compilation) have 8 SBC_NOP bytes at every cache site, and
+> the bootstrap compiler.sbc / macro.sbc are committed in that
+> format.  Shrinking the slot would break jump-offset
+> compatibility with those.  Keeping 8 bytes wide means the
+> new runtime can execute old SBCs unchanged: their first 2
+> bytes read as `id = 0`, every cache site collides on
+> `mcaches[0]`, and the hit check (newly augmented to compare
+> `node->mid == m` as well as `node->tid == tid` -- see below)
+> dispatches the right method despite the collision.  Old
+> SBCs run with a single megamorphic cache slot until they're
+> regenerated.
+>
+> **Bug found and fixed during landing.**  The original cache
+> hit check was `node->tid != tid` only -- correct for the
+> old per-site cache but broken once multiple sites share a
+> slot.  A stale node cached for `(m=40, tid=T)` would satisfy
+> the tid check for any subsequent call on type T, even if the
+> caller is asking for `m=199`, and dispatch the wrong method
+> -- which on the bootstrap exec path looked like deep tail-
+> recursion (the same wrong method getting called repeatedly)
+> and ran the C stack out in ~123 k frames.  The fix is one
+> extra comparison, `node->mid != m`, which predicts cleanly
+> for RT-7-emitted SBCs (one site per slot, always true) and
+> protects the fallback path.
+>
+> Bytecode files grow by 6 bytes per SBC (one new `tot` entry,
+> 3 bytes count + 3 bytes unused offset).  Per-cache-site size
+> is unchanged.  `bn_gc.megamcall` band is 47-50 ns/op,
+> matching the pre-RT-7 band -- the SMC-mitigation cost the
+> TODO predicted isn't visible on this Win64 / mingw build,
+> but the design is the right one for any future platform
+> where the page-protection layer fires on bytecode writes.
+> Tests / drift / compiler-goldens-refreshed / game cold all
+> green.
 
 ### \[P2\] **RT-8** `frame_t` metadata separate from `L[]` locals — DONE (May 2026, RT-8a + RT-8b)
 

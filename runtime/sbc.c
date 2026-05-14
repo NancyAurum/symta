@@ -48,6 +48,26 @@ sbc_t *sbc_new(uint8_t *pin, int64_t size, char *path) {
     sbc->lineno_sz = 0;
     sbc->lineno_table = 0;
   }
+  /* RT-7: mcache slot count is the 10th tot entry.  Older SBCs
+   * (without RT-7 emission) leave mcache_cnt == 0; their cache
+   * sites still padded with 8 SBC_NOP bytes, which the new
+   * runtime reads as `id = 0` plus 6 bytes of filler -- works
+   * because (a) MCACHE_SKIP / MCACHE_CALL both still advance
+   * pin by 8 (preserving the 8-byte slot width), (b) we
+   * allocate at least one mcache slot in `sbc_prepare` even
+   * when mcache_cnt is zero, and (c) the cache hit check also
+   * compares `node->mid == m` so collisions in the single
+   * fallback slot don't dispatch the wrong method.  Old SBCs
+   * run slower (every cache site collides on slot 0,
+   * megamorphic dispatch every time) but execute correctly
+   * until the bootstrap regenerates them. */
+  if (tot_sz >= 10) {
+    sbc->mcache_cnt = (uint32_t)RD24;
+    RD24; /* offset unused -- mcaches live in a malloc'd D-side array */
+  } else {
+    sbc->mcache_cnt = 0;
+  }
+  sbc->mcaches = 0; /* allocated lazily in sbc_prepare */
 
   sbc->filename = strdup(path);
   sbc->mt = 0;
@@ -70,6 +90,8 @@ void sbc_free(sbc_t *sbc) {
   if (sbc->ready) {
     free(sbc->mt);
     if (sbc->hooks) free(sbc->hooks);
+    /* RT-7: D-side mcache array. */
+    if (sbc->mcaches) free(sbc->mcaches);
     for (int i = 0; i < 7; i++) {
       //FIXME: ensure it gets unloaded from the runtime
       if (sbc->rtot[i].table) free(sbc->rtot[i].table);
@@ -302,6 +324,23 @@ void sbc_prepare(sbc_t *sbc) {
 
   sbc_init_tables(sbc);
 
+  /* RT-7: allocate the per-SBC D-side mcache array.  Calloc so
+   * every slot starts with `node == NULL`, matching the
+   * MCACHE_CALL miss path's "cold cache" condition.  We always
+   * allocate at least one slot so pre-RT-7 SBCs -- which have
+   * `mcache_cnt == 0` because their tot_sz didn't include the
+   * RT-7 entry -- can still execute (every call site reads
+   * `id=0` from the leading two SBC_NOP bytes of the old cache
+   * padding and indexes that single slot, megamorphic and
+   * slow but correct). */
+  uint32_t slots = sbc->mcache_cnt ? sbc->mcache_cnt : 1;
+  sbc->mcaches = calloc(slots, sizeof(mcache_t));
+  if (!sbc->mcaches) {
+    fprintf(stderr, "sbc_prepare: out of memory for %u mcache slots\n"
+           ,slots);
+    exit(-1);
+  }
+
   sbc->ready = 1;
 }
 
@@ -345,20 +384,50 @@ int64_t mcache_hits = 0;
          i.e. maintain ration of hits to misses.
 */
 
-#define MCACHE_SKIP pin += sizeof(mcache_t)
+/* RT-7: the cache used to sit inline in the bytecode (8 bytes
+ * of `mcache_t` after each cache-bearing opcode's args), and
+ * `mce->node = node` was a write into the bytecode stream
+ * itself.  Now the cache lives in a separate D-side
+ * `sbc->mcaches[]` array, indexed by a `uint16_t` id stored in
+ * the first 2 bytes of what used to be the 8-byte cache slot
+ * (the remaining 6 bytes are SBC_NOP filler).
+ *
+ * Keeping the slot 8 bytes wide preserves backwards compat
+ * with pre-RT-7 SBCs: their cache padding is 8 SBC_NOP bytes,
+ * which the new code reads as `id=0` (and we allocate at least
+ * one mcache slot in `sbc_prepare` even when `mcache_cnt==0`
+ * so the access doesn't trap).  All call sites in an old SBC
+ * end up colliding on slot 0 -- functionally correct, slow
+ * megamorphic-dispatch perf -- until the SBC is recompiled. */
+#define MCACHE_SKIP pin += 8
 
 #ifdef SBC_MCACHE
 
-//#define MCACHE_CALL(k,o,mid) MCALL(k,o,mid) 
-#define MCACHE_CALL(k,o,mid) do {            \
-    int m = mid;                            \
+//#define MCACHE_CALL(k,o,_mid) MCALL(k,o,_mid)
+/* The cache hit check has to validate the cached node belongs
+ * to the same `(method_id, type_id)` pair as the current call.
+ * Pre-RT-7 SBCs run with `mcache_cnt == 0` -> a single fallback
+ * mcache slot that every cache site collides on, so a stale
+ * cached entry from a different `m` could otherwise satisfy a
+ * tid-only check and dispatch the wrong method.  For RT-7-
+ * compiled SBCs each site has its own slot, so `node->mid == m`
+ * is always true on a hit -- the extra comparison costs ~1
+ * cycle per call and the branch predicts cleanly.
+ *
+ * The third macro parameter is named `_mid` (not `mid`) to
+ * avoid colliding with `method_node_t.mid`: a macro parameter
+ * named `mid` would text-substitute into `node->mid` and break
+ * the build. */
+#define MCACHE_CALL(k,o,_mid) do {            \
+    int m = _mid;                            \
     api.method = m;                         \
     dyn oo = o;                             \
-    mcache_t *mce = (mcache_t*)pin;         \
-    MCACHE_SKIP;                            \
+    uint32_t _mid_idx = (uint32_t)RD16;     \
+    pin += 6; /* skip 6-byte filler */      \
+    mcache_t *mce = &sbc->mcaches[_mid_idx];\
     uint32_t tid = O_TAG(o);                \
     method_node_t *node = mce->node;        \
-    if (!node || node->tid != tid) {        \
+    if (!node || node->tid != tid || node->mid != m) { \
       node = get_method_node(m,tid);        \
       mce->node = node;                     \
       MCACHE_MISS                           \
@@ -367,7 +436,7 @@ int64_t mcache_hits = 0;
     CALL(k,mfn);                            \
   } while (0)
 #else
-#define MCACHE_CALL(k,o,mid) MCALL(k,o,mid) 
+#define MCACHE_CALL(k,o,mid) MCALL(k,o,mid)
 #endif
 
 

@@ -133,6 +133,13 @@ uint8_t *sif2sbc(sif_t *sif) {
   }
   int instr_count = 0;
   int nfi_argc = 0;
+  /* RT-7: per-SBC mcache id counter.  Each cache-bearing opcode
+   * (MCALL / MCALLIR / MCALL8 / TMCALL / FXNLGET / FXNLSET /
+   * FXNLSETIR / IMMEQ / IMMNE) emits this counter as a 2-byte
+   * id in its bytecode and increments it.  At SBC load time the
+   * runtime allocates `sbc->mcaches[counter_final]` so each id
+   * indexes a distinct D-side slot. */
+  uint32_t mcache_counter = 0;
   for (i = 0; i < arrlen(instrs); i++) {
     instr_t *ins = &instrs[i];
     char **as = ins->args;
@@ -286,7 +293,8 @@ uint8_t *sif2sbc(sif_t *sif) {
           EMIT16(midx);
         }
       }
-      for (j = 0; j < sizeof(mcache_t); j++) EMIT8(SBC_NOP); //cache area
+      EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
+      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_TMCALL: {
       int oval = refidx(as[1]);
@@ -294,7 +302,8 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT8(SBC_TMCALL);
       EMIT16(oval);
       EMIT16(midx);
-      for (j = 0; j < sizeof(mcache_t); j++) EMIT8(SBC_NOP); //cache area
+      EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
+      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_TCALL: {
       int fval = refidx(as[1]);
@@ -602,7 +611,8 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(refidx(as[1]));
       EMIT16(refidx(as[2]));
       EMIT16(refidx(as[3]));
-      for (j = 0; j < sizeof(mcache_t); j++) EMIT8(SBC_NOP); //cache area
+      EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
+      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_FXNLSET: {
       if (!strcmp(as[1],"dummy")) {
@@ -617,7 +627,8 @@ uint8_t *sif2sbc(sif_t *sif) {
         EMIT16(refidx(as[3]));
         EMIT16(refidx(as[4]));
       }
-      for (j = 0; j < sizeof(mcache_t); j++) EMIT8(SBC_NOP); //cache area
+      EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
+      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_FXNSIZE: {
       EMIT8(SBC_FXNSIZE);
@@ -631,7 +642,8 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(refidx(as[1]));
       EMIT16(refidx(as[2]));
       EMIT16(refidx(as[3]));
-      for (j = 0; j < sizeof(mcache_t); j++) EMIT8(SBC_NOP); //cache area
+      EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
+      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;
     }
     case SBC_FXNADD:
@@ -976,8 +988,8 @@ uint8_t *sif2sbc(sif_t *sif) {
   wb = 0;
 
   /* tot_sz counts the (count, offset) pairs in the trailing tot:
-   * 7 lookup tables + nrs + linenos. */
-  int tot_sz = 7 + 2;
+   * 7 lookup tables + nrs + linenos + RT-7 mcache count. */
+  int tot_sz = 7 + 3;
 
   EMIT16(0); //descriptor
   int src_text_ofs = shget(l2o,src_label);
@@ -1002,6 +1014,12 @@ uint8_t *sif2sbc(sif_t *sif) {
    * Count is entries, not bytes; each entry is 12 bytes. */
   EMIT24(lineno_sz);
   EMIT24(lineno_ofs);
+  /* RT-7: (count, 0) for D-side mcache slot count.  The offset
+   * is unused -- mcaches live in a runtime-malloc'd array, not
+   * in the SBC file -- but we keep the slot for tot's uniform
+   * (count, offset) layout. */
+  EMIT24(mcache_counter);
+  EMIT24(0);
 
 
   hdr = wb;
