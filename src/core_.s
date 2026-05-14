@@ -814,12 +814,71 @@ list.digits @Base =
 
 type macro @new_macro N E: name!N expander!E
 
-//~ means meta doesnt inherit from _, so all methods will got to $object_
-type meta.~ O M: object_!O meta_!M
-_.meta_ = No
-meta.__ Method Args =
+// `meta A B` -- attach a meta value B (typically a source-position
+// triple) to A.  For heap-allocated A we stash (A -> B) in the
+// runtime's weak hashtable via `meta_attach_` and return A
+// unchanged; consumers still read it back via A.meta_ (which goes
+// through `meta_lookup_`).  This means AST nodes coming out of the
+// parser are plain lists -- no wrapper struct intercepting method
+// dispatch -- which is what unblocks `text.parse` from switching
+// to `parse_strip_c_` (see docs/reader-consolidation.md).
+//
+// For immediates (int, fixtext, No, T_TAG, ...) we fall back to
+// the legacy `meta_wrapper` type: immediates have no GC identity
+// to key on in the weak table.  The parser doesn't attach meta to
+// immediates today, but other consumers (e.g. ui_old's widget
+// rects) might.
+//
+//~ means meta_wrapper doesn't inherit from _, so all methods route
+//  through __ -- preserving the "forwarding wrapper" semantics for
+//  the immediate case.
+// `meta A B` -- attach a meta value B (typically a source-position
+// triple) to A.  For heap-allocated A we stash (A -> B) in the
+// runtime's weak hashtable via `meta_attach_` and return A
+// unchanged; consumers still read it back via A.meta_ (which goes
+// through `meta_lookup_`).  This means AST nodes coming out of the
+// parser are plain lists -- no wrapper struct intercepting method
+// dispatch -- which is what unblocks `text.parse` from switching
+// to `parse_strip_c_` (see docs/reader-consolidation.md).
+//
+// For immediates (int, fixtext, No, T_TAG, ...) we fall back to
+// the legacy `meta_wrapper` type: immediates have no GC identity
+// to key on in the weak table.  The parser doesn't attach meta to
+// immediates today, but other consumers (e.g. ui_old's widget
+// rects) might.
+//
+//~ means meta_wrapper doesn't inherit from _, so all methods route
+//  through __ -- preserving the "forwarding wrapper" semantics for
+//  the immediate case.
+// `meta A B` -- attach a meta value B (typically a source-position
+// triple) to A.  For heap-allocated A we stash (A -> B) in the
+// runtime's weak hashtable via `meta_attach_` and return A
+// unchanged; consumers read it back via `A.meta_` which goes
+// through `meta_lookup_`.  AST nodes coming out of the parser stay
+// as plain lists -- no wrapper struct intercepting method dispatch
+// -- which is what unblocks `text.parse` from switching to
+// `parse_strip_c_` (see docs/reader-consolidation.md).
+//
+// For immediates (int, fixtext, No, T_TAG, ...) we fall back to
+// the legacy `meta_wrapper` type: immediates have no GC identity
+// so they can't be keyed in a weak table.  The parser doesn't
+// attach meta to immediates today, but other consumers (e.g.
+// ui_old widgets) might.
+//
+//~ means meta_wrapper doesn't inherit from _; non-field method
+//  calls go through __ which forwards to the wrapped object.
+type meta_wrapper.~ O M: object_!O imm_meta_!M
+meta_wrapper.__ Method Args =
   Args.0 = $object_
   Args.apply_method(Method)
+meta_wrapper.is_meta = 1
+meta_wrapper.meta_ = | $imm_meta_
+
+_.meta_ = | meta_lookup_ Me
+_.is_meta = | meta_present_ Me
+
+meta A B =
+| if imm_ A then meta_wrapper A B else (meta_attach_ A B; A)
 
 
 LCG_Seed  No
