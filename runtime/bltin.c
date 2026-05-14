@@ -2661,15 +2661,23 @@ void init_builtins(int argc, char **argv) {
 
   init_builtin_functions();
 
-  for (i = 0; i < 128; i++) {
+  /* Pre-built single-byte fixtexts, indexed by byte value 0..255.
+   * Used by `text.[i]` on a bigtext to return the i-th byte as a
+   * single-char fixtext without allocating.
+   *
+   * Historically the loop ran 0..127 only and bytes 128..255 were
+   * aliased to single_chars[0] (empty), which silently truncated
+   * any text-indexing operation that crossed a high-bit byte --
+   * `"abcädef".[3]` returned empty, `"abcädef".l` had n=3, and so
+   * on.  Symta texts are byte-strings (not codepoints), so every
+   * byte value 0..255 needs a real entry.  Fixes FFI-4 (UTF-8 to
+   * char* marshalling) and a class of "string truncates at the
+   * first non-ASCII byte" bugs all over the standard library. */
+  for (i = 0; i < MAX_SINGLE_CHARS; i++) {
     char t[2];
     t[0] = (char)i;
     t[1] = 0;
     TEXT(single_chars[i], t);
-  }
-
-  for (; i < MAX_SINGLE_CHARS; i++) {
-    single_chars[i] = single_chars[0];
   }
 
   init_types();

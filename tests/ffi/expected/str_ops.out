@@ -6,5 +6,6 @@ PASS strlen 500
 PASS strlen 4096
 PASS strchr y@50
 PASS strchr ! @ 1000
-PASS bytesum A10
-PASS bytesum A100
+PASS bytesum A×10
+PASS bytesum A×100
+PASS bytesum ä

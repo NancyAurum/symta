@@ -166,25 +166,40 @@ the commit hash and date appended.
 > `effort: 1-2 days` (printer + reader scientific-notation
 > support + golden audit + drift verification)
 
-### \[P3\] **FFI-4** Text-marshalling drops multi-byte UTF-8 to C `char*`
+### \[done\] **FFI-4** Text-marshalling drops multi-byte UTF-8 — FIXED
 
-> **Where:** the FFI text → cstring marshalling path; observed
-> in `tests/ffi/src/tc_str_ops.s` (the bytesum-of-`"ä"` case,
-> currently commented out).
-> **Problem:** passing a Symta text that contains multi-byte
-> UTF-8 characters to a `.text` FFI parameter yields an empty
-> string on the C side.  Reproducer: `c_str_bytesum "ä"`
-> returns 0; the Symta-side value is fine (`"ä".n == 2` and the
-> bytes are `195, 164`).
-> **Why this matters:** real-world FFI is full of multi-byte
-> strings (Unicode filenames, JSON payloads, anything from
-> a non-ASCII locale).  The current bug silently truncates.
-> **Investigation pointers:** check `FFI_ARG_text` / the
-> text-to-cstring path in `runtime/bltin.c` for fixtext (short)
-> vs bigtext (long) handling; fixtext may pack characters in a
-> way that the marshaller mis-decodes for high-bit bytes.
-> `effort: half day` (root-cause + fix + reactivate the
-> tc_str_ops bytesum-ä case)
+> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `single_chars[]`
+> initialisation loop.
+> **Status:** fixed in May 2026.  The bytesum-of-`"ä"` case in
+> `tc_str_ops.s` is reactivated and passing; drift bootstrap
+> stays byte-identical across the fix (no codegen impact).
+>
+> **Root cause:** not actually FFI.  The `single_chars[256]`
+> table is the runtime's pre-built cache of single-byte
+> fixtexts, indexed by byte value 0..255 — `text.[i]` on a
+> bigtext returns `single_chars[BIGTEXT_DATA(o)[i]]` to avoid
+> allocating per access.  The init loop in `init_builtins`
+> populated indices 0..127 only, then aliased 128..255 all to
+> `single_chars[0]` (= empty fixtext).  So any byte with the
+> high bit set, read via `text.[i]`, came back as empty —
+> which cascaded through `text.l`, `.code`, `cstring_bytes`,
+> the SIF emitter, and finally produced a truncated SBC
+> bytes-section for any literal containing a high-bit byte.
+> The bug looked like "FFI text marshalling drops UTF-8" but
+> was actually upstream: the literal `"abcädef"` in source
+> compiled into the 3-byte SBC text `"abc"`, and the FFI
+> marshaller faithfully passed that on.
+>
+> **Fix:** extend the init loop to cover the full 0..255 range
+> so every byte value has its own single-char fixtext.  Five
+> lines of code.  The 128..255 alias loop is gone.
+>
+> **Side effects discovered:** the buttons UIM test's golden
+> shifted by 9 bytes (~one em-dash worth of pixels); the new
+> rendering is visually identical to the old in this case
+> because the ttf font's em-dash glyph is currently a no-op,
+> but the rendering path now visits the glyph rather than
+> short-circuiting on the empty fixtext.  Golden refreshed.
 
 ---
 

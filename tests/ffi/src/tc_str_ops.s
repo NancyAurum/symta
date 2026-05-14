@@ -40,10 +40,4 @@ tc_str_ops =
 
   // Unicode-bytes (non-ASCII): "ä" is two bytes 0xC3 0xA4 in
   // UTF-8 = 195 + 164 = 359.
-  //
-  // SKIPPED -- an FFI text-marshalling path drops multi-byte UTF-8
-  // characters when handing a Symta text to a C `char*` argument.
-  // The Symta-side value is fine (`"ä".n == 2` and the bytes are
-  // 195/164), but `c_str_bytesum` receives an empty string and
-  // returns 0.  Filed as TODO FFI-4; reactivate once it's fixed.
-  // check 'bytesum ä'     359  (c_str_bytesum "ä")
+  check 'bytesum ä'     359  (c_str_bytesum "ä")
