@@ -39,10 +39,27 @@ case "$UNAME" in
   *)                                   MK=Makefile     ;;
 esac
 
+# Locate `make`.  w64devkit ships it at a well-known path but doesn't
+# add itself to PATH by default, so probe a couple of likely spots
+# before giving up.
+MAKE=$(command -v make 2>/dev/null || true)
+if [ -z "$MAKE" ]; then
+  for candidate in /c/soft/w64devkit/bin/make.exe \
+                   "C:/soft/w64devkit/bin/make.exe" \
+                   /mingw64/bin/make.exe \
+                   /usr/bin/make; do
+    [ -x "$candidate" ] && { MAKE="$candidate"; break; }
+  done
+fi
+if [ -z "$MAKE" ]; then
+  echo "FFI suite needs \`make\` on PATH (or w64devkit installed at /c/soft/w64devkit)."
+  exit 1
+fi
+
 # Build cffilib if needed. We rebuild unconditionally; the makefile
 # itself is mtime-aware so a hot rebuild costs nothing.
 echo "[cffilib] $MK"
-( cd "$HERE/cffilib" && make -s -f "$MK" ) >"$HERE/cffilib.log" 2>&1 || {
+( cd "$HERE/cffilib" && "$MAKE" -s -f "$MK" ) >"$HERE/cffilib.log" 2>&1 || {
   echo "cffilib build failed:"
   tail -20 "$HERE/cffilib.log" | sed 's/^/         /'
   exit 1
