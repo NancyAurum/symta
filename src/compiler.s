@@ -437,8 +437,71 @@ ssa_mark Name =
 | GFnMeta.GCurProperFn.name =  Name
 | ssa cmnt "function [Name]"
 
-ssa_fixed1 K Op X = ssa Op K X^ev
-ssa_fixed2 K Op A B = ssa Op K A^ev B^ev
+// CORE-8 #1: constant folding for the fixnum arithmetic /
+// comparison / bitwise opcodes.  When both arguments are
+// integer literals at compile time, evaluate the operation in
+// Symta and emit a single `ldfxn` instead of three
+// (`ldfxn A; ldfxn B; fxnop K A B`).  Saves two instructions
+// per fold and frees the two intermediate SSA slots.  Pervasive:
+// the compiler itself, macros, and most arithmetic-heavy code
+// hit this on every literal pair.
+//
+// We factor each fold through a small named helper because case-
+// arm trailers can't carry an arbitrary infix expression (the
+// Symta grammar parses `pattern = something + something_else` as
+// a malformed assignment); single-call trailers are fine.
+
+fadd_ A B = A + B
+fsub_ A B = A - B
+fmul_ A B = A * B
+fdiv_ A B = A / B
+frem_ A B = A % B
+fand_ A B = A -*- B
+fior_ A B = A -+- B
+fxor_ A B = A -^- B
+fshl_ A B = A -<- B
+fshr_ A B = A ->- B
+finc_ X = X + 1
+fdec_ X = X - 1
+fneg_ X = 0 - X
+fabs_ X = if X < 0 then 0 - X else X
+
+ssa_fixed1 K Op X =
+  if X.is_int and Op >< 'neg' then ssa_atom K (fneg_ X)
+  elif X.is_int and Op >< 'abs' then ssa_atom K (fabs_ X)
+  elif X.is_int and Op >< 'inc' then ssa_atom K (finc_ X)
+  elif X.is_int and Op >< 'dec' then ssa_atom K (fdec_ X)
+  elif X.is_int and Op >< 'not' then ssa_atom K (if X >< 0 then 1 else 0)
+  else ssa Op K X^ev
+
+ssa_fixed2 K Op A B =
+  if A.is_int and B.is_int:
+    if Op >< 'fxnadd' then ssa_atom K (fadd_ A B)
+    elif Op >< 'fxnsub' then ssa_atom K (fsub_ A B)
+    elif Op >< 'fxnmul' then ssa_atom K (fmul_ A B)
+    elif Op >< 'fxndiv' and B <> 0 then ssa_atom K (fdiv_ A B)
+    elif Op >< 'fxnrem' and B <> 0 then ssa_atom K (frem_ A B)
+    elif Op >< 'fxnand' then ssa_atom K (fand_ A B)
+    elif Op >< 'fxnior' then ssa_atom K (fior_ A B)
+    elif Op >< 'fxnxor' then ssa_atom K (fxor_ A B)
+    elif Op >< 'fxnshl' and B >> 0 and 63 >> B then ssa_atom K (fshl_ A B)
+    elif Op >< 'fxnshr' and B >> 0 and 63 >> B then ssa_atom K (fshr_ A B)
+    elif Op >< 'fxneq'  then ssa_atom K (if A >< B then 1 else 0)
+    elif Op >< 'fxnne'  then ssa_atom K (if A <> B then 1 else 0)
+    elif Op >< 'fxnlt'  then ssa_atom K (if A <  B then 1 else 0)
+    elif Op >< 'fxngt'  then ssa_atom K (if A >  B then 1 else 0)
+    elif Op >< 'fxnlte' then ssa_atom K (if A << B then 1 else 0)
+    elif Op >< 'fxngte' then ssa_atom K (if A >> B then 1 else 0)
+    else ssa Op K A^ev B^ev
+  else ssa Op K A^ev B^ev
+  // NOTE: one-sided identity folds (X+0 → X, etc.) were tried
+  // and produced wrong output for `0 + No` -- the existing
+  // `[_add 0 No]` path goes through fxnadd's bit-level int
+  // semantics, which has non-trivial behaviour on the T_NO tag
+  // (returns 0.0 because No happens to share bits with float
+  // representation in the int range).  Leaving identity folds
+  // to a future pass that knows the static type of both args.
+
 ssa_fixed3 K Op A B C = ssa Op K A^ev B^ev C^ev
 
 ssa_listn K N = ssa fxnlistn K N^ev
