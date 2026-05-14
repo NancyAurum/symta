@@ -94,7 +94,11 @@ static void gc_builtins(hg_t *src, hg_t *dst) {
 
   for (frame_t *frm = api.frame; frm; frm = frm->prev) {
     GC_REC(frm->clsr, frm->clsr);
-    void **pv = frm->vars;
+    /* RT-8b/c: locals sit immediately after the frame header in
+     * the same struct-hack block, so we synthesise the locals
+     * pointer here instead of reading a now-removed `vars`
+     * field. */
+    void **pv = FRAME_LOCALS(frm);
     void **ev = pv + frm->nvars;
     for (; pv < ev; pv++) { //local variables for each active call
       GC_REC(*pv, *pv);

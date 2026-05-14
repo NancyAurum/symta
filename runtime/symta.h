@@ -218,12 +218,24 @@ struct hg_t { //heap generation
 };
 
 typedef struct frame_t frame_t;
-//FIXME: it should be allocated inside the callee
-//while clsr passed inside api_t
+/* RT-8b/c: frame header layout post-callee-allocation.
+ *
+ * With RT-8b the locals array always sits immediately after the
+ * `frame_t` header in the same struct-hack block.  That means
+ * the old `vars` pointer-back-to-locals field is entirely
+ * redundant -- locals are at `(void**)(frm + 1)` (with a small
+ * adjustment so the compiler-level address arithmetic agrees:
+ * see `FRAME_LOCALS_OFS` / `FRAME_LOCALS()` below).  Dropping
+ * `vars` shrinks the header from 40 bytes to 32 bytes, removes
+ * one store per CALL prologue, and keeps the whole header in
+ * the first half of a cache line.
+ *
+ * `nvars` stays -- the GC walk needs the local-array length
+ * and there's no compact way to recover it from the
+ * struct-hack pointer alone. */
 struct frame_t {
   dyn clsr;
   frame_t *prev;
-  void **vars;
   int nvars;
   /* CORE-1: bytecode pointer at this frame's most recent
    * suspension (call to the next frame).  Set by SBC_CALL /
@@ -235,6 +247,12 @@ struct frame_t {
    * loop (40-100% on call-heavy paths). */
   uint8_t *pin;
 };
+
+/* Locals start immediately after the frame header.  PROLOGUE
+ * uses the same arithmetic as `L_blk_ + FRAME_PREFIX_SLOTS`;
+ * GC walkers and any debug code that wants to enumerate a
+ * frame's locals call this. */
+#define FRAME_LOCALS(frm) ((void**)((frame_t*)(frm) + 1))
 
 //maximum number of arguments to a native function
 #define NFI_MAX_ARGS 32
@@ -467,7 +485,6 @@ typedef struct tot_entry_t { //table of tables entry
   frm_->clsr = api.clsr_pending; \
   frm_->pin = 0; \
   frm_->nvars = (fsize); \
-  frm_->vars = L; \
   api.frame = frm_; \
   do { \
     void **p_ = L+2; \
