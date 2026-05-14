@@ -235,7 +235,8 @@ shifts:   #[A<<2]   #[A<<B]   #[100>>2]
 logic:    #[1 && 1]   #[1 && 0]   #[0 || 1]   #[0 || 0]
 chained:  #[1 && 1 && 1]   #[0 && 1]
 bitwise:  #[3 & 5]   #[3 | 5]   #[3 ^ 5]
-hex-fmt:  #("0x%08X" 0xFEEDFACE)
+hex-X:    #("0x%08X" 0xFEEDFACE)
+hex-x:    #("0x%08x" 0xFEEDFACE)
 hex-dec:  #("%d" 0xFF)   #("%d" -0x10)
 '
 say ""

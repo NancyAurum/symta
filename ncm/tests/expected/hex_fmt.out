@@ -3,13 +3,15 @@
                                                                   
                                                         
  
-                                                              
-                                                                   
-                                                             
-                               
-hex_in_X  = 0xff
-hex_in_x  = 0xFF
+                                             
+                        
+                        
+                                                                  
+                                                   
+hex_in_X  = 0xFF
+hex_in_x  = 0xff
 dec_of_hex = 16
 neg_hex    = -16
-big_hex    = 0xfeedface
+big_hex_X  = 0xFEEDFACE
+big_hex_x  = 0xfeedface
 mix        = 16 + 32 = 48

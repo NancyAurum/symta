@@ -137,8 +137,8 @@ Supported directives:
 | Spec | Meaning |
 |------|---------|
 | `%d` | Decimal integer.  Arg may be a bare decimal, `+N`, `-N`, or `0xHEX`. |
-| `%x` | Hex integer, **upper-case** output. |
-| `%X` | Hex integer, **lower-case** output. |
+| `%x` | Hex integer, **lower-case** output (matches C's `printf`). |
+| `%X` | Hex integer, **upper-case** output (matches C's `printf`). |
 | `%s` | String (any text arg). |
 | `%%` | Literal `%`. |
 
@@ -156,13 +156,13 @@ Numeric args accept `0x` / `0X` prefix for hex input (added
 in NCM-3, May 2026 — before that, `#("%d" 0xFF)` parsed only
 the leading `0`).
 
-A note on the **case inversion** (`%x` → upper, `%X` →
-lower): this is intentionally inverted from C's `printf`
-convention.  The reasoning is buried in the original NCM
-prototype; current code matches the convention and existing
-golden files rely on it (see `examples/.expected/25-lexmacro.out`
-where `0x%02X%02X%02X` outputs lowercase `0xffa040`).  Don't
-"fix" it without an audit of every NCM-using header.
+Historical note (May 2026): the `%x` / `%X` case mapping used
+to be inverted (lowercase format spec → uppercase output, and
+vice versa).  Fixed once the audit confirmed no source-code
+caller depended on the inversion; `dev/ncm.md` (this file)
+and `symta/ncm/README.md` flagged it for a while as a "don't
+touch this" wart.  Now everything matches C convention,
+which is what users expect.
 
 ---
 

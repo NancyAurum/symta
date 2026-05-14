@@ -63,7 +63,7 @@ through it and compares the (normalised) output to
 | `factorial.c`, `genid.c`, `map.c`, `printf.c` | Historical inputs (the original `example/` demos) -- exercise recursion, function macros, variadic spread, ##-escape. |
 | `shifts.c`     | NCM-1 regression: `<<` and `>>` in `#[expr]`. |
 | `logic.c`      | NCM-2 regression: `&&` and `||` in `#[expr]`; bitwise on same operators. |
-| `hex_fmt.c`    | NCM-3 regression: `0x...` numeric inputs to `#("fmt" ...)`; also pins the (intentional) `%x ↔ %X` case inversion. |
+| `hex_fmt.c`    | NCM-3 regression: `0x...` numeric inputs to `#("fmt" ...)`.  Also pins `%x` → lowercase / `%X` → uppercase (matches C `printf`).  Pre-May 2026 the case mapping was inverted; fixed once an audit confirmed no caller depended on it. |
 | `conditionals.c` | `#if`/`#elif`/`#else`/`#endif` + `#undef`. |
 | `fn_macros.c`  | Function-style macros: positional, default args, variadic, recursive expansion. |
 | `escapes.c`    | `##` literal, in-string passthrough. |

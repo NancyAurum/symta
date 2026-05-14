@@ -85,7 +85,7 @@ debug now disabled
  
  
 
-color = 0xffa040;
+color = 0xFFA040;
 id    = ent_00042;
 left  = foo       ;
 
@@ -151,5 +151,6 @@ shifts:   20   40   25
 logic:      1     0     1     0
 chained:      1     0
 bitwise:    1     7     6
-hex-fmt:  0xfeedface
+hex-X:    0xFEEDFACE
+hex-x:    0xfeedface
 hex-dec:  255   -16

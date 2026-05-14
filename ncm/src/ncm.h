@@ -1408,9 +1408,18 @@ static char *cmd_fmt(ncm_state *this, char **as) {
       if (type == 'd') {
         sprintf(buf, "%d", v);
       } else if (type == 'x')  {
-        sprintf(buf, "%X", v);
-      } else {
+        /* %x: lowercase hex, matching C's printf convention.
+         * Pre-May 2026 this branch was inverted (%x -> uppercase,
+         * %X -> lowercase) -- a long-standing usability bug.
+         * No source-code callers depended on the inversion at
+         * the time of the audit; the only places that mentioned
+         * %x/%X were the test suite itself and the docs that
+         * flagged it as a known wart.  Fixed in line with the
+         * principle that the more polished NCM gets, the more
+         * code grows on top of it. */
         sprintf(buf, "%x", v);
+      } else {
+        sprintf(buf, "%X", v);
       }
       if (sign) {
         pref_count -= 1;
