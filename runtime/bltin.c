@@ -454,6 +454,18 @@ RETURNS(meta_get_(obj))
 BUILTIN1("meta_present_", meta_present_, C_ANY, obj)
 RETURNS(FXN(meta_has_(obj)))
 
+/* Same handlers wired up under different builtin names so we can
+ * METHOD_FN1-register them as `_.meta_` / `_.is_meta` directly on
+ * T_OBJECT.  Going through a Symta-side wrapper
+ * (`_.meta_ = | meta_lookup_ Me`) costs ~2x cold compile time on
+ * the game benchmark because the compiler / macroexpander read
+ * `.meta_` on every AST node and the wrapper frame setup
+ * dominates -- see init_builtin_methods below. */
+BUILTIN1("any.meta_",   any_meta_,   C_ANY, obj)
+RETURNS(meta_get_(obj))
+BUILTIN1("any.is_meta", any_is_meta, C_ANY, obj)
+RETURNS(FXN(meta_has_(obj)))
+
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2857,6 +2869,28 @@ void init_builtins(int argc, char **argv) {
   init_types();
   init_builtin_methods();
   init_subtypes();
+
+  /* `_.meta_` / `_.is_meta` -- weak-meta-table queries on any
+   * object.  Registered on T_OBJECT *after* init_subtypes so the
+   * add_method machinery propagates them to every subtype.  This
+   * is the hot path for the compiler / macroexpander; without
+   * direct C dispatch, the same query through a Symta-side
+   * wrapper (`_.meta_ = | meta_lookup_ Me`) doubled the game
+   * benchmark cold compile time.
+   *
+   * Bootstrap SBCs may carry their own Symta-side `_.meta_`
+   * definition; add_method allows redefinition for these two
+   * method ids specifically (see main.c:add_method_r) so the
+   * latest registration wins. */
+  {
+    setup_b_any_meta_();
+    setup_b_any_is_meta();
+    void *met;
+    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_meta_)->hook);
+    add_method(T_OBJECT, api.m_meta_under_, met);
+    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_is_meta)->hook);
+    add_method(T_OBJECT, api.m_is_meta, met);
+  }
 
   init_args(argc, argv);
   

@@ -328,6 +328,12 @@ struct api_t {
   int m_underscore;
   int m_hash;
   int m_equal;
+  /* RT-meta: pre-resolved method ids for _.meta_ / _.is_meta so
+   * add_method can let them be silently redefined (the C-side
+   * init registers them direct-dispatch; bootstrap SBCs may also
+   * try to wire Symta-side wrappers).  Set in init_root_sink. */
+  int m_meta_under_;
+  int m_is_meta;
   char* (*print_object_f)(void *object);   /* error/trace path */
   void *(*alloc)(uint32_t tag, uint32_t size);   /* one-time init */
   void (*gc)();          /* explicit-gc builtin (RT-2) */

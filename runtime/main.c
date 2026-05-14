@@ -233,11 +233,23 @@ method_node_t *add_method_r(int depth, int type_id
       if (!s->super) break;
     }
     if (depth) return 0; //subtype already has this method
+    /* Allow redefinition silently for the _.meta_ / _.is_meta
+     * methods specifically: the C-side init registers them
+     * directly (so dispatch is one MCALL instead of a Symta
+     * wrapper frame), and the bootstrap-loaded core_.sbc may
+     * also define them via SBC_DMET.  The latest registration
+     * wins.  For any OTHER method, redefinition is still an
+     * error -- it usually indicates a real bug. */
+    if (method_id == api.m_meta_under_ ||
+        method_id == api.m_is_meta) {
+      goto replace;
+    }
     rterr("add_method: redefining %s.%s"
          ,t->name, print_object(method_names[method_id]));
   inherited:;
   }
 
+replace:
   init_method(ms+hid, type_id, method_id, handler);
 
   for (int si = t->subtypes; si != END_TAG; si = s->next) {
@@ -612,6 +624,8 @@ void init_types() {
   api.m_underscore = resolve_method("__");
   api.m_hash = resolve_method("hash");
   api.m_equal = resolve_method("><");
+  api.m_meta_under_ = resolve_method("meta_");
+  api.m_is_meta = resolve_method("is_meta");
 
   intern("int");
   intern("float");

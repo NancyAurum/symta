@@ -874,8 +874,11 @@ meta_wrapper.__ Method Args =
 meta_wrapper.is_meta = 1
 meta_wrapper.meta_ = | $imm_meta_
 
-_.meta_ = | meta_lookup_ Me
-_.is_meta = | meta_present_ Me
+// `_.meta_` and `_.is_meta` are registered as direct C builtins
+// on T_OBJECT in runtime/bltin.c -- the Symta-side wrapper
+// (`| meta_lookup_ Me`) doubles cold compile time on the game
+// benchmark because compiler+macroexpander read .meta_ on every
+// AST node and the extra frame setup dominates.
 
 meta A B =
 | if imm_ A then meta_wrapper A B else (meta_attach_ A B; A)
