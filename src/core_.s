@@ -1704,7 +1704,7 @@ lexical_macro_expand SrcFile Text LexP =
 text.parse Src!'<none>' LexP!No =
 | Text Me
 | when got LexP: Text = lexical_macro_expand Src Text LexP
-| R parse_strip: parse_tokens: add_bars_c_: Text.tokenize(Src)
+| R parse_strip_c_: parse_tokens_c_: add_bars_c_: Text.tokenize(Src)
 | if R.end then [[]] else R.0.tail
 
 // `text.sexp`: a simpler entry point than `text.parse` that
@@ -1717,6 +1717,6 @@ text.parse Src!'<none>' LexP!No =
 text.sexp Src!'<none>' LexP!No List!0 =
 | Text Me
 | when got LexP: Text = lexical_macro_expand Src Text LexP
-| R parse_strip: parse_tokens: Text.tokenize(Src)
+| R parse_strip_c_: parse_tokens_c_: Text.tokenize(Src)
 | if List: ret R
 | if R.end: No else R.0

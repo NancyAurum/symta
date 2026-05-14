@@ -313,18 +313,21 @@ void gc_hg(hg_t *src, hg_t *dst) {
    * forward survivors.  Must run AFTER all the regular GC passes
    * (so we have an accurate alive/dead distinction) and BEFORE the
    * src-heap wipe below.  Inlined here because the GC_REC machinery
-   * isn't exported from this TU. */
+   * isn't exported from this TU.
+   *
+   * Backing store is `ih_t` (identity-hashed, not `dh_t` content-
+   * hashed -- see meta_table.c for why). */
   if (meta_table_g) {
-    dh_t *old = (dh_t *)meta_table_g;
-    dh_t *fresh = dhAlloc();
-    NH_FOR(dh, i, old) {
-      dyn key = *dhKey(old, i);
-      dyn val = *dhVal(old, i);
+    ih_t *old = (ih_t *)meta_table_g;
+    ih_t *fresh = ihAlloc();
+    NH_FOR(ih, i, old) {
+      dyn key = *ihKey(old, i);
+      dyn val = *ihVal(old, i);
       if (IMMEDIATE(key)) {
         /* Shouldn't happen -- meta_set_ rejects immediates -- but
          * keep the entry alive if something else got it in. */
         if (!IMMEDIATE(val)) GC_REC(val, val);
-        dhSet(&fresh, key, val);
+        ihSet(&fresh, key, val);
         continue;
       }
       uint32_t age = O_AGE(key);
@@ -332,14 +335,14 @@ void gc_hg(hg_t *src, hg_t *dst) {
         /* Alive.  Forward both key and value to the new gen. */
         dyn new_key = (dyn)O_RELOC(key);
         if (!IMMEDIATE(val)) GC_REC(val, val);
-        dhSet(&fresh, new_key, val);
+        ihSet(&fresh, new_key, val);
       } else if (age == src->age) {
         /* Dead -- drop entry. */
       } else {
         /* Older generation -- this collection didn't touch the key.
          * Value might still need forwarding though. */
         if (!IMMEDIATE(val)) GC_REC(val, val);
-        dhSet(&fresh, key, val);
+        ihSet(&fresh, key, val);
       }
     }
     free(old);
