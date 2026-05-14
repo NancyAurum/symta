@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "am.h"
+#include "meta_table.h"
 
 static int gc_cycle = 0;
 
@@ -306,6 +307,43 @@ void gc_hg(hg_t *src, hg_t *dst) {
 
   if (src->finalizers) {
     gc_finalizers(src, dst);
+  }
+
+  /* Weak meta table: drop entries whose key wasn't reached and
+   * forward survivors.  Must run AFTER all the regular GC passes
+   * (so we have an accurate alive/dead distinction) and BEFORE the
+   * src-heap wipe below.  Inlined here because the GC_REC machinery
+   * isn't exported from this TU. */
+  if (meta_table_g) {
+    dh_t *old = (dh_t *)meta_table_g;
+    dh_t *fresh = dhAlloc();
+    NH_FOR(dh, i, old) {
+      dyn key = *dhKey(old, i);
+      dyn val = *dhVal(old, i);
+      if (IMMEDIATE(key)) {
+        /* Shouldn't happen -- meta_set_ rejects immediates -- but
+         * keep the entry alive if something else got it in. */
+        if (!IMMEDIATE(val)) GC_REC(val, val);
+        dhSet(&fresh, key, val);
+        continue;
+      }
+      uint32_t age = O_AGE(key);
+      if (age == GC_MOVED) {
+        /* Alive.  Forward both key and value to the new gen. */
+        dyn new_key = (dyn)O_RELOC(key);
+        if (!IMMEDIATE(val)) GC_REC(val, val);
+        dhSet(&fresh, new_key, val);
+      } else if (age == src->age) {
+        /* Dead -- drop entry. */
+      } else {
+        /* Older generation -- this collection didn't touch the key.
+         * Value might still need forwarding though. */
+        if (!IMMEDIATE(val)) GC_REC(val, val);
+        dhSet(&fresh, key, val);
+      }
+    }
+    free(old);
+    meta_table_g = fresh;
   }
 
   api.hgp = shgp;
