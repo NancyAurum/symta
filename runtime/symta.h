@@ -232,53 +232,71 @@ struct frame_t {
 
 typedef struct api_t api_t;
 struct api_t {
-  void *args; //argument list
-  frame_t *frame; // currently executing frame
+  /* ---- HOT cache line (RT-8a, May 2026).
+   *
+   * These eight fields are touched on the inner runtime loops:
+   *   - args   : every CALL with arguments (PROLOGUE, ARGLIST)
+   *   - frame  : every CALL/RET (OPEN_FRAME / CLOSE_FRAME /
+   *              PROLOGUE writes nvars+vars; root scan reads)
+   *   - hgp    : every allocation (gc_alloc's current generation)
+   *   - heap0  : every O_GID / HEAP_INDEX -- pointer-to-index math
+   *              for the world's address space
+   *   - theap0 : every O_AGE lookup (read on each closure call,
+   *              GC trace, write barrier)
+   *   - pgmod  : every old<-young store (write-barrier's
+   *              page-dirty bit; co-located with theap0 since the
+   *              barrier touches both)
+   *   - method : every MCALL (current method-id, written by the
+   *              MCALL macro and read by THIS_METHOD)
+   *   - puwh   : every btland (top unwind handler -- not as hot
+   *              as the above six but still warm and useful to
+   *              keep in line 0 since slots are otherwise free)
+   *
+   * Order chosen so the layout is stable under MSVC, gcc, clang
+   * (only 8-byte pointers / 8-byte dyn, plus one 4-byte int with
+   * a 4-byte sibling so there's no padding hole). */
+  void *args;
+  frame_t *frame;
+  hg_t *hgp;
+  void **heap0;
+  theap_t *theap0;
+  uint8_t *pgmod;
+  int method;
+  int gc_disable;        /* hot enough -- GC_DISABLE / GC_ENABLE
+                            fire on every internal GC_DISABLE()
+                            section; not pure-fast-path but close */
+  void **puwh;
 
-  int method; // current method, we are executing
-
-  int gc_disable;
-
+  /* ---- WARM second line: btrap/btland state, runtime constants
+   * that show up on common but non-innermost paths. */
   dyn jmp_return;
+  dyn error_handler;
+  void *empty_;          /* the canonical No value; appears in
+                            comparisons but typically inlined to
+                            constants by the compiler */
+  hg_t *hg0;             /* base of generation array; O_HG = hg0
+                            + age */
+  int ngens;
+  /* (4-byte hole here on LP64) */
+  void **heap1;
+  theap_t *theap1;
+  void **uwhs;
 
-  dyn error_handler; //default landing point for errors
-
-  // constants
-  void *empty_;
+  /* ---- COLD: setup constants, infrequent function pointers,
+   * FFI scratch space. */
   int m_ampersand;
   int m_underscore;
   int m_hash;
   int m_equal;
-
-  // runtime's C API
-  char* (*print_object_f)(void *object);
-  void *(*alloc)(uint32_t tag, uint32_t size);
-  void (*gc)();
+  char* (*print_object_f)(void *object);   /* error/trace path */
+  void *(*alloc)(uint32_t tag, uint32_t size);   /* one-time init */
+  void (*gc)();          /* explicit-gc builtin (RT-2) */
   void (*lset)(void *base, uint64_t ofs, void *value);
   void *(*alloc_text)(char *s);
   char *(*text_chars)(void *text);
-
-  void **sb; //stack bottom
-
-  void **puwh; // pointer to the top unwind handler
-  void **uwhs; //unwind handlers
-
-  char *sbuf; //string buffer
-
-  hg_t *hgp; //current heap generation
-  hg_t *hg0; //pointer to heap generations
-  int ngens; //number of generations used
-
-  void **heap0;
-  void **heap1;
-
-  //these tag arrays keep track of heap address that are object starts
-  theap_t *theap0;
-  theap_t *theap1;
-
-  void *vlist; //view list, used during gc()
-
-  uint8_t *pgmod; //stores youngest generation id for each page
+  void **sb;             /* stack bottom -- set at startup */
+  char *sbuf;            /* string buffer -- error printer */
+  void *vlist;           /* gc() scratch */
   uint64_t nfi_args[NFI_MAX_ARGS];
   uint64_t *nfi_parg;
   void *nfi_aptrs[NFI_MAX_ARGS];
