@@ -1,4 +1,4 @@
-use compiler reader macro
+use compiler macro
 export build eval eval_file
 
 GRootFolder No   //compiler root folder

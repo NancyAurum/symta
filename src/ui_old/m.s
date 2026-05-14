@@ -1,4 +1,4 @@
-use reader gfx
+use gfx
 export uim gui tabs hidden layV layH dlg spacer input_split
        sound_load sound_free sound_play sound_playing
 

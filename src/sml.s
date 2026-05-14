@@ -1,7 +1,5 @@
 //Symta Markup Language
 
-use reader
-
 sml_parse_tag Tag = Tag.parse.0{['!' X] = X}
 
 SMLSpec: '#'  ' '  '\n'  '<'  '>'

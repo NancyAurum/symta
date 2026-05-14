@@ -47,11 +47,15 @@ SYMTA="$ROOT/symta.exe"
 SBC_DIR="$ROOT/sbc"
 PKG_DIR="pkg/symta"
 
-# Modules that get rebuilt during a bootstrap. We exclude go.sbc
-# because the bootstrap of pkg/symta intentionally fails on go.s
-# (pre-existing `~` issue documented in issues.md) but writes
-# the other three sbc files cleanly.
-WATCHED="reader.sbc eval.sbc compiler.sbc"
+# Modules that get rebuilt during a bootstrap.  go.sbc is also
+# rebuilt now (the pre-existing `~` issue in pkg/symta/src/go.s
+# was fixed in commit 8f7bd3f) but we exclude it from the
+# watched list because its bytecode is sensitive to drift in
+# `pkg/symta/src/go.s` itself rather than in the compiler --
+# tracking it would conflate the two and produce false
+# positives.  reader.sbc retired in commit XXXXXXX -- the
+# reader's Symta side was folded into core_.s.
+WATCHED="eval.sbc compiler.sbc"
 
 ROUNDS=${1:-5}
 

@@ -5,7 +5,6 @@
 // printed AST. Report first divergence with context.
 //
 // Run:  symta -f tests-runtime/parser-compare.s
-use reader
 
 dump X =
   // Round-trip through "[X]" to get a canonical string form.
