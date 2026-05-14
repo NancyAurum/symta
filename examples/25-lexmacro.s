@@ -207,3 +207,37 @@ say '--- file include (uses src/rgb.h) ---'
 // the third arg to ncm_process_ is the include search path
 SearchPaths ['src/']
 say (ncm_process_ '<demo>' Src10 SearchPaths)
+
+
+// ----------------------------------------------------------------
+// 11. NCM regression probes -- the three operators below all had
+//     latent off-by-one parser bugs that produced silently-wrong
+//     values.  Pinned here so a future ncm.h refactor can't
+//     re-break them.
+// ----------------------------------------------------------------
+//
+// NCM-1: `<<` and `>>` shifts.  Used to drop the second `<` /
+//        `>`, parse the operand from the dropped char, fail, and
+//        return 0 -- producing `A<<2` = A unchanged or 0
+//        depending on follow-on parser state.
+//
+// NCM-2: `&&` and `||` logic.  Used to be eaten as bitwise `&`/`|`
+//        by `eval_bitwise`, so `#[1 && 1]` returned 0.
+//
+// NCM-3: `cmd_fmt` numeric args.  `#("%d" 0xFF)` used to read
+//        only the leading `0` because the decimal parser stopped
+//        at `x`.  Now `0x` / `0X` triggers base-16 parsing.
+Src11 '
+#A 5
+#B 3
+
+shifts:   #[A<<2]   #[A<<B]   #[100>>2]
+logic:    #[1 && 1]   #[1 && 0]   #[0 || 1]   #[0 || 0]
+chained:  #[1 && 1 && 1]   #[0 && 1]
+bitwise:  #[3 & 5]   #[3 | 5]   #[3 ^ 5]
+hex-fmt:  #("0x%08X" 0xFEEDFACE)
+hex-dec:  #("%d" 0xFF)   #("%d" -0x10)
+'
+say ""
+say '--- NCM-1/2/3 regression probes ---'
+say (ncm_process_ '<demo>' Src11 [])

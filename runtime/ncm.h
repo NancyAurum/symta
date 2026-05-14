@@ -1386,8 +1386,24 @@ static char *cmd_fmt(ncm_state *this, char **as) {
         q++;
       }
       U32 v = 0;
-      for (; isdigit(*q); q++) {
-        v = v*10 + (*q-'0');
+      /* NCM-3: accept `0x...` hex inputs in addition to decimal.
+       * Before this, `#("0x%02X" 0xFF)` parsed `0xFF` as `0` because
+       * the decimal loop stopped at `x`.  Now `0x` / `0X` triggers
+       * base-16 parsing; bare decimals still work. */
+      if (q[0] == '0' && (q[1] == 'x' || q[1] == 'X')) {
+        q += 2;
+        for (;; q++) {
+          int d;
+          if      (*q >= '0' && *q <= '9') d = *q - '0';
+          else if (*q >= 'a' && *q <= 'f') d = *q - 'a' + 10;
+          else if (*q >= 'A' && *q <= 'F') d = *q - 'A' + 10;
+          else break;
+          v = v*16 + d;
+        }
+      } else {
+        for (; isdigit(*q); q++) {
+          v = v*10 + (*q-'0');
+        }
       }
       if (type == 'd') {
         sprintf(buf, "%d", v);
@@ -1634,6 +1650,11 @@ again:
       unpop_char();
       return l;
     }
+    /* NCM-1: consume the second '<' / '>' before recursing.  Without
+     * this the right operand parse starts on the second '<', fails
+     * to find a term, returns 0, and the whole shift produces a
+     * silently-wrong value. */
+    pop_char();
     S32 r = eval_add(this);
     if (ch == '<') l = (U32)l << (U32)r;
     else l = (U32)l >> (U32)r;
@@ -1682,6 +1703,15 @@ again:
   int ch = next_char();
   if (ch == '&' || ch == '|' || ch == '^') {
     pop_char();
+    /* NCM-2: `&&` and `||` are higher-level (eval_logic).  If we see
+     * a doubled `&` or `|`, push back the first one and return so
+     * eval_logic gets a clean shot at it.  Without this, eval_bitwise
+     * greedily eats the first `&`, the recursive eval_cmp can't
+     * parse the second `&`, and `#[1 && 1]` silently returns 0. */
+    if ((ch == '&' || ch == '|') && next_char() == ch) {
+      unpop_char();
+      return l;
+    }
     S32 r = eval_cmp(this);
     if (ch == '&') l = (U32)l & (U32)r;
     else if (ch == '|') l = (U32)l | (U32)r;

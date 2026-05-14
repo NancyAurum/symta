@@ -366,57 +366,7 @@ what's left.
 
 ## Lexical macro processor (`runtime/ncm.h`)
 
-### \[P1\] **NCM-1** `<<` and `>>` shifts broken in `#[expr]`
-
-> **Where:** [`runtime/ncm.h:1618`](runtime/ncm.h)
-> (`eval_shift`)
-> **Problem:** `#[A<<2]` returns 0, not `A*4`. `eval_shift`
-> pops the first `<`, checks the next char matches, then
-> recurses into `eval_add` *without popping the second `<`*.
-> The right operand parse starts on the second `<`, fails to
-> find a term, returns 0. Same bug affects `>>`.
-> **Fix:** add `pop_char()` after the `if (next_char() != ch)`
-> early return. One line.
-> **Verified:** `examples/25-lexmacro.s` probe phase.
-> `effort: 30 min`
-
-### \[P1\] **NCM-2** `&&` and `||` swallowed by `eval_bitwise`
-
-> **Where:** [`runtime/ncm.h:1670`](runtime/ncm.h)
-> (`eval_bitwise`),
-> [`runtime/ncm.h:1686`](runtime/ncm.h) (`eval_logic`)
-> **Problem:** `#[1 && 1]` returns 0. `eval_bitwise` greedily
-> eats the first `&` as bitwise-AND and recurses into
-> `eval_cmp` on the second `&`, which can't parse it. So
-> `eval_logic` (the layer that handles `&&` / `||`) never
-> sees them.
-> **Fix:** in `eval_bitwise`, peek at the second char before
-> consuming `&` or `|` — if it matches, leave the operator for
-> `eval_logic` and return. Mirrors how `eval_cmp` already
-> handles `<<` / `>>`.
-> **Workaround for users:** chain `#if A` / `#elif B` instead.
-> `effort: 30 min`
-
-### \[P2\] **NCM-3** `cmd_fmt` only parses decimal numeric args
-
-> **Where:** [`runtime/ncm.h:1372`](runtime/ncm.h) (`cmd_fmt`)
-> **Problem:** the printf-style formatter `#("0x%02X" 0xFF)`
-> parses `0xFF` as `0` because `cmd_fmt`'s number reader stops
-> at `x`. Users have to pass numeric args as decimal text or
-> wrap in `#[...]`.
-> **Fix:** detect a leading `0x` and switch to base 16
-> parsing. Five-line change.
-> `effort: 30 min`
-
-### \[P3\] **NCM-4** Document NCM directives
-
-> **Where:** missing
-> **Problem:** the lexical macro processor has ~11 directives
-> and a non-trivial arg syntax. The example file shows them
-> but a reference table belongs in `dev/ncm.md`.
-> **Fix:** new `dev/ncm.md` with one-line summary per
-> directive plus links into `runtime/ncm.h`.
-> `effort: afternoon`
+(All four open NCM items closed; see Done section.)
 
 ---
 
@@ -864,6 +814,31 @@ point at the same fix.
   `amL`/`amKs` eagerly snapshot. Pinned the contract with a new
   test in `tc_iteration` that captures `T.l`, mutates the table,
   and verifies the snapshot's pairs stay stable.
+
+### NCM — Lexical macro processor (May 2026)
+
+- ~~**NCM-1** `<<` and `>>` shifts broken in `#[expr]`.~~
+  `eval_shift` was popping the first `<`/`>`, checking the
+  second matched, then recursing without popping it -- so the
+  operand parse started on the second `<` and silently
+  returned 0.  Added the missing `pop_char()`.
+- ~~**NCM-2** `&&` and `||` swallowed by `eval_bitwise`.~~
+  `eval_bitwise` greedily ate the first `&`/`|`; `eval_logic`
+  (which handles `&&`/`||`) never saw the operator.  Now
+  `eval_bitwise` peeks the second char and pushes back the
+  first if it sees a doubled operator -- mirrors how
+  `eval_cmp` already handled `<<`/`>>` vs `<`/`>`.
+- ~~**NCM-3** `cmd_fmt` only parsed decimal numeric args.~~
+  `#("%d" 0xFF)` returned 0 because the decimal loop stopped
+  at `x`.  Added a `0x` / `0X` branch that switches to
+  base-16 parsing.  Decimal path unchanged.
+- ~~**NCM-4** Document NCM directives.~~ New
+  [`dev/ncm.md`](dev/ncm.md): directive reference, expression-
+  language precedence table, format-spec table, line-by-line
+  map into `runtime/ncm.h`.
+
+All three bug fixes pinned by a new section 11 in
+`examples/25-lexmacro.s` (NCM-1/2/3 regression probes).
 
 ### Infrastructure (earlier)
 
