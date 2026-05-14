@@ -662,6 +662,14 @@ norm_infix_arg A =
 
 `^` A B =
   if:
+    //`X^~` is sugar for `X.~`: `~` is only ever a method
+    //(`text.~` / `list.~`), never a top-level fn, so the plain
+    //`[B A]` keyword-method path would resolve `~` as a free
+    //variable and fail.  Other keyword method-names (`head`,
+    //`tail`, ...) keep the function-call path because they may
+    //be top-level fns.  Mirror site in the `()` macro at the
+    //bottom of this file handles the `^~(args)` form.
+    B.is_text and B >< '~' = ['()' ['.' A B]]
     B.is_keyword = [B A]
     A.is_keyword =
       case B
@@ -1193,7 +1201,14 @@ expand_sugar_lambda H DVal A As =
     | if A.is_keyword: A =: '\\' A
     | [_mcall A B @As]
   [`$` B] | [_mcall \Me B @As]
-  [`^` A B] | [B @As A]
+  [`^` A B]
+    //`^~(args)` is sugar for `.~(args)`: `~` isn't a top-level
+    //fn (only `text.~` / `list.~` methods exist), so the plain
+    //`[B @As A]` keyword-method path would resolve `~` as a
+    //free variable and fail.  Route through _mcall so it
+    //dispatches as a method on A.
+    | if B.is_text and B >< '~': ret [_mcall A B @As]
+    | [B @As A]
   Else | if H.is_keyword then [H @As] else [_mcall H '()' @As]
 | QL qlmb_getcvars
 | R = qlmb_supply_cvars QL R

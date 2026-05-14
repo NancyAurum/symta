@@ -89,21 +89,21 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"mt[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;}
   case SBC_MCALLIR: {
     as[0] = afmt(0,"mcall");
     arrput(as, afmt(0,"dummy"));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"mt[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;}
   case SBC_MCALL8: {
     as[0] = afmt(0,"mcall");
     arrput(as, afmt(0,"L[%d]",RD8));
     arrput(as, afmt(0,"L[%d]",RD8));
     arrput(as, afmt(0,"mt[%d]",RD8));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;}
   case SBC_CLOSURE: {
     uint32_t dst = RD16;
@@ -369,14 +369,14 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;
   case SBC_FXNLSET:
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;
   case SBC_FXNLSETIR:
     as[0] = afmt(0,"fxnlset");
@@ -384,7 +384,7 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;
   case SBC_FXNSIZE:
     arrput(as, afmt(0,"L[%d]",RD16));
@@ -399,7 +399,7 @@ void sbc_dasm_sub(dasm_t *dasm) {
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
     arrput(as, afmt(0,"L[%d]",RD16));
-    pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+    pin += 2; /* RT-7: 2-byte mcache id */
     break;
   case SBC_FXNADD:
   case SBC_FXNSUB:
@@ -638,21 +638,21 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"mt[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;}
     case SBC_MCALLIR: {
       as[0] = afmt(0,"mcall");
       arrput(as, afmt(0,"dummy"));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"mt[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;}
     case SBC_MCALL8: {
       as[0] = afmt(0,"mcall");
       arrput(as, afmt(0,"L[%d]",RD8));
       arrput(as, afmt(0,"L[%d]",RD8));
       arrput(as, afmt(0,"mt[%d]",RD8));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;}
     case SBC_CLOSURE: {
       uint32_t dst = RD16;
@@ -906,14 +906,14 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;
     case SBC_FXNLSET:
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;
     case SBC_FXNLSETIR:
       as[0] = afmt(0,"fxnlset");
@@ -921,7 +921,7 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;
     case SBC_FXNSIZE:
       arrput(as, afmt(0,"L[%d]",RD16));
@@ -936,7 +936,7 @@ sif_t *sbc2sif(char *filename) {
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
       arrput(as, afmt(0,"L[%d]",RD16));
-      pin += sbc->cache_slot_size; /* RT-7 stage 2: per-SBC slot width */
+      pin += 2; /* RT-7: 2-byte mcache id */
       break;
     case SBC_FXNADD:
     case SBC_FXNSUB:

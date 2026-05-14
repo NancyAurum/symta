@@ -48,35 +48,29 @@ sbc_t *sbc_new(uint8_t *pin, int64_t size, char *path) {
     sbc->lineno_sz = 0;
     sbc->lineno_table = 0;
   }
-  /* RT-7: mcache slot count is the 10th tot entry.  Older SBCs
-   * (without RT-7 emission) leave mcache_cnt == 0; their cache
-   * sites still padded with 8 SBC_NOP bytes, which the runtime
-   * reads as `id = 0` plus 6 bytes of filler -- works because
-   * (a) `cache_slot_size` (set below from tot_sz) keeps
-   * MCACHE_SKIP / MCACHE_CALL aligned with the on-disk slot
-   * width, (b) we allocate at least one mcache slot in
-   * `sbc_prepare` even when mcache_cnt is zero, and (c) the
-   * cache hit check also compares `node->mid == m` so
-   * collisions in the single fallback slot don't dispatch the
-   * wrong method.  Old SBCs run slower (every cache site
-   * collides on slot 0, megamorphic dispatch every time) but
-   * execute correctly until the bootstrap regenerates them. */
-  /* RT-7 stage 2: the mcache tot entry's "offset" field doubles
-   * as a format flag.
-   *   0 = legacy 8-byte cache slot (pre-RT-7 8 SBC_NOPs, or
-   *       RT-7 stage 1's 2-byte id + 6 SBC_NOP filler)
-   *   1 = compact 2-byte cache slot (just the uint16_t id)
-   * Pre-RT-7 SBCs (tot_sz < 10) carry no mcache entry and
-   * default to the legacy slot width. */
-  uint32_t mcache_fmt = 0;
+  /* RT-7: D-side mcache count.  The 10th tot entry's "offset"
+   * field is a format flag that must be 1 for the compact
+   * 2-byte cache slot format.  The runtime no longer supports
+   * the legacy 8-byte slot formats (pre-RT-7 8 SBC_NOPs, or
+   * RT-7 stage 1's 2-byte id + 6 SBC_NOP filler); any SBC
+   * without `tot_sz >= 10 && mcache_fmt == 1` is rejected. */
   if (tot_sz >= 10) {
     sbc->mcache_cnt = (uint32_t)RD24;
-    mcache_fmt = (uint32_t)RD24;
+    uint32_t mcache_fmt = (uint32_t)RD24;
+    if (mcache_fmt != 1) {
+      fprintf(stderr, "sbc_load: %s has legacy cache slot "
+              "format (fmt=%u) -- recompile.\n", path, mcache_fmt);
+      free(sbc);
+      return 0;
+    }
   } else {
-    sbc->mcache_cnt = 0;
+    fprintf(stderr, "sbc_load: %s has tot_sz=%u, requires >= 10 "
+            "for RT-7 stage-2 cache format -- recompile.\n",
+            path, tot_sz);
+    free(sbc);
+    return 0;
   }
   sbc->mcaches = 0; /* allocated lazily in sbc_prepare */
-  sbc->cache_slot_size = (mcache_fmt == 1) ? 2u : 8u;
 
   sbc->filename = strdup(path);
   sbc->mt = 0;
@@ -397,24 +391,9 @@ int64_t mcache_hits = 0;
  * of `mcache_t` after each cache-bearing opcode's args), and
  * `mce->node = node` was a write into the bytecode stream
  * itself.  Now the cache lives in a separate D-side
- * `sbc->mcaches[]` array, indexed by a `uint16_t` id stored in
- * the first 2 bytes of the cache slot.
- *
- * Slot width is per-SBC (`sbc->cache_slot_size`, set at load
- * time from `tot_sz`):
- *   - tot_sz >= 11: compact 2-byte slot (just the id).  This is
- *     the canonical post-migration format.
- *   - tot_sz <= 10: 8-byte slot for backward compat -- pre-RT-7
- *     SBCs carry 8 SBC_NOPs (which read as id=0, all sites
- *     collide on `mcaches[0]`); the RT-7 staging format
- *     carries `2-byte id + 6 SBC_NOPs`.  Both load fine; the
- *     hit check now also compares `node->mid == m` so the
- *     id=0 collision case still dispatches the right method.
- *
- * Once the in-tree bootstrap and the compiler-test goldens are
- * all at tot_sz 11, this can simplify to a hard-coded
- * `pin += 2`. */
-#define MCACHE_SKIP pin += sbc->cache_slot_size
+ * `sbc->mcaches[]` array, indexed by a single `uint16_t` id
+ * stored at each cache site -- 2 bytes total. */
+#define MCACHE_SKIP pin += 2
 
 #ifdef SBC_MCACHE
 
@@ -438,7 +417,6 @@ int64_t mcache_hits = 0;
     api.method = m;                         \
     dyn oo = o;                             \
     uint32_t _mid_idx = (uint32_t)RD16;     \
-    pin += sbc->cache_slot_size - 2; /* compact: 0; legacy: 6 */ \
     mcache_t *mce = &sbc->mcaches[_mid_idx];\
     uint32_t tid = O_TAG(o);                \
     method_node_t *node = mce->node;        \

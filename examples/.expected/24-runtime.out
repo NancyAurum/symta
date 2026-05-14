@@ -25,9 +25,9 @@ done
 
 rtstat output:
 -------------
-heap used: 92290+51356
+heap used: XXX+XXX
 heap size: 67108864
 types: 32
-methods: 1962
+methods: 1968
 gid_get_ calls: 0
 gid_set_ calls: 0

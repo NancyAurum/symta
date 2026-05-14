@@ -275,16 +275,6 @@ typedef struct sbc_t {
    * Allocated by `sbc_prepare` once `mcache_cnt` is known. */
   mcache_t *mcaches;
   uint32_t mcache_cnt;
-  /* RT-7 stage 2: per-SBC cache slot width.  Set at load
-   * time from `tot_sz`: 2 bytes for the compact format
-   * (tot_sz >= 11, just the uint16_t mcache id), 8 bytes for
-   * the wider legacy formats (tot_sz <= 10: pre-RT-7 padded
-   * with 8 SBC_NOPs, or the RT-7 staging format with a 2-byte
-   * id followed by 6 SBC_NOP filler bytes).  MCACHE_SKIP /
-   * MCACHE_CALL load this once per call and advance `pin`
-   * accordingly.  Once the bootstrap and all golden SBCs are
-   * tot_sz 11, the 8-byte branch can be dropped. */
-  uint32_t cache_slot_size;
   tot_entry_t rtot[7]; //relocated tot
   dyn *tx;
   dyn *ty;
