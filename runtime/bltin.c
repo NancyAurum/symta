@@ -245,7 +245,12 @@ void rterr_(char *msg) {
     print_stack_trace();
     exit(-1);
   }
-  print_stack_trace();
+  /* CORE-3: the trace used to print here unconditionally even when
+   * the caller wrapped in `btrap`, leaving a clean recovery looking
+   * alarming on stderr.  The handler does a longjmp to its catch
+   * point and never returns to this function, so we only print
+   * the trace if we fall through past the CALL (handler exhausted
+   * or otherwise didn't catch). */
   dyn type = FXN(0); //runtime error
   dyn smsg;
   GC_DISABLE();

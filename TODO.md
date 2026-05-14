@@ -392,19 +392,6 @@ catches things without dragging in the rest of Symta.
 > code.
 > `effort: weekend`
 
-### \[P1\] **CORE-3** Caught `bad` still emits stack trace
-
-> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `bad`
-> **Problem:** `bad Msg` always prints the stack trace to
-> stderr, even when caller wraps in `btrap` and recovers. A
-> "successful" run that touched any error path looks alarming.
-> Verified in `examples/23-control.s` and
-> `examples/24-runtime.s`.
-> **Fix:** print the trace only on the *first* uncaught
-> `bad` — when there's no btrap on the stack. The btrap layer
-> already knows it's catching.
-> `effort: 30 min`
-
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c),
