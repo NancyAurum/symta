@@ -33,7 +33,7 @@ interpreter Root =
 | Done 0
 | till Done:
   | say_ '> '
-  | Expr btrap: => get_line.parse.0
+  | Expr btrap: => get_line().parse.0
   | if Expr.is_bterror: say Expr.text
     else case Expr
     [exit+quit] | Done = 1
@@ -67,7 +67,7 @@ interpreter Root =
       | if Val.is_bterror: say Val.text
         else Env.Name = Val
     Expr
-      | Val eval Expr Env!Env RootFolder!Root
+      | Val eval ['|' Expr] Env!Env RootFolder!Root
       | if Val.is_text: Val = [Val].as_text.tail.lead
       | if got Val: say Val(1.is_bterror=Val.text)
 
@@ -92,7 +92,7 @@ less "[Root]sbc/compiler.sbc".exists: bad "Missing [Root]sbc/compiler.sbc"
 //less "[Root]runtime/symta.h".exists: bad "Missing [Root]runtime/symta.h"
 
 case Args [@_ '-e'+'--eval' Expr @_]
-| Val eval Expr.parse.0 RootFolder!Root
+| Val eval ['|' Expr.parse.0] RootFolder!Root
 | if Val.is_bterror: say Val.text else say Val
 | halt
 
