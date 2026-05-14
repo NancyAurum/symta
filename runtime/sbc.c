@@ -37,6 +37,17 @@ sbc_t *sbc_new(uint8_t *pin, int64_t size, char *path) {
   pin = sbc->tot + 3*2*7;
   sbc->nrs_sz = RD24;
   sbc->nrs = sbc->tbls + RD24;
+  /* CORE-1: per-SBC lineno table (count, offset) right after nrs
+   * in tot.  Only present when tot_sz >= 9 (SBC compiled with
+   * side-table support); older SBCs leave both fields zero. */
+  if (tot_sz >= 9) {
+    sbc->lineno_sz = RD24;
+    uint32_t lineno_ofs = RD24;
+    sbc->lineno_table = sbc->lineno_sz ? (sbc->tbls + lineno_ofs) : 0;
+  } else {
+    sbc->lineno_sz = 0;
+    sbc->lineno_table = 0;
+  }
 
   sbc->filename = strdup(path);
   sbc->mt = 0;
@@ -221,8 +232,10 @@ void sbc_init_tables(sbc_t *sbc) {
 }
 
 #define SBCS_MAX 1024
-static int sbcs_loaded = 0;
-static sbc_t *sbcs[SBCS_MAX];
+/* Exposed to bltin.c so print_stack_trace can locate the SBC that
+ * owns a frame's saved pin (for CORE-1 lineno lookup). */
+int sbcs_loaded = 0;
+sbc_t *sbcs[SBCS_MAX];
 
 /* SBC_NFI_* opcode → sffi_type. Returns -1 on unrecognised. */
 static int sbc2sffi(int id) {
@@ -608,17 +621,27 @@ dyn sbc_exec_fn(uint8_t *pin) {
     CHKREG(cnd);
     if (!O_TAG(L[cnd])) pin += diff;
     BREAK;}
+  /* CORE-1: every Symta-level CALL site saves `pin` into the
+   * caller's frame so a later stack trace can binary-search the
+   * caller's lineno table for the (row, col) of the call.  Pin
+   * here is just past the encoded args (the call instruction is
+   * the last instruction before pin), which is the position the
+   * interpreter will resume at when the callee returns.  Lineno
+   * lookup tolerates this by taking "the most recent entry at or
+   * before pin". */
   OP(SBC_CALL) {
     int dst = RD16;
     int fn = RD16;
     CHKREG(dst);
     CHKREG(fn);
+    api.frame->pin = pin;
     CALL(L[dst],L[fn]);
     BREAK;}
   OP(SBC_CALLIR) {
     int fn = RD16;
     dyn dummy;
     CHKREG(fn);
+    api.frame->pin = pin;
     CALL(dummy,L[fn]);
     BREAK;}
   OP(SBC_CALLT) {
@@ -626,18 +649,21 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int fn = RD16;
     CHKREG(dst);
     CHKREG(fn);
+    api.frame->pin = pin;
     CALL_TAGGED(L[dst],L[fn]);
     BREAK;}
   OP(SBC_CALLTIR) {
     int fn = RD16;
     dyn dummy;
     CHKREG(fn);
+    api.frame->pin = pin;
     CALL_TAGGED(dummy,L[fn]);
     BREAK;}
   OP(SBC_TCALL) {
     int fn = RD16;
     dyn *r;
     CHKREG(fn);
+    api.frame->pin = pin;
     CALL(r,L[fn]);
     //FIXME: instead check that thunk handler is sbc_exec_fn and jump to the
     //       beginning
@@ -649,6 +675,7 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int met = RD16;
     CHKREG(dst);
     CHKREG(obj);
+    api.frame->pin = pin;
     MCACHE_CALL(L[dst],L[obj],sbc->mt[met]);
     BREAK;}
   OP(SBC_MCALLIR) {
@@ -656,6 +683,7 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int obj = RD16;
     int met = RD16;
     CHKREG(obj);
+    api.frame->pin = pin;
     MCACHE_CALL(dummy,L[obj],sbc->mt[met]);
     BREAK;}
   OP(SBC_MCALL8) {
@@ -664,6 +692,7 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int met = RD8;
     CHKREG(dst);
     CHKREG(obj);
+    api.frame->pin = pin;
     MCACHE_CALL(L[dst],L[obj],sbc->mt[met]);
     BREAK;}
   OP(SBC_TMCALL) {
@@ -671,6 +700,7 @@ dyn sbc_exec_fn(uint8_t *pin) {
     int met = RD16;
     dyn *r;
     CHKREG(obj);
+    api.frame->pin = pin;
     MCACHE_CALL(r,L[obj],sbc->mt[met]);
     //FIXME: instead check that thunk handler is sbc_exec_fn and jump to the
     //       beginning
@@ -1685,15 +1715,16 @@ dyn sbc_exec_fn(uint8_t *pin) {
       fprintf(stderr, "SBC_CTX: bad type=%d\n", type);
     }
     BREAK;}
+  /* CORE-1 transitional: sif2sbc no longer emits SBC_LSRC bytes
+   * (side-table form keeps linenos out of the bytecode).  But
+   * SBC files compiled BEFORE this refactor still have them, and
+   * the runtime needs to load them long enough to bootstrap a
+   * fresh compiler.sbc without lsrc bytes.  This no-op handler
+   * just advances past the 4-byte payload so dispatch can
+   * continue.  Once every loaded SBC has been re-built it could
+   * be removed (lands on DEFAULT instead). */
   OP(SBC_LSRC) {
-    uint32_t row = RD24;
-    uint32_t col = RD8;
-    if (getenv("CORE1_TRACE_LSRC")) {
-      fprintf(stderr, "[LSRC] frame=%p row=%u col=%u\n",
-              (void*)api.frame, row, col);
-    }
-    api.frame->row = (int)row;
-    api.frame->col = (int)col;
+    pin += 4;   /* 24-bit row + 8-bit col */
     BREAK;}
   DEFAULT {
 #if 1

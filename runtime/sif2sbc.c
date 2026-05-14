@@ -72,9 +72,22 @@ uint8_t *sif2sbc(sif_t *sif) {
   sh_new_arena(l2o); //store key copies
 
   reloc_t *rs = 0; //references needing relocation
-  
+
   int *nrs = 0; //NFI relocs
-  
+
+  /* CORE-1 (side-table form): collected at emit time, written to
+   * a dedicated SBC section after nrs.  Each entry is 12 bytes
+   * (u32 pc, u32 row, u16 col, u16 pad) and stays sorted by pc
+   * because we append in instruction order and code offsets
+   * monotonically increase. */
+  typedef struct {
+    uint32_t pc;
+    uint32_t row;
+    uint16_t col;
+    uint16_t pad;
+  } lineno_ent_t;
+  lineno_ent_t *linenos = 0;
+
   char *src_label = 0;
 
   char *deps_label = 0;
@@ -814,19 +827,24 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT8(3);
       break;}
     case SBC_LSRC: {
-      /* CORE-1: source-line marker -- writes (row, col) into
-       * api.frame->row/col so the next stack trace can report the
-       * actual call site instead of just the function header.
-       * Row is 24-bit (16M lines, more than any sane source file);
-       * col is 8-bit (256 columns; if exceeded the column saturates
-       * but the row still updates -- better than dropping the
-       * marker entirely). */
-      uint32_t row = (uint32_t)strtol(as[1],0,10);
-      uint32_t col = (uint32_t)strtol(as[2],0,10);
-      if (col > 0xFF) col = 0xFF;
-      EMIT8(SBC_LSRC);
-      EMIT24(row);
-      EMIT8(col);
+      /* CORE-1 (side-table form): no bytecode is emitted -- the
+       * interpreter never dispatches a per-line opcode.  Instead
+       * we record (current code offset, row, col) into a parallel
+       * sorted table that print_stack_trace binary-searches.
+       * Keeps the hot dispatch path cache-clean while preserving
+       * accurate stack-trace positions.
+       *
+       * --instr_count compensates for the unconditional ++ at the
+       * top of the loop: a lineno marker isn't an executable
+       * instruction, so it must not bump the counter that
+       * JMP/branch offset estimates depend on. */
+      lineno_ent_t e;
+      e.pc = (uint32_t)arrlen(wb);
+      e.row = (uint32_t)strtol(as[1],0,10);
+      e.col = (uint16_t)strtol(as[2],0,10);
+      e.pad = 0;
+      arrput(linenos, e);
+      --instr_count;
       break;}
     default: {
       fprintf(stderr, "sif2sbc: bad operator `%s`\n", as[0]);
@@ -942,10 +960,24 @@ uint8_t *sif2sbc(sif_t *sif) {
     EMIT24(nrs[i]);
   }
 
+  /* CORE-1: emit the lineno side table after nrs.  Layout per
+   * entry matches the on-disk format documented in sif.h's
+   * sbc_t.lineno_table comment: u32 pc, u32 row, u16 col, u16 pad. */
+  int lineno_ofs = arrlen(wb);
+  int lineno_sz = arrlen(linenos);
+  for (i = 0; i < lineno_sz; i++) {
+    EMIT32(linenos[i].pc);
+    EMIT32(linenos[i].row);
+    EMIT16(linenos[i].col);
+    EMIT16(linenos[i].pad);
+  }
+
   tbls = wb;
   wb = 0;
-  
-  int tot_sz = 7 + 1;
+
+  /* tot_sz counts the (count, offset) pairs in the trailing tot:
+   * 7 lookup tables + nrs + linenos. */
+  int tot_sz = 7 + 2;
 
   EMIT16(0); //descriptor
   int src_text_ofs = shget(l2o,src_label);
@@ -966,6 +998,10 @@ uint8_t *sif2sbc(sif_t *sif) {
   }
   EMIT24(nrs_sz);
   EMIT24(nrs_ofs);
+  /* CORE-1: (count, offset) pair for the lineno side table.
+   * Count is entries, not bytes; each entry is 12 bytes. */
+  EMIT24(lineno_sz);
+  EMIT24(lineno_ofs);
 
 
   hdr = wb;
@@ -989,6 +1025,7 @@ uint8_t *sif2sbc(sif_t *sif) {
   shfree(label2fn);
   arrfree(rs);
   arrfree(nrs);
+  arrfree(linenos);
   arrfree(hdr);
   arrfree(code);
   arrfree(tbls);

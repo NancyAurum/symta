@@ -225,16 +225,15 @@ struct frame_t {
   frame_t *prev;
   void **vars;
   int nvars;
-  /* CORE-1: most-recently-seen source position for this frame.
-   * Updated in-flight by the SBC_LSRC opcode the compiler emits
-   * before each source-line change.  When the frame is suspended
-   * (the active function called another), this records the row/col
-   * of the call site so stack traces can name the instruction the
-   * caller is paused on, not just the function header from
-   * fn_meta_t.  Zero means "no source mapping yet" -- fall back
-   * to the fn_meta_t header position. */
-  int row;
-  int col;
+  /* CORE-1: bytecode pointer at this frame's most recent
+   * suspension (call to the next frame).  Set by SBC_CALL /
+   * MCALL / etc. just before OPEN_FRAME.  print_stack_trace
+   * binary-searches the owning SBC's lineno side table for this
+   * pin to recover (row, col).  Cost is one store per
+   * Symta-level CALL site, vs the per-source-line SBC_LSRC
+   * dispatch the in-bytecode design would have charged the hot
+   * loop (40-100% on call-heavy paths). */
+  uint8_t *pin;
 };
 
 //maximum number of arguments to a native function
@@ -390,8 +389,7 @@ typedef struct tot_entry_t { //table of tables entry
   frm_.prev = api.frame; \
   api.frame = (frame_t*)&frm_; \
   frm_.clsr = f; \
-  frm_.row = 0; \
-  frm_.col = 0;
+  frm_.pin = 0;
 
 
 #define CLOSE_FRAME api.frame = frm_.prev;

@@ -321,18 +321,43 @@ void print_stack_trace() {
     } else {
       name = meta->name ? (char*)meta->name : "unnamed";
       origin = meta->origin ? (char*)meta->origin : "";
-      /* CORE-1: prefer the frame's in-flight (row, col) -- set by
-       * SBC_LSRC at the most recent source-line change.  Falls
-       * back to the fn_meta_t function-header position when the
-       * frame is a builtin or hasn't executed an lsrc yet (e.g.
-       * the very first instruction of a function before any
-       * lsrc has been emitted). */
-      if (frm->row || frm->col) {
-        row = frm->row;
-        col = frm->col;
-      } else {
-        row = meta->row;
-        col = meta->col;
+      /* CORE-1: prefer the SBC's lineno side table (looked up by
+       * the frame's saved call-site pin) and fall back to the
+       * fn_meta_t function-header position.  The side table is
+       * populated by sif2sbc when the source carries `lsrc`
+       * markers; the runtime never dispatches a per-line opcode
+       * on the hot path. */
+      row = meta->row;
+      col = meta->col;
+      if (frm->pin) {
+        extern int sbcs_loaded;
+        extern sbc_t *sbcs[];
+        sbc_t *owner = 0;
+        for (int s = 0; s < sbcs_loaded; s++) {
+          sbc_t *sc = sbcs[s];
+          if (frm->pin >= sc->code && frm->pin < sc->code + sc->code_sz) {
+            owner = sc;
+            break;
+          }
+        }
+        if (owner && owner->lineno_table && owner->lineno_sz) {
+          uint32_t target = (uint32_t)(frm->pin - owner->code);
+          uint8_t *t = owner->lineno_table;
+          int lo = 0, hi = owner->lineno_sz;
+          int best = -1;
+          /* Each entry: u32 pc, u32 row, u16 col, u16 pad = 12B. */
+          while (lo < hi) {
+            int mid = (lo + hi) >> 1;
+            uint32_t pc = *(uint32_t*)(t + mid*12);
+            if (pc <= target) { best = mid; lo = mid + 1; }
+            else hi = mid;
+          }
+          if (best >= 0) {
+            uint8_t *e = t + best*12;
+            row = (int)(*(uint32_t*)(e + 4));
+            col = (int)(*(uint16_t*)(e + 8));
+          }
+        }
       }
     }
     fprintf(stderr, "  %016llx:%s:%d,%d,%s\n",

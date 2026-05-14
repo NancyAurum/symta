@@ -246,6 +246,14 @@ typedef struct sbc_t {
   uint64_t *hooks; //array of offsets into hooks_base
   uint8_t *nrs; //native functions relocations
   int nrs_sz;
+  /* CORE-1 (side-table form): per-SBC lineno table.  Each entry
+   * is 12 bytes -- (uint32 pc_offset_in_code, uint32 row,
+   * uint16 col, uint16 pad) -- sorted by pc.  print_stack_trace
+   * binary-searches for the largest pc <= frame->pin to recover
+   * a per-instruction position without paying for an interleaved
+   * SBC_LSRC opcode on the hot dispatch path. */
+  uint8_t *lineno_table;
+  int lineno_sz;
   tot_entry_t rtot[7]; //relocated tot
   dyn *tx;
   dyn *ty;
