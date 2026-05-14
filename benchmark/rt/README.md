@@ -10,6 +10,14 @@ The suite is **not** a regression test. Variance is non-trivial
 (±5–10% run-to-run is normal); use the numbers as relative
 reference points when evaluating a change.
 
+Before any cross-revision comparison, get the host out of its
+default state.  See
+[`dev/bench-setup-windows.md`](../../dev/bench-setup-windows.md)
+for the four OS-level factors that swamp the actual code under
+test: Spectre/Meltdown mitigations, Defender real-time scan,
+VBS/HVCI, Hyper-V.  The companion script
+`dev/bench-setup-windows.ps1` automates items 1-2.
+
 ## Groups
 
 | File | What it measures |

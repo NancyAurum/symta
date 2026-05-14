@@ -666,6 +666,34 @@ point at the same fix.
 > definition, and basic linting (depends on CORE-7).
 > `effort: multi-week`
 
+### \[P3\] **UI-5** Flaky `tests/uim/buttons.png` byte-size jitter
+
+> **Where:** `tests/uim/baselines/buttons.png` vs the rendered
+> actual; the `--pngcmp` decoded-pixel check in
+> `tests/uim/run.sh`.
+> **Problem:** the buttons-test (and occasionally lists)
+> renders to a PNG that varies by ~10 bytes run-to-run on the
+> same binary.  Sizes seen so far: 19358, 19362, 19367, 19369.
+> A single pixel at (38,2) shifts between `0x10101A`
+> (background) and `0x333336` (some glyph antialiasing
+> remnant), tripping the `tolerance=32` threshold in
+> `--pngcmp` once in every ~5-10 runs.  Other UIM tests are
+> stable.
+> **Likely cause:** glyph rasterization output depends on the
+> order chars enter the font's glyph atlas, which in turn
+> depends on a hash-table iteration order somewhere.  The
+> em-dash in `"btn — three different widths"` is the most
+> likely trigger -- it was effectively skipped before FFI-4
+> (single_chars 128..255 → empty fixtext) and now reaches the
+> renderer, but the renderer's atlas slot for it isn't
+> deterministically positioned.
+> **Fix sketch:** force a stable atlas seed by pre-allocating
+> slots for the printable ASCII + common Latin-1 range at
+> font load time, in deterministic order.  Cheap (one new
+> loop in the ttf plugin's font init).
+> **Workaround:** rerun the test; it passes ~9 out of 10 runs.
+> `effort: afternoon`
+
 ---
 
 ## Speculative / future research
