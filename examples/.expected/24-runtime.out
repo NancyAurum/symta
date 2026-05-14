@@ -11,7 +11,7 @@ typename 1.0   = float
 typename 'hi'  = text
 typename a list = list
 typename P     = point
-P has 41 methods total
+P has 40 methods total
 first 5 names: (`=x` `=y` y is_point is_register)
 
 allocating 3 handles, dropping refs immediately...
@@ -28,7 +28,7 @@ rtstat output:
 heap used: XXX+XXX
 heap size: 67108864
 types: 32
-methods: 1982
+methods: 1957
 gid_get_ calls: 0
 gid_set_ calls: 0
 

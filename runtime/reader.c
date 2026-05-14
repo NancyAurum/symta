@@ -19,7 +19,6 @@
 #include "ng.h"
 #include "am.h"
 #include "reader.h"
-#include "meta_table.h"
 
 // ====================================================================
 // Token introspection.
@@ -336,16 +335,49 @@ dyn reader_add_bars(dyn xs) {
 // parse_strip -- mirror of reader.s:460-472.
 //
 // Walks the token tree, replacing each token with its parsed value
-// (or raw value), and for each non-empty list whose head is a token
-// with a real source position, stashes that [row col orig] triple
-// in the runtime weak meta table keyed by the freshly-built list.
-// Consumers later read it back via `X.meta_` (which routes through
-// `meta_lookup_`).
+// (or raw value).  For each non-empty list whose head is a token
+// with a real source position, allocates a `meta` wrapper struct
+// (`type meta.~ O M: object_!O meta_!M`, defined in src/core_.s)
+// holding (stripped-list, [row col orig]).  Consumers later read
+// `.meta_` directly off the field accessor, no hashtable lookup.
 //
-// Symta's `parse_strip` does the same via the `meta` function (which
-// since Phase 3 of reader-consolidation routes heap objects through
-// `meta_attach_`).  We call `meta_set_` directly here for symmetry.
+// `meta_tag_g` caches `intern("meta")` so the type-tag lookup is
+// a single load on the hot path.  The tag is stable once the
+// Symta `type meta` declaration has been registered, which always
+// happens before any `text.parse` call (core_.s loads first).
 // ====================================================================
+
+static int meta_tag_g = -1;
+
+/* Look up the `meta` type tag without creating it.  Returns -1 if
+ * the type hasn't been registered yet (e.g. during the transitional
+ * bootstrap rebuild where the OLD core_.sbc only knows
+ * `meta_wrapper`).  In that case we return the plain stripped list
+ * unwrapped, which is what the pre-Phase-3 weak-table flow produced
+ * -- bootstrap can finish, regenerate the SBCs with the new
+ * `type meta` declaration, and the next runtime invocation will
+ * find the tag and start wrapping. */
+extern type_t *types;
+static int find_meta_tag(void) {
+  if (meta_tag_g >= 0) return meta_tag_g;
+  for (int i = 0; i < arrlen(types); i++) {
+    if (types[i].name && !strcmp(types[i].name, "meta")) {
+      meta_tag_g = i;
+      return i;
+    }
+  }
+  return -1;
+}
+
+static dyn make_meta_wrapper(dyn obj, dyn src) {
+  int tag = find_meta_tag();
+  if (tag < 0) return obj;
+  dyn w;
+  OBJECT(w, (uint64_t)tag, 2);
+  LGET(w, 0) = obj;   /* object_ */
+  LGET(w, 1) = src;   /* meta_   */
+  return w;
+}
 
 dyn reader_parse_strip(dyn x) {
   if (is_tok(x)) {
@@ -383,7 +415,7 @@ dyn reader_parse_strip(dyn x) {
   GC_ENABLE();
 
   if (meta_src) {
-    meta_set_(out, meta_src);
+    out = make_meta_wrapper(out, meta_src);
   }
   return out;
 }

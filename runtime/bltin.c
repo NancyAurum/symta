@@ -11,7 +11,6 @@
 #include "flt16.h"
 #include "fs.h"
 #include "reader.h"
-#include "meta_table.h"
 
 
 #include "prf.h"
@@ -442,29 +441,6 @@ RETURNS(reader_parse_table(x))
 BUILTIN1("parse_tokens_c_", parse_tokens_c_, C_ANY, x)
 RETURNS(reader_parse_tokens(x))
 
-/* Weak meta table -- see runtime/meta_table.h.  Used by the
- * Symta-side `meta` function to attach source positions to AST
- * nodes via object identity, instead of wrapping nodes in a
- * `meta` struct that intercepts method dispatch through `__`. */
-BUILTIN2("meta_attach_", meta_attach_, C_ANY, obj, C_ANY, src)
-  meta_set_(obj, src);
-RETURNS(obj)
-BUILTIN1("meta_lookup_", meta_lookup_, C_ANY, obj)
-RETURNS(meta_get_(obj))
-BUILTIN1("meta_present_", meta_present_, C_ANY, obj)
-RETURNS(FXN(meta_has_(obj)))
-
-/* Same handlers wired up under different builtin names so we can
- * METHOD_FN1-register them as `_.meta_` / `_.is_meta` directly on
- * T_OBJECT.  Going through a Symta-side wrapper
- * (`_.meta_ = | meta_lookup_ Me`) costs ~2x cold compile time on
- * the game benchmark because the compiler / macroexpander read
- * `.meta_` on every AST node and the wrapper frame setup
- * dominates -- see init_builtin_methods below. */
-BUILTIN1("any.meta_",   any_meta_,   C_ANY, obj)
-RETURNS(meta_get_(obj))
-BUILTIN1("any.is_meta", any_is_meta, C_ANY, obj)
-RETURNS(FXN(meta_has_(obj)))
 
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
@@ -2523,9 +2499,6 @@ static struct {
   B(parse_strip_c_)
   B(parse_table_c_)
   B(parse_tokens_c_)
-  B(meta_attach_)
-  B(meta_lookup_)
-  B(meta_present_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)
@@ -2869,28 +2842,6 @@ void init_builtins(int argc, char **argv) {
   init_types();
   init_builtin_methods();
   init_subtypes();
-
-  /* `_.meta_` / `_.is_meta` -- weak-meta-table queries on any
-   * object.  Registered on T_OBJECT *after* init_subtypes so the
-   * add_method machinery propagates them to every subtype.  This
-   * is the hot path for the compiler / macroexpander; without
-   * direct C dispatch, the same query through a Symta-side
-   * wrapper (`_.meta_ = | meta_lookup_ Me`) doubled the game
-   * benchmark cold compile time.
-   *
-   * Bootstrap SBCs may carry their own Symta-side `_.meta_`
-   * definition; add_method allows redefinition for these two
-   * method ids specifically (see main.c:add_method_r) so the
-   * latest registration wins. */
-  {
-    setup_b_any_meta_();
-    setup_b_any_is_meta();
-    void *met;
-    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_meta_)->hook);
-    add_method(T_OBJECT, api.m_meta_under_, met);
-    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_is_meta)->hook);
-    add_method(T_OBJECT, api.m_is_meta, met);
-  }
 
   init_args(argc, argv);
   
