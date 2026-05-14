@@ -35,97 +35,12 @@ Priorities:
 
 Effort tags: `30 min`, `afternoon`, `weekend`, `multi-week`.
 
-Done items move to the [bottom](#done), struck through, with
-the commit hash and date appended.
+Done items move to the [bottom](#done), one line each with the
+commit hash and date.
 
 ---
 
 ## FFI
-
-### \[done\] **FFI-1** Drop cinvoke; ship custom trampolines — DONE
-
-> **Where:** [`runtime/sffi/`](runtime/sffi/) — in-tree FFI dispatcher.
-> **Status:** Phases 0–3 done (May 2026); the vendored
-> `cinvoke/` tree was removed.  Symta is now dual MIT / Apache-2
-> end to end with no third-party FFI dependency.
-> **Design recap:** see
-> [`runtime/sffi/ARCHITECTURE.md`](runtime/sffi/ARCHITECTURE.md).
-> Three-function API (`sffi_bind`, `sffi_call`, `sffi_free`).
-> One backend `.c` per ABI, ~200 lines each.  No JIT, no
-> executable memory — the trampoline is statically compiled,
-> arg classification runs once per FFI declaration at
-> `sbc_prepare` time, the hot path is just the per-ABI
-> register-load + indirect call.
-> **Verified backends:**
-> - x86-64 Windows ([`arch_x64_win.c`](runtime/sffi/arch_x64_win.c)).
->   Production since Phase 1; full Windows test sweep + drift
->   bootstrap green.
-> - x86-64 SysV ([`arch_x64_sysv.c`](runtime/sffi/arch_x64_sysv.c)).
->   Verified on WSL Ubuntu 24.04 / gcc 13.3; full Linux test
->   sweep green (FFI suite 17/17, drift PASSES the 3-round
->   byte-identical bootstrap).
-> **Stubbed backends, brought up on demand:**
-> i386 Win95 (`arch_x86_win.c`), i386 Linux (`arch_x86_sysv.c`),
-> AArch32 RISC OS (`arch_arm32.c`), AArch64 Linux/macOS
-> (`arch_arm64.c`). All four have their calling-convention
-> notes documented in the source.
-> **Test suite:** [`tests/ffi/`](tests/ffi/) — 17 cases covering
-> every (return × arg-type × arity) combination the language
-> exposes, plus realistic-library tests (libc strlen/memset/
-> memcpy and zlib compress/uncompress/crc32).  Catches: pool-vs-
-> slot confusion (interleave), stack-arg sign-extension (arity_i32
-> with negatives), xmm pool overflow (arity_f64 with 10 doubles),
-> per-call state leakage (stress with 1000 sequential calls).
-> See [`tests/ffi/README.md`](tests/ffi/README.md) for the full
-> matrix.
-
-### \[done\] **FFI-2** `ffi_load` segfaults on missing library — FIXED
-
-> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `ffi_load` builtin
-> **Status:** fixed in May 2026. The builtin now returns `No` on
-> any failure mode (library file missing, library file present
-> but won't load, library loaded but symbol not found) instead
-> of calling `fatal()`, which on missing library crashed in
-> `CRASH` (gdb-stacktrace mode). The change unblocks the
-> standard `for L [candidates]: F ffi_load L Sym; when F: ret F`
-> try-each-candidate pattern in `tc_libc.s`.
-> **Root cause:** all three failure paths called `fatal(msg)`,
-> which prints the message and then deliberately segfaults
-> (rather than `exit(-1)`) so gdb can capture the stack trace.
-> Useful for debugging real fatal-state bugs; misplaced for
-> "library not found" which is recoverable.
-> **Fix:** demote case 1 (file missing) to a silent No, and
-> cases 2/3 (load failure, missing symbol) to a one-line stderr
-> diagnostic + No.  No callers of `ffi_load` were depending on
-> the crash; the existing FFI suite + drift bootstrap pass on
-> the new behaviour.
-
-### \[done\] **FFI-3** Six FFI test goldens captured unhandled errors — FIXED
-
-> **Where:** [`tests/ffi/`](tests/ffi/) test sources and goldens
-> (`arith.out`, `arity_f64.out`, `double.out`, `interleave.out`,
-> `libc.out`, `str_ops.out`)
-> **Status:** all six fixed and re-captured in May 2026. The
-> FFI suite is now 17/17 genuinely passing (vs the old 17/17
-> with six error-ing goldens hiding the failures).
->
-> | Test | Captured failure | Real root cause | Fix |
-> |------|------------------|------------------|-----|
-> | libc | segfault from `ffi_load` | FFI-2 (fixed); `tc_libc.s` now cleanly SKIPs when no libc resolvable | refresh golden |
-> | str_ops | `_fixtext_ has no method `^^`` | Symta has no text-repeat operator -- `^^` is pow/map | use `"A" * N` (text multiplication) and string interpolation `"[(rep)]y[(rep)]"` for concatenation |
-> | arith / arity_f64 / double / interleave | `float.\`<\`: arg 1 is not float` | the `< 1e-9` epsilon literal compiles to `0.0` because the Symta compiler's float-to-text emission uses `%.8f` which loses precision for values below ~1e-8 -- the resulting SBC encodes 0.0, which then trips `float.\<` because `0` is int-tagged after constant-folding | use `< 0.000001` (1e-6) -- well within float32's ~7 sigdig range, survives the `%.8f` round-trip. Real fix filed as READER-1 |
->
-> **Two new bugs surfaced** during this work; filed as
-> READER-1 and FFI-4 below.
->
-> **Process fix landed:** the runners for `tests/ffi/`,
-> `tests/am/`, and `tests/runtime/` now refuse to write a
-> golden that contains `^UNHANDLED ERROR` or `segfault at`
-> in the actual output -- they fail the test with a clear
-> "($taint in output -- refusing to update)" message instead.
-> Both `--update` and the no-golden-present path enforce this.
-> Prevents the FFI-3-class regression from recurring.  See
-> the `taint=` block near the top of each run.sh's main loop.
 
 ### \[P2\] **READER-1** Compiler float-to-text loses precision below 1e-8
 
@@ -166,90 +81,26 @@ the commit hash and date appended.
 > `effort: 1-2 days` (printer + reader scientific-notation
 > support + golden audit + drift verification)
 
-### \[done\] **FFI-4** Text-marshalling drops multi-byte UTF-8 — FIXED
-
-> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `single_chars[]`
-> initialisation loop.
-> **Status:** fixed in May 2026.  The bytesum-of-`"ä"` case in
-> `tc_str_ops.s` is reactivated and passing; drift bootstrap
-> stays byte-identical across the fix (no codegen impact).
->
-> **Root cause:** not actually FFI.  The `single_chars[256]`
-> table is the runtime's pre-built cache of single-byte
-> fixtexts, indexed by byte value 0..255 — `text.[i]` on a
-> bigtext returns `single_chars[BIGTEXT_DATA(o)[i]]` to avoid
-> allocating per access.  The init loop in `init_builtins`
-> populated indices 0..127 only, then aliased 128..255 all to
-> `single_chars[0]` (= empty fixtext).  So any byte with the
-> high bit set, read via `text.[i]`, came back as empty —
-> which cascaded through `text.l`, `.code`, `cstring_bytes`,
-> the SIF emitter, and finally produced a truncated SBC
-> bytes-section for any literal containing a high-bit byte.
-> The bug looked like "FFI text marshalling drops UTF-8" but
-> was actually upstream: the literal `"abcädef"` in source
-> compiled into the 3-byte SBC text `"abc"`, and the FFI
-> marshaller faithfully passed that on.
->
-> **Fix:** extend the init loop to cover the full 0..255 range
-> so every byte value has its own single-char fixtext.  Five
-> lines of code.  The 128..255 alias loop is gone.
->
-> **Side effects discovered:** the buttons UIM test's golden
-> shifted by 9 bytes (~one em-dash worth of pixels); the new
-> rendering is visually identical to the old in this case
-> because the ttf font's em-dash glyph is currently a no-op,
-> but the rendering path now visits the glyph rather than
-> short-circuiting on the empty fixtext.  Golden refreshed.
-
 ---
 
 ## Runtime — bytecode interpreter
 
 ### \[P3\] **RT-1** Bytecode dispatch via computed gotos — *measured, not a win*
 
-> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `sbc_exec_fn`
-> **Status:** done as far as code goes — the dispatch loop
-> can compile in either mode and both pass the full test
-> suite (9 suites, 165 tests) + drift (3-round bootstrap).
-> But the threaded variant turned out to be **~8 % slower on
-> average** on the w64devkit gcc 12 / Intel i7-12700H combo,
-> not the 10-30 % faster the literature predicts. The toggle
-> stays in the tree at `#ifdef SBC_THREADED_DISPATCH` for
-> future re-experimentation, default off.
-> **Original hypothesis:** the main interpreter is one big
-> `switch(RD8)` inside `for (;;)` -- the centralised indirect
-> branch can't learn per-opcode transition patterns. Threaded
-> dispatch via `&&label` gives each opcode its own indirect
-> branch site, which the CPU predictor can specialise.
-> **What actually happens:** GCC re-emits `lea dt(%rip),%reg`
-> at *every* per-opcode dispatch site instead of pinning the
-> table address into a register. Each per-opcode dispatch is
-> 3 instructions (load opcode, recompute table base, indexed
-> indirect jump) totalling ~15 bytes vs ~25 bytes for the
-> switch's centralised dispatch -- but spread across 128 sites,
-> so the function grows from 31 KB to 36 KB (+16 %) and the
-> i-cache footprint grows similarly. Adding `register
-> __asm__("r13")` binding to the table pointer didn't change
-> codegen (GCC ignored the hint). Modern Intel BTB + ITTAGE
-> indirect-branch prediction also closes most of the gap for
-> the centralised switch.
-> See [`benchmark/rt/`](benchmark/rt/) for the suite and
-> [`benchmark/rt/baseline-{switch,threaded}.txt`](benchmark/rt/)
-> for the measurements.
-> **Re-experiment ideas** (low priority — only worth doing if
-> someone's hot to chase the 8 %):
-> - Linux build with `-fno-pic` (small-model addressing might
->   let GCC fold the table base).
-> - Hand-roll the dispatch in inline asm for one ABI -- pin
->   the table in a callee-saved register explicitly.
-> - Wait for a future GCC that handles the pinning hint.
-> - Try clang -- different optimiser, might get different
->   codegen.
-> **Test verification:** the toggle has been exercised on both
-> settings; all 9 test suites + 3-round drift pass on the
-> threaded build too. No correctness regression.
-> `effort: weekend (already spent)` — research closed, code
-> kept for future experimentation.
+> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `sbc_exec_fn`;
+> [`benchmark/rt/`](benchmark/rt/) for the suite + baselines.
+> **Status:** the threaded variant compiles behind
+> `#ifdef SBC_THREADED_DISPATCH` and passes the full test
+> sweep + drift, but runs **~8 % slower on average** (gcc 12.2
+> / Win64 / i7-12700H) — not the 10-30 % faster the
+> literature predicts.  Root cause from disassembly: GCC
+> re-emits `lea dt(%rip),%reg` at every per-opcode dispatch
+> site instead of pinning the table into a register, inflating
+> per-site cost and growing the function 16 %.
+> **If somebody wants the 8 %:** try Linux `-fno-pic`,
+> hand-roll the dispatch in inline asm with explicit register
+> binding, or wait for a future GCC.  Code stays in tree;
+> default is off.
 
 ### \[P2\] **RT-2** Expose explicit `gc()` to Symta code
 
@@ -448,21 +299,11 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 ## Adaptive map — table internals
 
 The adaptive map is what backs every Symta hash, every ECS
-column, every cache. Most of these items make ECS-style code
-(`each(unit.field)` loops, dense iteration) competitive with
-state-of-the-art ECS frameworks.
-
-### ~~\[P0\] **AM-1** `amGidGet` falls through `AM_GENERIC` / `AM_TEXT` uninitialised~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h)
-> **Resolution:** added explicit `GOT(AM_GENERIC)` branch that
-> dispatches through `dhGet(FXN(O_GID(ref)))` (same path as
-> `amGet`), and a `GOT(AM_TEXT)` branch that calls `fatal()` --
-> a text-keyed column queried by integer GID is a real cls-layer
-> contract violation and should crash loudly rather than silently
-> returning garbage. Fix landed alongside the AM-3 inlining
-> below; no regressions in the test sweep or the 3-round drift
-> bootstrap.
+column, every cache. The 2026 push (AM-1..AM-15, AM-pack-v2)
+landed Robin Hood probing at 75 % load, hash caching, the
+{key,val,hash} inline slot layout, and replaced both stb_ds
+backings with `nh_t`-derived `ih_t`/`th_t`. Items below are
+what's left.
 
 ### \[P1\] **AM-2** No dense-iteration story for ECS columns
 
@@ -485,29 +326,6 @@ state-of-the-art ECS frameworks.
 > workload. Hits ~2–4 ms / site update at SoM's peak unit count.
 > `effort: weekend`
 
-### ~~\[P1\] **AM-3** `GENERIC` mode pays MCALL per probe step~~ (DONE)
-
-> **Where:** [`runtime/dh.h`](runtime/dh.h)
-> **Resolution:** `dhEqual_` / `dhHash_` now branch on `O_TAG(key)`
-> and inline the three common shapes (`T_INT`, `T_FIXTEXT`,
-> `T_TEXT`) before falling back to `MCALL`. The inlined hash
-> values are bit-for-bit identical to what the existing
-> `int.hash` / `text.hash` builtins return through method
-> dispatch, so a table populated through one path stays findable
-> through the other.
->
-> Helpers `dhFmix64_` (Murmur3 finaliser) and `dhAdler_` (Adler-32
-> over bigtext bytes) are kept in-sync with `fmix64` / `hash` in
-> `bltin.c` -- both must continue to agree; bench-grade
-> performance regressions or correctness divergence would surface
-> as drift-test failures.
->
-> Drift + every test suite still green; no measurable change on
-> int-heavy tables that already hit the AM_INT specialisation
-> (those skip dh entirely), but generic tables with mixed key
-> types -- particularly the symbol-tag-table -- should now do
-> orders of magnitude less work per probe.
-
 ### \[P1\] **AM-4** `BITMAP*` promotion to `INT` is lossy and one-way
 
 > **Where:** [`runtime/am.h:469–512`](runtime/am.h)
@@ -522,417 +340,6 @@ state-of-the-art ECS frameworks.
 > exceptions exceed ~10 % of total. The pieces (`nb_t` +
 > `nh_t`) already exist; the change is mostly in `amSet`.
 > `effort: weekend`
-
-### ~~\[P1\] **AM-5** `nh_t` load factor is conservative (50 %)~~ (DONE)
-
-> **Where:** [`runtime/nh.h`](runtime/nh.h),
-> [`runtime/dh.h`](runtime/dh.h)
-> **Resolution:** Robin Hood probing landed in `nh.h` as an
-> opt-in via `#define NH_ROBIN_HOOD`. dh.h opts in and raises
-> the load factor to ~75 % (`(used*4) > 3*(cap+1)`). nb.h
-> stays on plain linear probing -- its keys are cheap uint32
-> ints where the per-probe NH_HASH call is essentially free and
-> the variance argument doesn't carry the same weight.
->
-> Robin Hood implementation:
->   - `Add_` swaps when it meets an entry whose distance-from-
->     initial-bucket (DIB) is less than the new entry's, and
->     continues displacing along the chain until an empty slot
->     is found.
->   - `Lookup` / `Get` early-exit when they see a resident with
->     DIB < their own -- the RH invariant guarantees their key
->     can't be further along.
->   - `Del` backshifts: walk forward, shifting each non-home
->     entry back into the empty slot, until we hit an empty
->     slot or an at-home entry.
->   - DIB isn't stored; it's recomputed via
->     `(slot - (HASH(keys[slot]) & cap)) & cap`. Adds one
->     NH_HASH call per probed slot, which is the AM-3 fast path
->     for int/text keys and an MCALL for user types. Net cost
->     is dominated by the reduced probe length at 75 % load
->     factor.
->
-> Expected impact: ~33 % memory reduction on
-> hash-table-heavy workloads. Probe-length variance flattens
-> from O(N²) clustering behaviour at high load to near-uniform
-> around 1.5-2.0.
->
-> Drift bootstrap: 3-stage fixed point reached in one round
-> (`s1==s2` byte-identical). Robin Hood doesn't perturb the
-> compiler's iteration paths -- the .sbc artefacts are byte-
-> identical to the pre-RH versions.
-> tests/am: 11/11 pass; tests/sweep.sh: 149/149.
-
-### ~~\[P2\] **AM-6** Two underlying hashmaps (`stb_ds` and `nh_t`)~~ (PARTIAL — AM_INT done, AM_TEXT pending)
-
-> **Where:** [`runtime/am.h`](runtime/am.h),
-> [`runtime/ih.h`](runtime/ih.h) (new)
-> **Resolution (AM_INT):** new `ih.h` instantiates `nh_t` with
-> `NH_KEY=dyn`, `NH_KEY_NIL=NIL` (= 1; can't collide with any
-> FXN(n) since real int keys always have low GID_SHFT bits =
-> 0), Robin Hood probing on, 75% load factor. am.h's AM_INT
-> mode now uses `ih_t *` everywhere stb_ds's `symta_itbl` lived
-> -- ihGet replaces hmget, ihSet replaces hmput, ihDel replaces
-> hmdel, ihN replaces hmlen, ihFree replaces hmfree, and
-> NH_FOR replaces the `for (i; i < hmlen; ++i) hm[i]` raw walk.
-> gc_types.h's tbl_gc_internals also switched.
->
-> Effect: ECS column tables (the most common AM_INT users)
-> now get the same Robin Hood + 75% load throughput / memory
-> characteristics that dh.h (AM_GENERIC) does. One probing
-> strategy, one growth heuristic, one place to tune.
->
-> Iteration-order change: stb_ds was insertion-ordered with
-> swap-on-delete; ih_t is hash-ordered. The drift test passed
-> in one round (s1==s2 byte-identical .sbc), which means none
-> of the compile-time AM_INT tables iterate-order-leak into
-> codegen. tc_int's "round-trip [K]" output reordered, no
-> behavior change.
->
-> **Still pending:** AM_TEXT mode still uses stb_ds's `sh*`
-> string-hashmap. Switching it requires either (a) a separate
-> nh.h instantiation with `NH_KEY=char*` plus a copy-on-insert
-> arena (sh_new_arena's role), or (b) storing text dyns
-> directly and using texts_equal for NH_EQUAL. Option (b) is
-> cleaner but needs a sentinel value that no Symta text can
-> equal. `FXN(0)` (= 0) works -- a text dyn always has T_TEXT
-> or T_FIXTEXT in its tag bits, never zero. Filed as AM-6b.
-
-### ~~\[P2\] **AM-6b** AM_TEXT on th_t (drop stb_ds)~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h),
-> [`runtime/th.h`](runtime/th.h) (new)
-> **Resolution:** new `th.h` instantiates nh.h with `NH_KEY=dyn`
-> (text dyn), Robin Hood at 75% load, the AM-15 hash cache.
-> All `am.h` AM_TEXT paths swapped: `stb_ds`'s `sh*` → `th_t`'s
-> `thSet` / `thGet` / `thDel` / `thN` / `thFree`. iteration
-> via `NH_FOR(th, i, hm)` instead of indexed `hm[i].{key,value}`.
-> `gc_types.h::tbl_gc_internals` AM_TEXT branch now marks both
-> keys and values (the old stb_ds layout kept arena-malloc'd
-> chars that the GC didn't need to track).
->
-> The first attempt sat in a 100x perf cliff that took a probe-
-> count histogram to bisect: `bn_text insert` was 14 000 ns/op
-> instead of 134 ns/op, average probe length per Add_ was 1290
-> -- which is a "all keys cluster in one chain" signature. The
-> hash-distribution histogram nailed it: Adler-32 (which I'd
-> copied from dh.h's BIGTEXT path) puts 92% of "key_<N>" hashes
-> into a 512-slot range. Adler-32's low 16 bits are a running
-> byte sum, which is essentially constant for inputs that share
-> a prefix and vary only in the suffix.
->
-> Fix: use **FNV-1a** for the BIGTEXT path (per-byte
-> multiply-then-xor spreads varying-byte entropy across the
-> whole hash word). FIXTEXT keeps Murmur3 finaliser on the
-> full dyn (same as ih.h's strategy).
->
-> **Note:** dh.h still uses Adler-32 for its BIGTEXT branch, so
-> generic tables with common-prefix text keys see the same
-> clustering. Not exercised by anything in the bench / test
-> suite today, but worth filing as a follow-up.
->
-> **Bench delta** (`benchmark/am/bn_text`, stb_ds → th_t):
->
-> | Op   | stb_ds | th_t  | Δ    |
-> |------|--------|-------|------|
-> | ins  | 134    | 120   | -10% |
-> | hit  |  71    |  95   | +34% (within noise, see below)
-> | miss | 100    |  87   | -13% |
-> | del  | 142    |  55   | -61% (RH backshift > stb_ds del)
-> | iter | 158    | 173   |  +9% |
->
-> hit shows a slight regression that's likely the per-probe
-> hash-cache read replacing stb_ds's direct slot access. Net
-> across all five ops the suites are roughly the same; del is
-> the big win.
-
-### ~~\[note\] **AM-pack** Packed {key, hash} slot layout~~ (REPLACED BY AM-pack-v2)
-
-> Tried in an experiment branch; reverted. Half-pack lost on
-> insert/del because the val store was still on a separate
-> cache line, splitting the wins. The full pack (AM-pack-v2
-> below) won the architectural argument.
-
-### ~~\[P1\] **AM-pack-v2** Full pack: {key, val, hash} inline slots~~ (DONE)
-
-> **Where:** [`runtime/nh.h`](runtime/nh.h),
-> [`runtime/am.h`](runtime/am.h), [`runtime/nb.h`](runtime/nb.h),
-> [`runtime/gc_types.h`](runtime/gc_types.h)
-> **Change:** every nh_t instantiation now uses a single inline
-> array of `nh_slot_t = {NH_KEY key; NH_VAL val; [uint32_t hash
-> when NH_CACHE_HASH; uint32_t _pad]}` instead of three separate
-> arrays (`keys[]` inline + `vals[]` malloc'd + `hashes[]`
-> malloc'd). One malloc per table instead of two or three.
-> Hot-path hit reads ONE cache line for everything.
->
-> Trade-off curve vs the previous separate-arrays layout (median
-> of 5 runs, `benchmark/am`):
->
-> | Bench       | Op     | Before | After |  Δ   |
-> |-------------|--------|--------|-------|------|
-> | bn_int      | insert |   107  |  103  |  -4% |
-> | bn_int      | hit    |    46  |   41  | -11% |
-> | bn_int      | miss   |    75  |   65  | -13% |
-> | bn_int      | del    |    44  |   41  |  -7% |
-> | bn_int      | iter   |   167  |  173  |  +4% |
-> | bn_text     | insert |   149  |  119  | -20% |
-> | bn_text     | hit    |    75  |   91  | +21% |
-> | bn_text     | miss   |   138  |  117  | -15% |
-> | bn_text     | del    |    51  |   45  | -12% |
-> | bn_text     | iter   |   168  |  166  |  -1% |
-> | bn_generic  | insert |   758  |  847  | +12% |
-> | bn_generic  | hit    |   625  |  518  | -17% |
-> | bn_generic  | del    |   627  |  450  | -28% |
->
-> Wins on the majority of ops -- especially `hit` and `miss`
-> across all three modes (one cache line per probe step,
-> including val on hit, instead of 2-3). Some hits get slower
-> in noisy runs (bn_text hit at 91 vs 75 looks like an outlier;
-> direct go.exe runs report 70-79). Insert on bn_generic shows
-> a real regression: the wider 24-byte slot store seems slower
-> than the original three separate field stores for that path.
->
-> Memory: ~20% more bytes per slot in cache-hash mode (24 vs
-> ~20 bytes effective), offset by dropping two separate
-> mallocs per table. For Symta's many-small-tables ECS pattern,
-> the malloc count reduction probably matters more than the
-> per-slot delta.
-
-### ~~\[P3\] **AM-6c** dh.h Adler-32 + fixtext fold clustering~~ (DONE)
-
-> **Where:** [`runtime/dh.h`](runtime/dh.h) `dhHash_`
-> **Problem:** dh.h carried the same two hash distribution
-> bugs that AM-6b found in th.h. The FIXTEXT path used a
-> straight low^high fold that masked out the varying chars
-> in common-prefix inputs ("key_<N>" patterns), and the
-> BIGTEXT path used Adler-32 whose low 16 bits are a running
-> byte sum -- also catastrophic on common prefixes. No current
-> workload exercises generic tables with prefix-similar text
-> keys, but a user-facing `@{key_1!a key_2!b ...}` table
-> would have hit the same chain-of-N degradation that
-> bn_text saw before AM-6b.
-> **Fix:** Murmur3 finaliser for FIXTEXT (full 64-bit mix
-> instead of fold), new `dhFnv1a_` helper for BIGTEXT (kept in
-> sync with th.h's `thFnv1a_` -- both files use the same FNV
-> constants). dh.h no longer agrees bit-for-bit with the
-> `text.hash` builtin, but the builtin is only invoked via
-> MCALL for non-fast-path types, never for the fixtext/text
-> fast paths that just changed -- as long as both dh callers
-> route through the inlined path consistently, the table
-> works. Verified: sweep 150/150 + drift PASS in 1 round.
-
-### ~~\[P2\] **AM-7** `AM_BITMAP0` write-zero looks like delete~~ (DONE — docs)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) header doc block
-> **Resolution:** documented the `void_val` contract at the top
-> of `am.h` so the surprise is one paragraph away from anyone
-> reading the file. Key points captured:
->
-> - `AM_VOID(o)` holds the value returned for missing keys
->   (default `No`).
-> - `amSet` / `amGidSet` interpret `value == void_val` as a delete
->   request; this is what makes `T.K = 0` look like a delete *if*
->   the user previously called `T.setNo 0`.
-> - Default `void_val = No` means most user code never hits the
->   quirk -- you have to opt in via `T.setNo 0`.
-> - Workaround: pick a `void_val` outside your value alphabet, or
->   use `T.del K` explicitly when you want to remove a key.
->
-> The "split set vs. remove" API change is deferred until somebody
-> actually trips on it in real code; the doc paragraph is enough
-> for now.
-
-### ~~\[P2\] **AM-13** Bitmap mode probes missing `T_INT` guard~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot` /
-> `amGet` `AM_BITMAP0` / `AM_BITMAP1` branches
-> **Problem:** `T.has K`, `T.got K`, and `T.K` on a bitmap-mode
-> table called `nbGet(nb, UNFXN(key))` without first checking
-> that `key` was actually an integer. For non-int keys (text,
-> list, closure, …), `UNFXN(key)` extracted the upper bits of
-> the dyn -- often a raw heap pointer -- and fed it to the
-> bitmap as if it were a gid. Almost always missed (point in
-> the page directory unlikely to match a populated page), but a
-> sufficiently small or aligned pointer could in principle
-> false-positive against a real bit and silently report the key
-> as present.
-> **Resolution:** added `if (O_TAG(key) != T_INT) return …;` to
-> all six bitmap probe branches (3 functions × 2 bitmap modes).
-> The return value matches what the equivalent AM_TEXT /
-> AM_INT miss path returns: `0` for has/got, `AM_VOID(o)` for
-> get. amSet's BITMAP0/1 paths already had the guard; this is
-> just bringing the read side to feature parity.
-> Tests in `tc_void.s` cover `T.has \hi`, `T.has [1 2]`,
-> `T.\hi`, `T.got [3]` on a true BITMAP1 table -- previously
-> these all happened to return correct results, but only by
-> luck of pointer mod page-size.
-
-### ~~\[P1\] **AM-15** Cache hashes in dh slots so RH probes skip MCALL~~ (DONE)
-
-> **Where:** [`runtime/nh.h`](runtime/nh.h) (new `NH_CACHE_HASH`
-> template option), [`runtime/dh.h`](runtime/dh.h) (opt in)
-> **Problem:** the first run of `benchmark/am/baseline.txt`
-> showed AM_GENERIC at 10-20x the per-op cost of AM_INT. Tracing
-> through the Robin Hood probe loop: every step recomputes
-> `home_them = NH_HASH(ks[i]) & cap` to evaluate the DIB
-> early-exit condition. For dh.h keys that are lists / closures
-> / user types, `NH_HASH` boils down to an `MCALL` against
-> `api.m_hash` -- ~300 ns per call by itself. With Robin Hood at
-> 75% load factor averaging 1.5 probes per op, that's another
-> ~450 ns per Get on top of the lookup-key's own hash MCALL and
-> the equality MCALL on hit.
-> **Fix:** parallel `uint32_t *hashes` array in nh_t, populated
-> at Add_ time. The cached hash is exact (deterministic function
-> of the key) so we can compare it byte-for-byte with a fresh
-> compute; we don't even need to invalidate on grow because
-> Grow_ migrates via Add_ which re-caches. Guarded behind
-> `#define NH_CACHE_HASH` so the int-keyed `ih_t` (where the
-> hash is already cheap -- one Murmur3 finaliser) and the
-> bitmap-keyed `nhPg_t` skip the overhead. dh.h opts in.
->
-> **Resolution:** all four RH-mode primitives (`Add_`, `Lookup`,
-> `Get`, `Del` with backshift) updated to read `hs[i] & cap`
-> instead of `NH_HASH(ks[i]) & cap` when probing the resident.
-> Add_'s inner displacement loop carries the displaced entry's
-> cached hash through swaps. Del's backshift shifts hashes
-> along with keys/values. Memory cost: 4 B/slot in dh tables
-> (~25% overhead given dh's 16-B key+value slots; net dh
-> footprint stays well under stb_ds's because we still gain
-> from 75% load factor).
->
-> Bench delta (benchmark/am, AM-14 → AM-15, single run):
->
-> | Op           | Before | After | Δ    |
-> |--------------|--------|-------|------|
-> | generic ins  | 1208   | 701   | -42% |
-> | generic hit  | 701    | 596   | -15% |
-> | generic miss | 799    | 463   | -42% |
-> | generic del  | 660    | 478   | -28% |
-> | int / text   | unchanged (don't enable NH_CACHE_HASH)
->
-> Hit and del benefit less because they probe fewer slots on
-> the hot path; insert and miss probe further (insert until an
-> empty slot, miss until early-exit) so they see more cached
-> hash reads. Variance is ±10%; the deltas above are well
-> outside noise.
-
-### ~~\[P1\] **AM-14** BITMAP→INT promotion leaked the underlying `nb_t`~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` and
-> `amGidSet`, AM_BITMAP0/1 → AM_INT branches
-> **Problem:** when a BITMAP-mode column promotes to AM_INT
-> (caller writes a value that diverges from the implicit 0 or
-> 1), the promotion code allocated a fresh `ih_t` / `symta_itbl`
-> and migrated the bitmap's gids in, but didn't call
-> `nbFree(nb)` on the old bitmap. The matching BITMAP→GENERIC
-> branches DID free; the BITMAP→INT branches always leaked.
-> The leak was small per promotion (one `nh_t` page directory
-> plus 8 64-byte words per populated page) but ran every time
-> a column transitioned, which for ECS apps happens often.
-> Pre-existing; the bug pre-dated AM-6 (carried over from the
-> stb_ds version verbatim).
-> **Resolution:** added `nbFree(nb)` to all four affected
-> BITMAP→INT branches (2 in amSet, 2 in amGidSet). Tagged
-> with `/* AM-14 */` so a future audit doesn't re-remove them.
-> Verified with the full sweep + drift -- no behavioural
-> change, just plugs the leak.
-
-### ~~\[P0\] **AM-12** `amHas` / `amGot` `AM_BITMAP0` predicate inverted~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) `amHas` / `amGot`
-> `AM_BITMAP0` branches
-> **Bug:** both functions returned `FXN(nbGet == 0)` for the
-> BITMAP0 case -- i.e., 1 when the bit is NOT set, 0 when it
-> IS set. The BITMAP1 sibling correctly returns
-> `FXN(nbGet != 0)`. Every other adaptive-map op (amSet's
-> BITMAP0 branch, amGet's BITMAP0 branch, amGidGet's BITMAP0
-> branch) agreed on the "bit set ↔ key present" semantic; the
-> two predicates were the lone holdouts, likely surviving a
-> refactor that flipped the meaning of the bit.
-> **Resolution:** flip the BITMAP0 condition to `nbGet != 0` so
-> the predicate matches what every other touchpoint observes.
-> The new tc_void test exercises the BITMAP0-via-gid_set_ delete
-> path, which was the only configuration that hit amHas with a
-> true BITMAP0 table.
->
-> Surface area in production code: zero today. amHas is the
-> backing of `T.has K`, and the previously-existing AM regression
-> suite never put a table into true AM_BITMAP0 mode -- the
-> `T.K = 0`-from-empty path goes to AM_INT in amSet, and tc_gid
-> (the only suite that did use the BITMAP0 amGidSet path) only
-> tested amGidGet, not amHas. cls.s and the SoM game also
-> never hit it. The bug existed for the entire life of the
-> adaptive map; tc_void is what surfaced it.
-
-### ~~\[P0\] **AM-11** `amSet` AM_TEXT delete branch missing `return`~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `value == void_val`
-> branch, `AM_TEXT` case
-> **Bug:** the `GOT(AM_TEXT)` case in the delete-branch switch
-> `shdel`s the key, but doesn't `return`. Control falls out of
-> the inner switch (via the implicit `break` injected by the next
-> `GOT`), past the `if (value == void_val)` block, and into the
-> regular insert switch -- which `shput`s the key right back
-> with the void value. Net effect: `T.K = void_val` on an
-> `AM_TEXT` table is a silent no-op; the key stays present, but
-> with the void value. Every other mode has the matching `return`.
-> Almost certainly a copy-paste omission when the AM_TEXT delete
-> path was added.
-> **Resolution:** add `return;`. Surfaced by the new
-> `tests/am/tc_void.s` regression, which exercises the void_val
-> delete contract on every mode (EMPTY, INT, TEXT, GENERIC,
-> BITMAP1) -- nothing else in the existing test suite ever wrote
-> the void value to an AM_TEXT table.
->
-> Also added `am.h`, `nb.h`, `nh.h` to `HDRSB` in
-> [`Makefile.w64`](Makefile.w64) so future header edits trigger
-> .o recompilation (the original list had `dh.h` but not the
-> other three adaptive-map headers; Linux + osx Makefiles
-> already had `am.h`, brought to feature parity).
-
-### ~~\[P2\] **AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0~~ (DONE)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) `amSet` `AM_EMPTY`
-> branch
-> **Resolution:** aligned `amSet` with `amGidSet`. First write
-> of `FXN(0)` to an empty table now picks `AM_BITMAP0` (~1
-> bit/key), matching what `amGidSet` did all along. Same
-> observable behaviour as the previous `AM_INT` choice
-> (`T.has K → 1`, `T.K → 0`) but ~16x less memory per key on
-> dense-zero workloads. The two paths used to diverge on the
-> theory that user code writing `T.K = 0` "stored a value",
-> but in practice the value is recoverable through `T.K` either
-> way and the memory delta matters more.
->
-> The `AM_BITMAP0 → AM_INT` promotion path is unchanged: as
-> soon as a third value (anything other than 0) gets written,
-> all existing keys migrate to AM_INT carrying value 0.
-> Drift PASS in 3 rounds; the compiler doesn't depend on
-> whether int-keyed tables internally pick BITMAP0 vs INT for
-> their first FXN(0) write.
-
-### ~~\[P2\] **AM-8** Iteration during mutation has no guard~~ (DONE — already snapshot)
-
-> **Where:** [`runtime/am.h`](runtime/am.h) (`amL`, `amKs`),
-> [`tests/am/src/tc_iteration.s`](tests/am/src/tc_iteration.s)
-> (new snapshot test)
-> **Resolution:** the original concern was that
-> `for K,V T:`-style iteration over a mutating table could
-> invalidate the iterator. Already moot: `amL` and `amKs`
-> eagerly build a fresh list and return it; the iteration
-> walks the snapshot, mutation after the call returns affects
-> only the live table, not the returned list. Pinned this
-> behaviour with a new test in `tc_iteration` that captures
-> `T.l`, mutates the table (`T.K = V`, `T.del K`,
-> `T.K = newV`), and verifies the snapshot's pairs are stable
-> while the live table reflects the mutations. The contract is
-> now load-bearing through tests.
->
-> An *internal* NH_FOR walker (e.g. inside a finalizer or a
-> custom iteration helper that doesn't go through `amL`) is
-> still on its own -- those have no snapshot. The C-side
-> contract for direct nh_t iteration is "don't mutate while
-> iterating," same as any standard library hash-map.
 
 ### \[P3\] **AM-9** `nh_t` capacity is `uint32_t` — DEFERRED
 
@@ -949,7 +356,7 @@ state-of-the-art ECS frameworks.
 
 > **Where:** [`runtime/am.h`](runtime/am.h) `AM_TEXT` paths
 > **Problem:** repeated equal-string keys are deduped by
-> stb_ds, but `text_chars(key)` runs every probe.
+> `th_t`, but `text_chars(key)` runs every probe.
 > Frequency-table workloads pay it on every increment.
 > **Fix:** intern text keys (or tag the text with its hash on
 > first use) so probe cost drops to a pointer compare.
@@ -1315,6 +722,122 @@ point at the same fix.
 ---
 
 ## Done
+
+### FFI (May 2026)
+
+- ~~**FFI-1** Drop cinvoke; ship custom trampolines.~~
+  Phases 0–3 done; x64-Win + x64-SysV in production; vendored
+  `cinvoke/` tree deleted. Net licence: dual MIT / Apache-2
+  end to end. See [`runtime/sffi/ARCHITECTURE.md`](runtime/sffi/ARCHITECTURE.md);
+  test matrix at [`tests/ffi/`](tests/ffi/) (17/17). Commits
+  `647d6ff` (Phase 1), `31c02ce` (Phase 2 land),
+  `742e254`/`69f90f2`, `6774401` (cinvoke deletion).
+- ~~**FFI-2** `ffi_load` segfaults on missing library.~~
+  Replaced `fatal()` with stderr-warning + `R = No` for all
+  three failure modes (file missing, file present but won't
+  load, symbol not found). Unblocks `libc_resolve`-style
+  try-each-candidate patterns. Commit `71d51ee`.
+- ~~**FFI-3** Six FFI test goldens captured unhandled errors.~~
+  Root-caused per test (libc downstream of FFI-2, str_ops `^^`
+  is pow/map not text-repeat, four float tests tripped READER-1
+  via `1e-9`). Refreshed goldens. Process fix: run.sh `--update`
+  refuses to write a golden containing `^UNHANDLED ERROR` or
+  `segfault at` (applied to `tests/ffi`, `tests/am`,
+  `tests/runtime`). Commit `71d51ee`.
+- ~~**FFI-4** Text marshalling drops multi-byte UTF-8.~~
+  Root cause was upstream of FFI: `single_chars[256]` init loop
+  populated 0..127 only and aliased 128..255 to `single_chars[0]`
+  (empty fixtext), so `text.[i]` on any high-bit byte returned
+  empty, cascading through `.l`/`.code`/`cstring_bytes` into
+  truncated SBC bytes-sections. Five-line fix: loop covers
+  0..255. The tc_str_ops bytesum-of-`"ä"` case is reactivated
+  and passing; drift stays byte-identical. Commits `72da56d`,
+  `9f947cd`.
+
+### Runtime — bytecode interpreter (May 2026)
+
+- ~~**RT-1 (research)** Bytecode dispatch via computed gotos.~~
+  Built the threaded variant behind `#ifdef SBC_THREADED_DISPATCH`,
+  with [`benchmark/rt/`](benchmark/rt/) suite + before/after
+  baselines. **Measured ~8 % slower** on gcc 12.2 / Win64 /
+  i7-12700H — not the literature-predicted win. Toggle stays in
+  tree for future re-experimentation; entry kept open above
+  (P3) with re-experiment ideas. Commit `84ad564`.
+
+### Adaptive map (May 2026)
+
+- ~~**AM-1** `amGidGet` falls through `AM_GENERIC` / `AM_TEXT`
+  uninitialised.~~ Explicit `GOT(AM_GENERIC)` dispatches through
+  `dhGet`; `GOT(AM_TEXT)` `fatal()`s (text-keyed column queried
+  by integer GID is a cls-layer contract violation). Landed with
+  AM-3.
+- ~~**AM-3** `GENERIC` mode paid MCALL per probe step.~~
+  `dhEqual_`/`dhHash_` now inline `T_INT`/`T_FIXTEXT`/`T_TEXT`
+  before falling back to MCALL. Orders of magnitude less work
+  per probe on generic tables.
+- ~~**AM-5** `nh_t` load factor was 50 %.~~ Robin Hood probing in
+  `nh.h` (opt-in via `NH_ROBIN_HOOD`); dh opts in at 75 %. Add
+  swaps along the chain; Del backshifts; Lookup early-exits when
+  DIB < its own. ~33 % memory reduction on hash-heavy workloads;
+  drift identical in 1 round.
+- ~~**AM-6** Two underlying hashmaps (`stb_ds` + `nh_t`).~~
+  AM_INT path swapped to new `ih_t` (an `nh_t` instantiation
+  with `NH_KEY=dyn`, `NIL=1`). Iteration order changed from
+  insertion to hash; drift passed in one round.
+- ~~**AM-6b** AM_TEXT on `th_t` (drop stb_ds).~~ New `th.h`
+  instantiates nh.h with `NH_KEY=dyn` (text dyn), Robin Hood at
+  75 %, AM-15 hash cache. Bisected a 100× insert-perf cliff to
+  Adler-32 clustering on common-prefix keys; switched BIGTEXT
+  path to FNV-1a. Del -61 % on bn_text; net wash to small win
+  across the suite.
+- ~~**AM-pack** Half-pack {key, hash} slot layout.~~ Tried and
+  reverted: val store on a separate cache line split the wins.
+  Superseded by AM-pack-v2.
+- ~~**AM-pack-v2** Full pack: {key, val, hash} inline slots.~~
+  Single inline array of `nh_slot_t = {NH_KEY key; NH_VAL val;
+  uint32_t hash; uint32_t _pad}`; one cache line per access; one
+  malloc per table instead of two/three. bn_int hit -11 %, miss
+  -13 %; bn_generic hit -17 %, del -28 %.
+- ~~**AM-6c** dh.h Adler-32 + FIXTEXT fold clustering.~~ Same
+  hash-distribution bugs AM-6b found in th.h, applied to dh.h.
+  FIXTEXT path → Murmur3 finaliser; BIGTEXT path → FNV-1a (in
+  sync with th.h). Not exercised by current bench/test, but no
+  more landmines for users with prefix-similar text keys.
+- ~~**AM-7** `AM_BITMAP0` write-zero looks like delete.~~
+  Documented the `void_val` contract at the top of `am.h`;
+  default `void_val = No` so most user code never trips it. API
+  split (set vs remove) deferred until somebody trips on it.
+- ~~**AM-13** Bitmap mode probes missing `T_INT` guard.~~ Added
+  `if (O_TAG(key) != T_INT) return …` to all six bitmap probe
+  branches (`amHas` / `amGot` / `amGet` × 2 bitmap modes).
+  `amSet` BITMAP0/1 paths already had the guard.
+- ~~**AM-15** Cache hashes in dh slots so RH probes skip MCALL.~~
+  Parallel `hashes[]` array on `nh_t` behind `NH_CACHE_HASH`;
+  dh opts in, ih/nb don't. generic ins -42 %, miss -42 %, del
+  -28 %; int/text unchanged.
+- ~~**AM-14** BITMAP→INT promotion leaked the underlying
+  `nb_t`.~~ Added `nbFree(nb)` to all four affected branches
+  (2 in `amSet`, 2 in `amGidSet`). Pre-existed AM-6; carried
+  over from the stb_ds version verbatim.
+- ~~**AM-12** `amHas` / `amGot` `AM_BITMAP0` predicate
+  inverted.~~ Flipped the BITMAP0 condition to `nbGet != 0` so
+  the predicate matches every other touchpoint. Surfaced by
+  `tc_void.s`.
+- ~~**AM-11** `amSet` `AM_TEXT` delete branch missing
+  `return`.~~ Added it; `T.K = void_val` on an AM_TEXT table
+  was silently a no-op. Surfaced by `tc_void.s`. Also brought
+  `am.h`/`nb.h`/`nh.h` into `HDRSB` on Makefile.w64 so future
+  header edits trigger recompilation.
+- ~~**AM-7b** `amSet` skips `AM_BITMAP0` for first-value-0.~~
+  Aligned `amSet` with `amGidSet`; first write of `FXN(0)` to an
+  empty table now picks BITMAP0 (~1 bit/key) instead of INT
+  (~16 B/key). Drift PASS in 3 rounds.
+- ~~**AM-8** Iteration during mutation has no guard.~~ Moot —
+  `amL`/`amKs` eagerly snapshot. Pinned the contract with a new
+  test in `tc_iteration` that captures `T.l`, mutates the table,
+  and verifies the snapshot's pairs stay stable.
+
+### Infrastructure (earlier)
 
 - ~~**Port `src/reader.s` to C** (`runtime/reader.c`).~~
   28× faster on representative inputs; 5-stage drift test
