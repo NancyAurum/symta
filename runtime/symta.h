@@ -338,9 +338,68 @@ typedef struct {
 
 
 
-#define CLOSURE(dst,code,count) \
-  OBJECT(dst,T_CLOSURE,count); \
-  O_CODE(dst) = (uint32_t)(uint64_t)(code);
+/* RT-5: closures inline a copy of (handler, payload) at the two
+ * slots right after their `count` user slots, so the CALL hot
+ * path can dispatch from the closure object itself instead of
+ * indirecting through `hooks_heap[O_CODE]` (a ~1.5 MB global
+ * table that any non-monomorphic closure-call stream hits
+ * cache-cold).  O_SIZE keeps reporting `count` (the
+ * compiler-visible capture-count) so gc_closure's `for i < size`
+ * trace skips the inlined fields cleanly; only the underlying
+ * allocation is bumped by two.
+ *
+ * Invariant: for any live closure `c`,
+ *   slots[O_SIZE(c)+0] == hooks_heap[O_CODE(c)].handler
+ *   slots[O_SIZE(c)+1] == hooks_heap[O_CODE(c)].payload
+ * Three places in bltin.c mutate a closure's hook or size after
+ * construction (`unstub_method`, `nativize_method`, `set_meta_`).
+ * Each must call CLOSURE_SYNC_HOOK afterwards to re-establish the
+ * invariant, otherwise CALL will read stale handler/payload from
+ * the closure's inline slots and dispatch to the wrong function.
+ *
+ * Closures grow by 2 slots; nativize_method's `O_SIZE = 1` resize
+ * is safe because the original allocation reserved size+2 slots
+ * and the check `O_SIZE(met) < 1` guards the call. */
+#define CLOSURE(dst,code,count) do { \
+  /* Snapshot both args first.  `code` is often `O_CODE(other)` \
+   * which reads from the heap; if the subsequent OBJECT call \
+   * triggers a young-gen GC, the source object may relocate and \
+   * a second evaluation of `code` would deref stale memory. */ \
+  uint32_t _cnt  = (uint32_t)(uint64_t)(count); \
+  uint32_t _code = (uint32_t)(uint64_t)(code); \
+  OBJECT(dst, T_CLOSURE, _cnt + 2); \
+  O_HDR(dst).size = _cnt; \
+  O_CODE(dst) = _code; \
+  hook_t *_hk = &hooks_heap[_code]; \
+  void **_slots = (void**)O_PTR(dst); \
+  _slots[_cnt    ] = (void*)_hk->handler; \
+  _slots[_cnt + 1] = _hk->payload; \
+  /* The two inlined slots hold function pointers, NOT heap \
+   * refs.  Clear theap so a stale TG_DIRTY flag left over from \
+   * the slot's previous occupant doesn't trick gc_older_gens \
+   * into dereferencing the function pointer as a young-gen heap \
+   * reference. */ \
+  uint32_t _gid = (uint32_t)O_GID(dst); \
+  api.theap0[_gid + _cnt    ] = 0; \
+  api.theap0[_gid + _cnt + 1] = 0; \
+} while (0)
+
+/* RT-5: re-establish the inline (handler, payload) invariant
+ * after a runtime mutation of either O_CODE(c) or O_SIZE(c).
+ * Caller must ensure the allocation backing `c` still has room
+ * for the two inline slots at slots[O_SIZE(c)] and
+ * slots[O_SIZE(c)+1] (true by construction for closures created
+ * via CLOSURE, since allocation = O_SIZE+2). */
+#define CLOSURE_SYNC_HOOK(c) do { \
+  uint32_t _sz = (uint32_t)O_SIZE(c); \
+  void **_sl = (void**)O_PTR(c); \
+  hook_t *_h2 = &hooks_heap[(uint32_t)O_CODE(c)]; \
+  _sl[_sz    ] = (void*)_h2->handler; \
+  _sl[_sz + 1] = _h2->payload; \
+  uint32_t _g2 = (uint32_t)O_GID(c); \
+  api.theap0[_g2 + _sz    ] = 0; \
+  api.theap0[_g2 + _sz + 1] = 0; \
+} while (0)
 
 #define LIST(dst,size) OBJECT(dst, T_LIST, (uint32_t)(uint64_t)size);
 
@@ -416,10 +475,17 @@ typedef struct tot_entry_t { //table of tables entry
 
 extern hook_t hooks_heap[];
 
+/* RT-5: dispatch via the closure's inline (handler, payload)
+ * slots instead of indirecting through hooks_heap.  Reads land
+ * on the closure object itself -- the same cache line as the
+ * captures we just walked to set up the call -- so the call no
+ * longer pays a vtable-style miss into the side table. */
 #define CALL(k,f) { \
   OPEN_FRAME(f); \
-  hook_t *hook_ = &O_HOOK(f); \
-  k = hook_->handler(hook_->payload); \
+  void **_fp = (void**)O_PTR(f); \
+  uint32_t _fz = (uint32_t)O_SIZE(f); \
+  psf_t _h = (psf_t)_fp[_fz]; \
+  k = _h((uint8_t*)_fp[_fz + 1]); \
   CLOSE_FRAME; \
 }
 

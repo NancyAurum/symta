@@ -1154,6 +1154,13 @@ static dyn unstub_method(uint64_t metid,dyn resolved, dyn object) {
   hook_t *rhook = &O_HOOK(resolved);
   hook->handler = rhook->handler;
   hook->payload = rhook->payload;
+  /* RT-5: CALL now dispatches via the inline (handler,payload)
+   * slots stored on the closure itself, so a hook-table patch
+   * isn't visible until we mirror it into `met`'s inline slots.
+   * Without this `CALL(r,met)` below would re-enter `b_stub_`
+   * (the unchanged inline handler) and we'd loop until the
+   * shadow stack is exhausted. */
+  CLOSURE_SYNC_HOOK(met);
   api.frame->clsr = met;
   O_SIZE(api.args) = O_SIZE(api.args)-1; //strip the resolved arg
   dyn r;
@@ -1174,6 +1181,14 @@ static dyn nativize_method(uint64_t metid, dyn o, psf_t handler, dyn payload) {
   hook->handler = handler;
   O_SIZE(met) = 1; //free everything unused;
   LSET(met,0,payload);
+  /* RT-5: O_SIZE just shrank to 1, so the inline (handler,
+   * payload) slots that CALL reads now live at slots[1] and
+   * slots[2] (not slots[old_size] and slots[old_size+1]).  The
+   * `O_SIZE >= 1` precondition guarantees the original
+   * allocation (old_size + 2) reserved at least 3 slots, so this
+   * write is in-bounds.  Mirror the freshly-patched hook into
+   * the new slot positions. */
+  CLOSURE_SYNC_HOOK(met);
   return met;
 }
 
@@ -1341,6 +1356,11 @@ BUILTIN1("get_meta_",get_meta_,C_ANY,o)
 RETURNS(FXN((int64_t)O_CODE(o)))
 BUILTIN2("set_meta_",set_meta_,C_ANY,o,C_ANY,v)
   O_CODE(o) = (uint32_t)UNFXN(v);
+  /* RT-5: if the user just rewired O_CODE for a closure, the
+   * dispatch the closure resolves to has changed.  Mirror the
+   * new hooks_heap entry into the inline slots so the next
+   * CALL(o) sees it. */
+  if (TAGIS(T_CLOSURE, o)) CLOSURE_SYNC_HOOK(o);
 RETURNS(o)
 
 BUILTIN1("intern_",intern_,C_ANY,name)

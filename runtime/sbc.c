@@ -712,7 +712,7 @@ dyn sbc_exec_fn(uint8_t *pin) {
     uint32_t size = RD8;
     CHKREG(dst);
     void *fn = (void*)sbc->hooks[idx];
-    CLOSURE(L[dst],fn,size)
+    CLOSURE(L[dst],fn,size);
     BREAK;}
   OP(SBC_OBJECT) {
     int dst = RD16;

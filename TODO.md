@@ -116,7 +116,7 @@ cache lines touched per hot-path operation, **before → after**.
 | Hot path | Frequency | Lines now | Lines after |
 |----------|-----------|-----------|-------------|
 | `O_AGE` lookup (RT-4)       | every LSET, every GC trace | 2-3 | 1 |
-| Closure CALL dispatch (RT-5) | every closure call        | 2   | 1 |
+| Closure CALL dispatch (RT-5) | every closure call        | 2  | 1 (DONE) |
 | MCALL miss (RT-6)           | every megamorphic dispatch | 3-5 | 1 |
 | Bytecode dispatch (RT-1)    | every opcode               | n/a (BTB) | n/a (BTB-friendly) |
 | MCACHE store (RT-7)         | every MCACHE miss          | I-side SMC stall | 1 D-side |
@@ -160,29 +160,39 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 > step.
 > `effort: weekend`
 
-### \[P1\] **RT-5** Closure CALL chases `hooks_heap[code]` indirection
+### \[P1\] **RT-5** Closure CALL chases `hooks_heap[code]` indirection — DONE (May 2026)
 
-> **Where:** [`runtime/symta.h:114-115`](runtime/symta.h)
-> (`O_HOOK`), [`runtime/symta.h:391-396`](runtime/symta.h)
-> (`CALL` macro), [`runtime/sbc.c:129`](runtime/sbc.c)
-> (`hooks_heap` definition).
-> **Problem:** closures dispatch via
-> `hook_t *h = &hooks_heap[O_CODE(closure)]` where
-> `hooks_heap[MAX_HOOKS=65536][24 bytes/entry] = 1.5 MB`.
-> Each closure call: load closure header (line 1) → index into
-> `hooks_heap` (line 2, ~random across the 1.5 MB region with
-> many distinct hook ids) → call handler. The per-call equivalent
-> of a vtable miss into a never-cached side region.
-> **Fix:** store `handler` (`psf_t`) + `payload` (`void *`)
-> inline at the closure's slot 0/1. The JIT-emitted curry thunks
-> (`emit_hook` in `sbc.c:95-124`) already use this layout
-> conceptually; just materialise it in the heap object so plain
-> `CALL` doesn't need `hooks_heap` at all. `meta` stays in a
-> side table (only error/trace paths touch it).
-> **Why now:** every closure call pays this. Closure-heavy
-> code (anaphoric `?+`, list comprehensions, callback-style
-> APIs) is bottlenecked here.
-> `effort: afternoon`
+> **Landed.** Closures now allocate `O_SIZE + 2` slots and
+> store a copy of `(handler, payload)` at the two slots right
+> after the user-visible captures.  `CALL(k,f)` reads handler
+> and payload off the closure object itself; `hooks_heap[]` is
+> no longer on the hot dispatch path.  `O_SIZE` keeps reporting
+> the user-visible capture count so `gc_closure`'s trace loop
+> ignores the inline slots cleanly.
+>
+> **Gotcha that took a while to find.** Three runtime
+> primitives in `bltin.c` mutate either `hook->handler` /
+> `hook->payload` (`unstub_method`) or `O_SIZE(met)`
+> (`nativize_method`) or `O_CODE(o)` (`set_meta_`) on an
+> already-constructed closure.  With the old CALL macro those
+> mutations took effect because dispatch always re-read
+> `hooks_heap[O_CODE]`.  With RT-5 the inline copy has to be
+> re-synced explicitly via the `CLOSURE_SYNC_HOOK(c)` helper at
+> each mutation site, otherwise CALL re-enters the stale
+> handler — `b_stub_` first crashes by tail-recursing into
+> itself once the hook patch is invisible, blowing the C stack
+> in ~60k frames.  This is the single biggest hidden coupling
+> between dispatch and the runtime's "rewrite-the-closure"
+> patterns; documented as an invariant comment on `CLOSURE` in
+> `symta.h` so RT-6/RT-7 don't trip on it.
+>
+> **Numbers (after the fix lands):**
+> - `bn_call 1arg`: 36 → 30-31 ns/op (~14-17 % faster)
+> - `bn_mcall negneg`: 34 → 30-31 ns/op (~10 % faster)
+> - `bn_loop count`: 14 → 13 ns/op (~7 % faster)
+> - game cold rebuild: 52.25 → 50.2 s (within band)
+> - game warm: noise, +16-byte-per-closure cost not visible at
+>   benchmark resolution.
 
 ### \[P2\] **RT-6** Method dispatch table is 4 KB per type + pointer-chase
 
