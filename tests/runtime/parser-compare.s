@@ -48,3 +48,30 @@ probe "splice-string" 'say "hello"'
 probe "func-def" "f X = X + 1"
 probe "func-call" "f(X Y)"
 probe "list-literal" "Xs: 1 2 3"
+
+// CORE-4 -- else/elif at body indent must escape the if's body so
+// parse_if can attach it as the trailing clause, instead of being
+// absorbed into the body's last statement.  Used to fail in the C
+// reader because (a) parse_if passed Type=0 (not 'if') down to
+// parse_offside so the "else ends body" check never fired, and
+// (b) the inner-if check looked at ys[yn-1] (last) instead of
+// ys[0] (first, matching Symta's `push`-prepended `Ys.~`).
+probe "else-at-body-indent"
+      "f X =
+  if X > 0:
+    A
+    else B"
+probe "elif-at-body-indent"
+      "f X =
+  if X > 10:
+    A
+    elif X > 0:
+      B
+    else
+      C"
+probe "nested-one-line-if-else"
+      "f =
+  if A:
+    if X: 1
+    else 2
+  else 3"

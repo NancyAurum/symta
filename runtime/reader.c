@@ -1354,7 +1354,13 @@ static dyn parse_offside(pstate_t *p, dyn type, int expect_eol,
           (text_eq_c(v, KW_then) || text_eq_c(v, KW_else_) ||
            text_eq_c(v, KW_elif))) {
         int yn = arrlen(ys);
-        dyn first = yn > 0 ? ys[yn - 1] : 0;
+        // Suppress the break when the current segment STARTS with
+        // `if` -- that means the else/elif belongs to that inner
+        // one-line if (e.g. `if A: \n  if X: 1 \n  else 2`).  In
+        // Symta `push` prepends, so `Ys.~` (last) corresponds to
+        // the FIRST inserted item; our `arrput` appends so we look
+        // at index 0 instead.
+        dyn first = yn > 0 ? ys[0] : 0;
         int has_open_if = yn > 0 && is_tok(first) &&
                           text_eq_c(tok_value(first), KW_if_);
         if (!has_open_if) break;
@@ -1475,14 +1481,20 @@ static dyn parse_if(pstate_t *p, dyn sym) {
   dyn then_, else_;
   if (is_next(p, KW_then)) {
     dyn t = p_pop(p);
-    then_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
+    // CORE-4: pass `if` as parse_offside's Type so a same-indent
+    // `else`/`elif`/`then` ends the body and propagates back up to
+    // us (handled at the trailer below).  Without this, an `else`
+    // at body indent gets absorbed into the body and parse_xs dies
+    // with `unexpected else`.  The Symta-side parser made the same
+    // switch (reader.s `Type='if'`).
+    then_ = parse_offside(p, KW_if_, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
   } else {
     if (!is_next(p, KW_colon)) {
       parser_error("missing `:` for", sym);
       return 0;
     }
     dyn t = p_pop(p);
-    then_ = parse_offside(p, 0, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
+    then_ = parse_offside(p, KW_if_, 0, (int)UNFXN(tok_row(t)), ocol_dyn);
   }
   // `Else: ` -- Symta initialises Else to empty list, not 0.
   LIST(else_, 0);
