@@ -1647,3 +1647,17 @@ text.parse Src!'<none>' LexP!No =
 | when got LexP: Text = lexical_macro_expand Src Text LexP
 | R parse_strip: parse_tokens: add_bars_c_: Text.tokenize(Src)
 | if R.end then [[]] else R.0.tail
+
+// `text.sexp`: a simpler entry point than `text.parse` that
+// skips the `add_bars_c_` toplevel-wrapping pass.  Used by
+// places that want to parse one expression (or a small list
+// of them) without the `|`-block structure -- e.g. the UIM
+// event-stream and the show-wh tag in uim.s.  Returns the
+// first expression by default; pass `list!1` to get the full
+// list of parsed expressions.
+text.sexp Src!'<none>' LexP!No List!0 =
+| Text Me
+| when got LexP: Text = lexical_macro_expand Src Text LexP
+| R parse_strip: parse_tokens: Text.tokenize(Src)
+| if List: ret R
+| if R.end: No else R.0

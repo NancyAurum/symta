@@ -36,7 +36,13 @@ copy_runtime Dst =
 | when rt_get windows:
   | Src =  "[Src].exe"
   | Dst =  "[Dst].exe"
-| less Dst.exists:
+// Refresh `go.exe` whenever `symta.exe` is newer.  Skipping
+// the copy when the destination merely exists was a one-time
+// "don't re-stage on every incremental build" shortcut, but it
+// left stale runtimes around indefinitely -- e.g. after an
+// SBC-format bump the cached go.exe couldn't load the freshly
+// emitted SBCs, producing baffling crashes.
+| when not Dst.exists or Src^newerThan(Dst):
   | fs_copy Src Dst
   | fs_chmod 755 Dst
 
