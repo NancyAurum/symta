@@ -21,10 +21,11 @@
 //    finalizer exactly once.
 //
 //    NOTE: the finalizer must be an *inline* `| X => ...` closure.
-//    Passing a top-level named function (`fire X = ...; set_finalizer
-//    Obj fire`) crashes the runtime -- a separate latent bug filed
-//    for follow-up.  We use the working idiom here so the stress
-//    test pins what works today.
+//    Passing a top-level named function (`fire X = ...;
+//    set_finalizer Obj fire`) now rejects with a clean error
+//    pointing at the call site (the runtime used to segfault from
+//    gc_finalizers' CALL on the symbol; landed as the
+//    set_finalizer typecheck guard).
 // ----------------------------------------------------------------
 type handle id
 type point x y
@@ -155,5 +156,41 @@ gc
 say "  captured-tag sum >= 45: [got(CCount >> 45)]"
 say ""
 
+
+// ----------------------------------------------------------------
+// 7. `fin Cleanup Body` (CORE-2) -- the try/finally form.  Cleanup
+//    must fire on BOTH the normal-exit and the unwound paths, in
+//    that order.  Validates the SBC_CTX SET/REMOVE_UNWIND_HANDLER
+//    pair and the btjump finalizer drain.
+// ----------------------------------------------------------------
+say "[7] fin runs cleanup on normal exit:"
+Trace7a 0
+RN fin (Trace7a = Trace7a + 1) (Trace7a = 10; 42)
+// Order: body sets Trace7a=10, then cleanup increments to 11.
+say "  result=[RN], trace=[Trace7a]"
+
+say "[8] fin runs cleanup on btjump (caught error):"
+Trace8 0
+R8 btrap: => fin (Trace8 = 99) (bad "boom from fin body")
+// Cleanup must fire DURING unwind, before btrap returns.
+say "  btrap caught: [R8.is_bterror], text=[R8.text], trace=[Trace8]"
+
+say "[9] fin with gen0 pressure -- handler survives a GC pause:"
+Trace9 0
+// Tighten gen0 so even a small alloc inside the body triggers a
+// collection.  The unwind-handler slot lives on api.uwhs / api.puwh
+// which the GC root scan walks; a missed slot would mean cleanup
+// never fires or fires on garbage.
+PrevPages gc_set_gen0_pages 4
+press_one =
+  Zs map J 8: J
+  Zs.n
+
+press_and_bad =
+  times I 200: press_one
+  bad "after pressure"
+R9 btrap: => fin (Trace9 = 77) press_and_bad()
+gc_set_gen0_pages PrevPages
+say "  caught: [R9.is_bterror], cleanup fired=[Trace9]"
 
 say "done"

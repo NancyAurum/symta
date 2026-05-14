@@ -375,23 +375,6 @@ catches things without dragging in the rest of Symta.
 > patterns from `symta-review.md`.
 > `effort: weekend`
 
-### \[P1\] **CORE-2** `fin Body Finalizer` is unimplemented
-
-> **Where:** [`src/macro.s`](src/macro.s) `fin` macro,
-> [`runtime/sif.h`](runtime/sif.h) opcodes,
-> [`runtime/sbc.c`](runtime/sbc.c) interpreter
-> **Problem:** the macro expands to an opcode the VM doesn't
-> implement. Symta has GC finalizers (`set_finalizer`) and
-> non-local return (`btland` / `btjump`), but no try / finally.
-> Resource-safe code (FFI handles, file descriptors) currently
-> needs `btrap` gymnastics.
-> **Fix:** add `SBC_SET_UNWIND` / `SBC_REMOVE_UNWIND` opcodes,
-> wire them into the SIF assembler, push / pop a handler stack
-> in the interpreter, fire on `bad`. Symta's GC already
-> maintains `api.uwhs` for runtime use; this exposes it to user
-> code.
-> `effort: weekend`
-
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c),

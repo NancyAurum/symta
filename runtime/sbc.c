@@ -1624,6 +1624,8 @@ dyn sbc_exec_fn(uint8_t *pin) {
     BREAK;}
 #define CTX_BTLAND 0
 #define CTX_BTJUMP 1
+#define CTX_SET_UNWIND_HANDLER 2
+#define CTX_REMOVE_UNWIND_HANDLER 3
   OP(SBC_CTX) {
     int type = RD8;
     if (type == CTX_BTLAND) {
@@ -1664,6 +1666,21 @@ dyn sbc_exec_fn(uint8_t *pin) {
       CHKREG(state);
       CHKREG(value);
       btjump(L[state],L[value]);
+    } else if (type == CTX_SET_UNWIND_HANDLER) {
+      /* CORE-2: push a finalizer closure onto api.puwh so it fires
+       * if the protected region unwinds via btjump.  Mirrors the
+       * SET_UNWIND_HANDLER macro in symta.h. */
+      int h = RD16;
+      CHKREG(h);
+      ++api.puwh;
+      *api.puwh = L[h];
+    } else if (type == CTX_REMOVE_UNWIND_HANDLER) {
+      /* CORE-2: pop the most recent handler on normal-exit from
+       * the protected region (the `fin` macro emits a tail call
+       * to the handler immediately after this op for the
+       * no-unwind case). */
+      *api.puwh = 0;
+      --api.puwh;
     } else {
       fprintf(stderr, "SBC_CTX: bad type=%d\n", type);
     }

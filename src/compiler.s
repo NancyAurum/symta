@@ -490,8 +490,8 @@ hcase SsaFormCases Xs (K)
   [_tag X] | ssa_fixed1 K fxntag X
   [_setjmp] | ssa setjmp K
   [_longjmp State Value] | ssa longjmp State^ev Value^ev
-  [_set_unwind_handler H] | ssa set_unwind_handler K H^ev
-  [_remove_unwind_handler] | ssa set_unwind_handler K
+  [_set_unwind_handler H] | ssa set_unwind_handler H^ev
+  [_remove_unwind_handler] | ssa remove_unwind_handler
   [_ffi_call Type F @As] | ssa_ffi_call K Type F As
   [_ffi_get Type Ptr Off] | ssa nld K Type.1 Ptr^ev Off^ev
   [_ffi_set Type Ptr Off Val] | ssa nst Type.1 Ptr^ev Off^ev Val^ev

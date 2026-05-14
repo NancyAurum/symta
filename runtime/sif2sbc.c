@@ -801,6 +801,18 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(refidx(as[1])); //saved context
       EMIT16(refidx(as[2])); //returned value
       break;}
+    case SBC_SET_UNWIND_HANDLER: {
+      /* CORE-2: push a finalizer closure onto api.puwh.  Lowered
+       * to SBC_CTX sub-type 2 so the dispatch lives next to the
+       * existing btland (0) / btjump (1) handlers. */
+      EMIT8(SBC_CTX);
+      EMIT8(2);
+      EMIT16(refidx(as[1])); //handler register
+      break;}
+    case SBC_REMOVE_UNWIND_HANDLER: {
+      EMIT8(SBC_CTX);
+      EMIT8(3);
+      break;}
     default: {
       fprintf(stderr, "sif2sbc: bad operator `%s`\n", as[0]);
       exit(-1);

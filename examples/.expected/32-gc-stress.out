@@ -16,4 +16,10 @@
 6 closures pin captured state:
   captured-tag sum >= 45: 1
 
+7 fin runs cleanup on normal exit:
+  result=42, trace=11
+8 fin runs cleanup on btjump (caught error):
+  btrap caught: 1, text=boom from fin body, trace=99
+9 fin with gen0 pressure -- handler survives a GC pause:
+  caught: 1, cleanup fired=77
 done

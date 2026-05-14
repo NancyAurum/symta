@@ -195,6 +195,10 @@ enum {
   SBC_INCL,   //associated .h header
   SBC_SETJMP,
   SBC_LONGJMP,
+  /* CORE-2: try/finally via the existing api.puwh stack.  Both
+   * virtual ops lower to SBC_CTX with a sub-type byte. */
+  SBC_SET_UNWIND_HANDLER,
+  SBC_REMOVE_UNWIND_HANDLER,
   SBC_IGNORE
 };
 

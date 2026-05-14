@@ -189,6 +189,8 @@ void sif_loader_init() {
 
   shput(asmsbc,"setjmp"   ,SBC_SETJMP);
   shput(asmsbc,"longjmp"  ,SBC_LONGJMP);
+  shput(asmsbc,"set_unwind_handler"   ,SBC_SET_UNWIND_HANDLER);
+  shput(asmsbc,"remove_unwind_handler",SBC_REMOVE_UNWIND_HANDLER);
   shput(asmsbc,"bs"       ,SBC_BS);
   shput(asmsbc,"t"        ,SBC_T);
   shput(asmsbc,"src"      ,SBC_SRC);
