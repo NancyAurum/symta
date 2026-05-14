@@ -81,11 +81,24 @@ for name in "${CASES[@]}"; do
   raw=$( cd "$HERE" && "$GO" --case=$name 2>&1 )
   printf '%s\n' "$raw" | normalize > "$out"
 
+  # Refuse to write a golden that contains FAIL / UNHANDLED ERROR
+  # / segfault: those are always test failures, never expected output.
+  # (See FFI-3 -- six error-ing FFI goldens got accidentally captured
+  # because --update wrote them without checking.)
+  taint=""
   if grep -q '^FAIL' "$out"; then
+    taint="FAIL"
+  elif grep -q '^UNHANDLED ERROR' "$out"; then
+    taint="UNHANDLED ERROR"
+  elif grep -q 'segfault at' "$out"; then
+    taint="segfault"
+  fi
+  if [ -n "$taint" ]; then
     failed=$((failed+1))
     fail_names="$fail_names $name"
-    echo "  FAIL   $name"
-    grep '^FAIL' "$out" | head -3 | sed 's/^/         /'
+    echo "  FAIL   $name   ($taint in output -- refusing to update)"
+    grep -E '^FAIL|^UNHANDLED ERROR|segfault at' "$out" | head -3 \
+      | sed 's/^/         /'
     continue
   fi
 

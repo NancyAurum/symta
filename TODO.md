@@ -85,72 +85,112 @@ the commit hash and date appended.
 >   matrix.
 > `effort: multi-week` (Phase 1 + Phase 5 done; Phases 2-4 remaining)
 
-### \[P1\] **FFI-2** `ffi_load` segfaults on missing library
+### \[done\] **FFI-2** `ffi_load` segfaults on missing library — FIXED
 
-> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `ffi_load`,
-> [`tests/ffi/expected/libc.out`](tests/ffi/expected/libc.out)
-> (currently captures the crash)
-> **Problem:** `ffi_load \msvcrt` on a system without
-> `ffi/msvcrt.ffi` prints the right diagnostic
-> ("`ffi_load: missing library ffi/msvcrt.ffi`") and then
-> immediately segfaults at `0000000000000000`. Expected
-> behaviour for a clean miss is to return `No` so the caller
-> can fall back (the `libc_resolve` helper in `tc_libc.s` walks
-> a list of candidate library names — `\msvcrt \c \System
-> \libc` — and expects each `ffi_load` that fails to return No,
-> not crash). The crash blocks any portable
-> "try-several-libraries" pattern.
-> **Fix:** find the post-diagnostic path in `ffi_load` that
-> dereferences something it just discovered was null, and
-> return `No` (or whatever the "not loaded" sentinel is)
-> instead. Suspect: the diagnostic prints the missing-library
-> message but then continues into the success path expecting
-> `lib != NULL`.
-> **Why now:** `tc_libc.s` segfaults on Win64 (no msvcrt.ffi
-> stub), so any "try libc by candidate names" test is
-> currently impossible to write cleanly. This also rules out
-> the `try-each-candidate` pattern for any user-facing FFI
-> code on a fresh checkout.
-> `effort: 30 min` (1-line fix once the crashing dereference
-> is located)
+> **Where:** [`runtime/bltin.c`](runtime/bltin.c) `ffi_load` builtin
+> **Status:** fixed in May 2026. The builtin now returns `No` on
+> any failure mode (library file missing, library file present
+> but won't load, library loaded but symbol not found) instead
+> of calling `fatal()`, which on missing library crashed in
+> `CRASH` (gdb-stacktrace mode). The change unblocks the
+> standard `for L [candidates]: F ffi_load L Sym; when F: ret F`
+> try-each-candidate pattern in `tc_libc.s`.
+> **Root cause:** all three failure paths called `fatal(msg)`,
+> which prints the message and then deliberately segfaults
+> (rather than `exit(-1)`) so gdb can capture the stack trace.
+> Useful for debugging real fatal-state bugs; misplaced for
+> "library not found" which is recoverable.
+> **Fix:** demote case 1 (file missing) to a silent No, and
+> cases 2/3 (load failure, missing symbol) to a one-line stderr
+> diagnostic + No.  No callers of `ffi_load` were depending on
+> the crash; the existing FFI suite + drift bootstrap pass on
+> the new behaviour.
 
-### \[P2\] **FFI-3** Six FFI test goldens captured unhandled errors
+### \[done\] **FFI-3** Six FFI test goldens captured unhandled errors — FIXED
 
-> **Where:** [`tests/ffi/expected/`](tests/ffi/expected/)
-> (`arith.out`, `arity_f64.out`, `double.out`,
-> `interleave.out`, `libc.out`, `str_ops.out`)
-> **Problem:** the FFI regression suite was captured with
-> `run.sh --update` while six of the seventeen tests were
-> still error-ing. The runner now treats those errors as
-> "expected" output and reports the suite as 17/17 passing.
-> The errors hidden:
+> **Where:** [`tests/ffi/`](tests/ffi/) test sources and goldens
+> (`arith.out`, `arity_f64.out`, `double.out`, `interleave.out`,
+> `libc.out`, `str_ops.out`)
+> **Status:** all six fixed and re-captured in May 2026. The
+> FFI suite is now 17/17 genuinely passing (vs the old 17/17
+> with six error-ing goldens hiding the failures).
 >
-> | Test       | Captured failure |
-> |------------|------------------|
-> | str_ops    | `_fixtext_ has no method `^^`` — uses `^^` thinking it's text-repeat (it's `pow` for int/float, `map`-over for list). Test source needs `text.dup`-style literal or a small repeat helper. |
-> | libc       | `segfault` from FFI-2 (`ffi_load` on missing library). |
-> | arith, arity_f64, double, interleave | `float.\`<\`: arg 1 is not float` — all four use the same `Diff.abs.float < 1e-9` near-equality helper. Either FFI's float-return marshalling drops the float tag, or `Diff.abs.float` doesn't actually coerce to float. The first arithmetic comparison after the first float-result FFI call fails. |
+> | Test | Captured failure | Real root cause | Fix |
+> |------|------------------|------------------|-----|
+> | libc | segfault from `ffi_load` | FFI-2 (fixed); `tc_libc.s` now cleanly SKIPs when no libc resolvable | refresh golden |
+> | str_ops | `_fixtext_ has no method `^^`` | Symta has no text-repeat operator -- `^^` is pow/map | use `"A" * N` (text multiplication) and string interpolation `"[(rep)]y[(rep)]"` for concatenation |
+> | arith / arity_f64 / double / interleave | `float.\`<\`: arg 1 is not float` | the `< 1e-9` epsilon literal compiles to `0.0` because the Symta compiler's float-to-text emission uses `%.8f` which loses precision for values below ~1e-8 -- the resulting SBC encodes 0.0, which then trips `float.\<` because `0` is int-tagged after constant-folding | use `< 0.000001` (1e-6) -- well within float32's ~7 sigdig range, survives the `%.8f` round-trip. Real fix filed as READER-1 |
 >
-> **Fix sequence:**
-> 1. Investigate the `float.\<` failures — likely either an
->    sffi return-type bug (the bigger find) or a `.float`
->    coercion bug in core_.s. Pick one test, look at the actual
->    output before the error.
-> 2. Replace `'A'^^100` in `tc_str_ops.s` with a working
->    repeater (a literal `"AAAAA…"` or `(map I N: 'A').text.j`).
-> 3. Once FFI-2 lands, `tc_libc.s` can run -- gate the
->    libc-not-found path on returning No instead of crashing.
-> 4. Refresh the goldens. Run the suite and verify they're
->    error-free.
+> **Two new bugs surfaced** during this work; filed as
+> READER-1 and FFI-4 below.
 >
-> **Process fix:** the run.sh's `--update` mode should refuse
-> to write a golden that contains `^UNHANDLED ERROR` or
-> `segfault at` -- those are *always* test failures, not
-> "expected" output. A 5-line sed-guard in the update path
-> prevents this class of regression. Catch the same in the
-> `am`, `runtime`, and `compiler` suites' run.sh too.
-> `effort: afternoon` (each FFI test failure root-caused +
-> the run.sh `--update` guard)
+> **Process fix landed:** the runners for `tests/ffi/`,
+> `tests/am/`, and `tests/runtime/` now refuse to write a
+> golden that contains `^UNHANDLED ERROR` or `segfault at`
+> in the actual output -- they fail the test with a clear
+> "($taint in output -- refusing to update)" message instead.
+> Both `--update` and the no-golden-present path enforce this.
+> Prevents the FFI-3-class regression from recurring.  See
+> the `taint=` block near the top of each run.sh's main loop.
+
+### \[P2\] **READER-1** Compiler float-to-text loses precision below 1e-8
+
+> **Where:** [`runtime/main.c`](runtime/main.c) `print_object_r`
+> (the `T_FLOAT` branch), called via `float.as_text` which is
+> called by [`src/compiler.s`](src/compiler.s) `ssa_atom` when
+> serialising `ldflt K X` to SIF text.
+> **Problem:** `print_object_r` formats floats with `%.8f` (8
+> decimal places).  For values below ~1e-8 the format produces
+> `"0.00000000"` (all zeroes) and the trailing-zero stripper
+> turns that into `"0.0"`.  When the compiler then emits the
+> SIF line `ldflt L5 0.0` and `sif2sbc` re-parses it via
+> `strtod`, the result is 0.0 -- silent precision loss.
+> **User-visible bite:** writing `0.000000001` (= 1e-9) in
+> Symta source compiles to the float 0.0, so any code using
+> 1e-9-or-smaller epsilon comparisons silently breaks.
+> Discovered while triaging the FFI float-tests (FFI-3); they
+> all used `Diff.abs.float < 1e-9` and tripped a downstream
+> `float.\<` because `0.0` rounds to integer 0 after the lossy
+> compile.
+> **Fix sketch:** use `%.9g` (9 significant digits -- enough
+> to round-trip every float32 value).  Two side-effects to
+> address:
+> 1. `%.9g` switches to scientific notation for very small /
+>    very large values (`1e-09`, `1.5e+15`).  The reader
+>    currently *cannot* parse scientific-notation literals
+>    (a separate bug: `1e9` tokenises as a single "int" token
+>    of base-10 with letters-as-extended-digits, evaluating
+>    to 249).  So fixing the printer requires also fixing the
+>    reader/tokenizer to round-trip scientific notation.
+> 2. User-facing float display changes from `1.5` /
+>    `0.00000000` (lost) to `1.5` / `1e-09` (preserved).
+>    Audit example outputs and refresh goldens.
+>
+> Until READER-1 lands, the workaround is to write small float
+> literals in long-form `0.00000001` form -- accurate down to
+> ~1e-8, beyond that round to 0.
+> `effort: 1-2 days` (printer + reader scientific-notation
+> support + golden audit + drift verification)
+
+### \[P3\] **FFI-4** Text-marshalling drops multi-byte UTF-8 to C `char*`
+
+> **Where:** the FFI text → cstring marshalling path; observed
+> in `tests/ffi/src/tc_str_ops.s` (the bytesum-of-`"ä"` case,
+> currently commented out).
+> **Problem:** passing a Symta text that contains multi-byte
+> UTF-8 characters to a `.text` FFI parameter yields an empty
+> string on the C side.  Reproducer: `c_str_bytesum "ä"`
+> returns 0; the Symta-side value is fine (`"ä".n == 2` and the
+> bytes are `195, 164`).
+> **Why this matters:** real-world FFI is full of multi-byte
+> strings (Unicode filenames, JSON payloads, anything from
+> a non-ASCII locale).  The current bug silently truncates.
+> **Investigation pointers:** check `FFI_ARG_text` / the
+> text-to-cstring path in `runtime/bltin.c` for fixtext (short)
+> vs bigtext (long) handling; fixtext may pack characters in a
+> way that the marshaller mis-decodes for high-bit bytes.
+> `effort: half day` (root-cause + fix + reactivate the
+> tc_str_ops bytesum-ä case)
 
 ---
 

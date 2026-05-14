@@ -13,8 +13,12 @@ check Label Expected Got =
     else say "FAIL [Label]: expected [Expected] got [Got]"
 
 check_near Label Expected Got =
+  // Float tolerance is loose (1e-6) because the Symta compiler's
+  // float-to-text emission uses `%.8f` which loses precision for
+  // values below ~1e-8 (see TODO READER-1).  1e-6 is well within
+  // float32's ~7 sigdig range and survives the round-trip.
   Diff Expected - Got
-  if Diff.abs.float < 1e-9
+  if Diff.abs.float < 0.000001
     then say "PASS [Label]"
     else say "FAIL [Label]: expected [Expected] got [Got]"
 

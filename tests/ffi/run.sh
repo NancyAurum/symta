@@ -127,12 +127,26 @@ for name in "${CASES[@]}"; do
           -e 's|version = [0-9][0-9.a-z-]*|version = VERSION|g' \
     > "$out"
 
-  # Fast pre-check: any FAIL in actual = test failed.
+  # Fast pre-check: any FAIL / UNHANDLED ERROR / segfault in actual
+  # means the test crashed and the output is not a valid golden.
+  # Refuse to write such an output as a golden even under --update,
+  # because that's how FFI-3 happened in the first place: six
+  # error-ing goldens got captured as "expected" and the suite
+  # reported 17/17 passing while half the cases were broken.
+  taint=""
   if grep -q '^FAIL' "$out"; then
+    taint="FAIL"
+  elif grep -q '^UNHANDLED ERROR' "$out"; then
+    taint="UNHANDLED ERROR"
+  elif grep -q 'segfault at' "$out"; then
+    taint="segfault"
+  fi
+  if [ -n "$taint" ]; then
     failed=$((failed+1))
     fail_names="$fail_names $name"
-    echo "  FAIL   $name"
-    grep '^FAIL' "$out" | head -3 | sed 's/^/         /'
+    echo "  FAIL   $name   ($taint in output -- refusing to update)"
+    grep -E '^FAIL|^UNHANDLED ERROR|segfault at' "$out" | head -3 \
+      | sed 's/^/         /'
     continue
   fi
 

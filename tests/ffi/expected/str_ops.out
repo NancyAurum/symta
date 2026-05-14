@@ -1,11 +1,10 @@
 PASS strlen 1
 PASS strlen 3
 PASS strlen 7
-UNHANDLED ERROR
-_fixtext_ has no method `^^`
-object=0000000000410004 (tag=2)
-
-Stack Trace:
-  0000000000000000:__:0,0,builtin
-  0000000000000000:tc_str_ops:16,11,./src/tc_str_ops.s
-  0000000000000000:<toplevel>:18,17,./src/go.s
+PASS strlen 100
+PASS strlen 500
+PASS strlen 4096
+PASS strchr y@50
+PASS strchr ! @ 1000
+PASS bytesum A10
+PASS bytesum A100

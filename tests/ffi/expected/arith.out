@@ -2,10 +2,7 @@ PASS i32 add 7+5
 PASS i32 add -3+10
 PASS u32 add 100+200
 PASS u32 add 0xFF+1
-UNHANDLED ERROR
-float.`<`: arg 1 is not float
-Stack Trace:
-  0000000000000000:float.`<`:0,0,builtin
-  0000000000000000:check_near:15,30,./src/tc_arith.s
-  0000000000000000:tc_arith:21,9,./src/tc_arith.s
-  0000000000000000:<toplevel>:18,17,./src/go.s
+PASS f32 add 1.5+2.5
+PASS f64 add 1e3+1e3
+PASS mix i32+f64
+PASS mix f64+i32

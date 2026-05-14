@@ -2182,45 +2182,47 @@ BUILTIN2("ffi_load",ffi_load,C_TEXT,lib_name_text,C_TEXT,sym_name_text)
   char *sym_name = strdup(text_to_cstring(sym_name_text));
   void *pfn = ffi_load(lib_name, sym_name);
   if (!pfn) {
-    // Two failure modes to disambiguate:
-    //   1. dlopen failed -- the library file is missing OR a
-    //      transitive DLL dependency cannot be resolved.
-    //   2. dlopen succeeded but dlsym failed -- the symbol just
-    //      isn't in the library (typo, version mismatch).
+    // Three failure modes to disambiguate; all return No so that
+    // try-each-candidate patterns
+    //   for Lib [\msvcrt \c \System]: F ffi_load Lib Sym; when F: ret F
+    // can iterate.  Previously every failure went through fatal()
+    // which CRASH-es (for gdb stack traces) -- safe enough for
+    // production scripts but no good for libc_resolve-style fallbacks.
+    //
+    //   1. .ffi file missing -- silent return of No (common when
+    //      walking candidate library names).
+    //   2. .ffi file present but won't load (transitive DLL
+    //      dependency missing) -- one-line stderr diagnostic + No.
+    //   3. library loaded but symbol not found -- one-line stderr
+    //      diagnostic + No.
     if (!ffi_loopkup(lib_name)) {
-      // Library wasn't loaded; dl_err_buf was set by ffi_dlopen.
       char *path = cat(main_path, "ffi/", lib_name, ".ffi");
       int exists = fs_is_file(path);
-      free(path);
-      if (!exists) {
-        fatal("ffi_load: missing library `ffi/%s.ffi`\n"
-              "  (looked in `%sffi/`)\n",
-              lib_name, main_path);
-      } else {
-        fatal("ffi_load: cannot open `ffi/%s.ffi`\n"
-              "  full path: %s\n"
-              "  reason:    %s\n"
-              "  Most often this means a transitive DLL dependency is\n"
-              "  missing -- e.g. the SDL2 runtime DLLs alongside the .exe.\n",
-              lib_name, dl_err_path, dl_err_buf);
+      if (exists) {
+        fprintf(stderr,
+                "ffi_load: cannot open `ffi/%s.ffi`\n"
+                "  full path: %s\n"
+                "  reason:    %s\n"
+                "  Most often this means a transitive DLL dependency is\n"
+                "  missing -- e.g. the SDL2 runtime DLLs alongside the .exe.\n",
+                lib_name, dl_err_path, dl_err_buf);
       }
+      free(path);
     } else {
       char *err = dlerror();
-      fatal("ffi_load: symbol `%s` not found in `ffi/%s.ffi`%s%s\n",
-            sym_name, lib_name,
-            err ? "\n  dlsym: " : "",
-            err ? err : "");
+      fprintf(stderr,
+              "ffi_load: symbol `%s` not found in `ffi/%s.ffi`%s%s\n",
+              sym_name, lib_name,
+              err ? "\n  dlsym: " : "",
+              err ? err : "");
     }
+    R = No;
+  } else if (NFI_BADPTR(pfn)) { // just to be safe -- shouldn't happen
+    fatal("dlsym symbol `/%s` has unexpected address = %p\n",
+          lib_name, sym_name, pfn);
+  } else {
+    R = NFI_ENCPTR(pfn);
   }
-
-
-  if (NFI_BADPTR(pfn)) { //just to be safe
-    fatal("dlsym symbol `/%s` has unexpected address = %p\n"
-         ,lib_name,sym_name, pfn);
-  }
-
-  R = NFI_ENCPTR(pfn);
-
 
   free(lib_name);
   free(sym_name);

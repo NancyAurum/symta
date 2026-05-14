@@ -75,12 +75,26 @@ for f in examples/*.s; do
     [ "$actual" = "$golden" ] && break
   done
 
+  # Refuse to write a golden that contains an unhandled error or a
+  # segfault: those are always test failures, never expected output.
+  # (See FFI-3 -- six error-ing goldens got accidentally captured
+  # because --update wrote them without checking.)
+  taint=""
+  case "$actual" in
+    *"UNHANDLED ERROR"*) taint="UNHANDLED ERROR" ;;
+    *"segfault at"*)     taint="segfault" ;;
+  esac
+
   if [ ! -f "$expected" ]; then
-    if [ $UPDATE -eq 1 ]; then
+    if [ $UPDATE -eq 1 ] && [ -z "$taint" ]; then
       mkdir -p "$EXPECT"
       printf '%s\n' "$actual" > "$expected"
       echo "  NEW    $base"
       new=$((new+1))
+    elif [ -n "$taint" ]; then
+      failed=$((failed+1))
+      fail_names="$fail_names $base"
+      echo "  FAIL   $base   ($taint in output -- refusing to update)"
     else
       echo "  ?      $base   (no golden; run with --update to capture)"
       new=$((new+1))
@@ -89,13 +103,17 @@ for f in examples/*.s; do
   fi
 
   golden=$(cat "$expected" | normalize)
-  if [ "$actual" = "$golden" ]; then
+  if [ "$actual" = "$golden" ] && [ -z "$taint" ]; then
     passed=$((passed+1))
     # quiet success
   else
-    if [ $UPDATE -eq 1 ]; then
+    if [ $UPDATE -eq 1 ] && [ -z "$taint" ]; then
       printf '%s\n' "$actual" > "$expected"
       echo "  UPDATE $base"
+    elif [ -n "$taint" ]; then
+      failed=$((failed+1))
+      fail_names="$fail_names $base"
+      echo "  FAIL   $base   ($taint in output -- refusing to update)"
     else
       failed=$((failed+1))
       fail_names="$fail_names $base"
