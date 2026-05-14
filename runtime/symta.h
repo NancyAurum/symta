@@ -278,6 +278,19 @@ struct api_t {
 
   /* ---- WARM second line: btrap/btland state, runtime constants
    * that show up on common but non-innermost paths. */
+  /* RT-8b: closure-pending slot.  OPEN_FRAME used to stash the
+   * called-closure dyn into a caller-stack `frame_t frm_;`, then
+   * the callee's PROLOGUE read it back via `api.frame->clsr`.
+   * That split the frame metadata (caller's stack) from the
+   * locals array (callee's stack) across two cache lines per
+   * Symta-level call.  After RT-8b, OPEN_FRAME writes the
+   * closure here, the callee's PROLOGUE allocates a combined
+   * (frame_t + L[]) block on its own stack, and copies the
+   * pending closure into it -- frame metadata and locals end
+   * up adjacent (often the same cache line for small fsize),
+   * which speeds the GC root scan (one line per Symta frame
+   * instead of two) and the per-call PROLOGUE store sequence. */
+  dyn clsr_pending;
   dyn jmp_return;
   dyn error_handler;
   void *empty_;          /* the canonical No value; appears in
@@ -427,31 +440,65 @@ typedef struct tot_entry_t { //table of tables entry
 // E (environment) holds pointer to arglist of current function
 #define P L[0]
 #define E L[1]
+
+/* RT-8b: combined frame_t + L[] block.  `frame_t` used to live
+ * on the caller's C stack (allocated by `OPEN_FRAME`), with
+ * `L[]` on the callee's C stack (allocated here).  The two were
+ * always in different C stack frames, so the GC root scan paid
+ * a cache miss per Symta frame to chase `frame->vars` across
+ * the gap.  Now both live on the callee's stack, adjacent in
+ * one C local: `frame_t` followed immediately by `fsize` slots
+ * of `L[]`.  For typical `fsize` <= 4 the whole frame is one
+ * cache line.  The caller hands the closure across via
+ * `api.clsr_pending` (a warm-line field of `api_t`) which the
+ * prologue copies into the just-built frame header.  Sized
+ * `1 + fsize` void-pointer slots, since `sizeof(frame_t) == 40`
+ * fits in 5 pointer slots on LP64 but the cleanest portable
+ * trick is a struct-hack: one void* block, the head of which
+ * is reinterpreted as `frame_t *`. */
+#define FRAME_PREFIX_SLOTS \
+  ((sizeof(frame_t) + sizeof(void*) - 1) / sizeof(void*))
+
 #define PROLOGUE(fsize) \
-  void *L[fsize]; \
+  void *L_blk_[FRAME_PREFIX_SLOTS + (fsize)]; \
+  frame_t *frm_ = (frame_t*)L_blk_; \
+  void **L = L_blk_ + FRAME_PREFIX_SLOTS; \
+  frm_->prev = api.frame; \
+  frm_->clsr = api.clsr_pending; \
+  frm_->pin = 0; \
+  frm_->nvars = (fsize); \
+  frm_->vars = L; \
+  api.frame = frm_; \
   do { \
     void **p_ = L+2; \
     void **e_ = L+(fsize); \
     while (p_ < e_) *p_++ = 0; \
   } while(0); \
-  api.frame->nvars = fsize; \
-  api.frame->vars = L; \
-  P = api.frame->clsr; \
+  P = frm_->clsr; \
   E = api.args;
 
 #define FRAME_HEADER_SIZE 2
 
 #define SUBR(fsize) PROLOGUE(fsize)
 
-#define OPEN_FRAME(f) \
-  frame_t frm_; \
-  frm_.prev = api.frame; \
-  api.frame = (frame_t*)&frm_; \
-  frm_.clsr = f; \
-  frm_.pin = 0;
+/* RT-8b: OPEN_FRAME no longer allocates a `frame_t` on the
+ * caller's stack.  Instead it stages the called-closure dyn in
+ * `api.clsr_pending`; the callee's PROLOGUE picks it up and
+ * stores it into the combined frame block it allocates on its
+ * own stack.  CALL is responsible for saving/restoring
+ * `api.frame` around the inner dispatch, because the callee's
+ * frame_t (in callee stack space) is gone by the time control
+ * returns here. */
+#define OPEN_FRAME(f) api.clsr_pending = (f);
 
-
-#define CLOSE_FRAME api.frame = frm_.prev;
+/* RT-8b: CLOSE_FRAME now reads the saved `prev` from the
+ * locally-allocated `frm_` (set by PROLOGUE), unwinding the
+ * frame at end-of-function rather than at the caller side.
+ * The CALL macro doesn't use CLOSE_FRAME any more -- it snapshots
+ * api.frame around the inner dispatch -- but the explicit
+ * `sbc_exec` driver does, since it's the outermost frame for an
+ * entire Symta module run. */
+#define CLOSE_FRAME api.frame = frm_->prev;
 
 
 #define ARGLIST1(a) do {\
@@ -479,14 +526,24 @@ extern hook_t hooks_heap[];
  * slots instead of indirecting through hooks_heap.  Reads land
  * on the closure object itself -- the same cache line as the
  * captures we just walked to set up the call -- so the call no
- * longer pays a vtable-style miss into the side table. */
+ * longer pays a vtable-style miss into the side table.
+ *
+ * RT-8b: also snapshots `api.frame` so we can restore it after
+ * the callee (whose `frame_t` lives on its own C stack frame,
+ * see PROLOGUE) returns and that stack is unwound.  The save is
+ * one register-width local; the unwind store is the same one
+ * CLOSE_FRAME used to do, just sourced from the snapshot.  (We
+ * don't invoke CLOSE_FRAME here because it would refer to a
+ * different `frm_` -- the *enclosing* function's, which we don't
+ * want to unwind.) */
 #define CALL(k,f) { \
   OPEN_FRAME(f); \
   void **_fp = (void**)O_PTR(f); \
   uint32_t _fz = (uint32_t)O_SIZE(f); \
   psf_t _h = (psf_t)_fp[_fz]; \
+  frame_t *_saved_frame = api.frame; \
   k = _h((uint8_t*)_fp[_fz + 1]); \
-  CLOSE_FRAME; \
+  api.frame = _saved_frame; \
 }
 
 #define GC_DISABLE() ++api.gc_disable

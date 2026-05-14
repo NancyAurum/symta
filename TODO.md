@@ -158,6 +158,30 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 > flip the readers to `O_AGE` from the header, then drop the
 > writes to `theap0`, then drop the array. Drift test gates each
 > step.
+>
+> **Gotcha found in a May 2026 prototype (reverted before
+> commit).** `GC_REDIR(o,p)` writes the redirect pointer `p`
+> across the *entire* 8-byte `gc_head_t` (`O_RELOC(o) = *(void**)
+> &O_HDR(o) = p`), which obliterates any "age" nibble parked
+> inside the header.  After a relocation, an inline read of
+> `O_AGE` therefore returns whatever bits of the redirect
+> pointer happen to occupy that slot -- in practice the top
+> nibble of the destination gid, i.e. a small number that
+> coincides with `GC_AGE` for the next collection and causes the
+> GC to re-walk redirect pointers as live objects (manifests as
+> NIL/garbage values appearing in lists, with text\_size /
+> "no method 'end'" errors near `ncm_process_` / `parse_bar`).
+>
+> So the move can't just be "put age inline."  The MOVED flag
+> still has to live somewhere that survives the pointer write:
+> either keep `theap0[gid-1] == GC_MOVED` purely as a relocation
+> marker (no longer storing age), or use a tagged-redirect-
+> pointer scheme where one of the low alignment bits of `p`
+> doubles as a MOVED flag (heap allocations are 8-byte aligned,
+> so bits 0..2 are free for redirect-only use; but every
+> `O_RELOC` read has to mask them off and every consumer of the
+> moved-pointer has to know the encoding).  Picking between
+> them is what makes this a weekend job, not an afternoon.
 > `effort: weekend`
 
 ### \[P1\] **RT-5** Closure CALL chases `hooks_heap[code]` indirection — DONE (May 2026)
@@ -252,34 +276,43 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 > sbc_exec reads from a per-function table.
 > `effort: afternoon`
 
-### \[P2\] **RT-8** `frame_t` metadata separate from `L[]` locals
+### \[P2\] **RT-8** `frame_t` metadata separate from `L[]` locals — DONE (May 2026, RT-8a + RT-8b)
 
-> **Where:** [`runtime/symta.h:222-228`](runtime/symta.h)
-> (`frame_t`), [`runtime/symta.h:342-367`](runtime/symta.h)
-> (`PROLOGUE`), [`runtime/gc.c:95-102`](runtime/gc.c)
-> (`gc_builtins`).
-> **Problem:** `PROLOGUE` puts the C function's `void *L[fsize]`
-> on the C stack, which is fine -- contiguous, prefetcher-loved.
-> But the *frame metadata* (`frame_t = {clsr, prev, vars,
-> nvars}`) lives in a separate C-stack `frm_` whose `vars`
-> points back at `L[]`. The GC root scan walks
-> `api.frame->prev → frame->vars → walk nvars pointers → next
-> frame` -- two cache lines per frame for deep stacks. Steady
-> state cost is small; GC pause cost on call-stack-heavy
-> workloads (game tick, deep AST walks) is real.
-> **Fix:** `OPEN_FRAME` allocates `frame_t + L[]` as one
-> struct-hack blob on the C stack, with the locals immediately
-> following the metadata. GC root scan touches one line per
-> frame. As a bonus, `vars` and `nvars` become redundant (size
-> is known to prologue), shrinking the frame header.
-> **Smaller related win:** `api_t` itself
-> (`symta.h:234-285`) interleaves cold fields
-> (`print_object_f`, `alloc`, `text_chars`, `sbuf`,
-> `nfi_args[32]`) with hot fields (`frame`, `args`, `hgp`,
-> `theap0`, `heap0`). Every barrier and every CALL loads from
-> different lines of `api_g`. Reorder so the ~8 hot pointers fit
-> in the first cache line.
-> `effort: 30 min (api_t reorder) + afternoon (frame inlining)`
+> **Landed.**
+>
+> **RT-8a** (previous commit) reordered `api_t` so the ~9 hot
+> pointers (`args`, `frame`, `hgp`, `heap0`, `theap0`, `pgmod`,
+> `method`, `gc_disable`, `puwh`) all share the first cache line.
+> Cold setup callbacks (`print_object_f`, `alloc`, `text_chars`,
+> `sbuf`, `nfi_args[32]`) moved to a separate tail of the struct.
+> Every barrier and every CALL now hits the same line.
+>
+> **RT-8b** colocates `frame_t` with the callee's `L[]` array.
+> The caller's `OPEN_FRAME` no longer allocates a `frame_t` on
+> its own stack; instead it stashes the called-closure dyn into
+> `api.clsr_pending` (a warm-line slot on `api_t`).  The callee's
+> `PROLOGUE` allocates one combined `void *L_blk_[FRAME_PREFIX_
+> SLOTS + fsize]` array, casts the head as `frame_t *`, links
+> it into the `api.frame` chain, and uses the tail as `L[]`.
+> Frame header and locals end up adjacent in the callee's stack
+> frame -- the GC root scan walks one cache line per Symta-level
+> frame (header + first ~3 locals), not two (header on caller's
+> stack, locals on callee's stack, never co-resident).
+>
+> The CALL macro snapshots `api.frame` before the inner dispatch
+> and restores it after, because the callee's `frame_t` lives on
+> the callee's C stack and is gone by the time control returns.
+> CLOSE_FRAME survives only at the `sbc_exec` driver -- the
+> module's outermost frame, which doesn't have an enclosing CALL
+> to handle the unwind for it.
+>
+> **Why the microbenches don't move:** `bn_call.1arg` /
+> `bn_mcall.negneg` are tight inner loops where the entire stack
+> region is L1-resident regardless of which C frame the
+> `frame_t` lives in.  The win lands on GC pause cost
+> (`bn_gc.deepgc` band shifted from 504-526 μs to ~511 μs,
+> within noise) and on cold paths where the call chain is wider
+> than L1.  Tests / drift / examples / voxpie all green.
 
 ---
 
