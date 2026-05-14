@@ -398,14 +398,37 @@ catches things without dragging in the rest of Symta.
 ### \[P3\] **CORE-8** Compiler micro-optimisations
 
 > **Where:** [`src/compiler.s`](src/compiler.s)
-> **Problem:** four small wins from a once-over:
-> constant-folding literal arithmetic, dead-store elimination
-> on unread SSA registers, unrolling `times I N:` for known
-> small `N`, computed-jump compilation of `case` chains with
-> all-literal patterns.
-> **Fix:** each is small but the compiler is delicate. Stage
-> carefully; verify on every example each time.
-> `effort: weekend` per item
+> **Problem:** small wins from a once-over.
+> **Status (May 2026):**
+>
+> 1. ~~**Constant-folding literal arithmetic.**~~ Landed at
+>    commit `3fbdac9`.  `ssa_fixed1` / `ssa_fixed2` evaluate
+>    the op at compile time when all operands are integer
+>    literals, emitting a single `ldfxn K result` instead of
+>    `ldfxn tmpA; ldfxn tmpB; fxnop K tmpA tmpB`.  Three
+>    compiler-test goldens shrank by 16-56 bytes each.
+>
+> 2. **Dead-store elimination on unread SSA registers.**  Open.
+>    Requires a real liveness pass; the compiler doesn't track
+>    it today.  Effort: weekend.
+>
+> 3. **Unrolling `times I N:` for known small `N`.**  Open.
+>    Macro-level transform in `src/macro.s`; needs to be careful
+>    about `pass` / `done` body labels and break/continue.
+>    Effort: weekend.
+>
+> 4. **Computed-jump compilation of `case` chains with all-
+>    literal patterns.**  Open.  Requires a new SBC opcode (jump
+>    table) and an emission path in the compiler.  Effort: weekend.
+>
+> **Gotcha for one-sided identity folds** (`X+0 → X`, `X*1 → X`,
+> etc.): these look safe but break the existing `[_add 0 No]`
+> behavior because the SBC `fxnadd` opcode is bit-level int
+> arithmetic with non-trivial output when one operand is the
+> T_NO tag (it returns `0.0`, the float zero, by bit happenstance).
+> Examples/14-quirks.s pins this.  A future pass that knows the
+> static type of both operands can do the simplification safely;
+> without that information it's not a sound rewrite.
 
 ---
 
