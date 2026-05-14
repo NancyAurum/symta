@@ -321,8 +321,19 @@ void print_stack_trace() {
     } else {
       name = meta->name ? (char*)meta->name : "unnamed";
       origin = meta->origin ? (char*)meta->origin : "";
-      row = meta->row;
-      col = meta->col;
+      /* CORE-1: prefer the frame's in-flight (row, col) -- set by
+       * SBC_LSRC at the most recent source-line change.  Falls
+       * back to the fn_meta_t function-header position when the
+       * frame is a builtin or hasn't executed an lsrc yet (e.g.
+       * the very first instruction of a function before any
+       * lsrc has been emitted). */
+      if (frm->row || frm->col) {
+        row = frm->row;
+        col = frm->col;
+      } else {
+        row = meta->row;
+        col = meta->col;
+      }
     }
     fprintf(stderr, "  %016llx:%s:%d,%d,%s\n",
             (unsigned long long)fn, name, row, col, origin);
@@ -1506,6 +1517,15 @@ BUILTIN0("gc_gen0_used",gc_gen0_used)
   uint64_t used_slots = (uint64_t)(api.hg0[0].base - api.hg0[0].top);
 RETURNS(FXN(used_slots * sizeof(void*)))
 
+/* CORE-1: print the live stack trace to stderr without raising
+ * an error.  Used by tests/runtime/lineno-check.sh to validate
+ * per-instruction positions (which CORE-3 made unobservable for
+ * caught `bad`s).  Also useful for ad-hoc debugging.  Returns No. */
+BUILTIN0("print_stack_trace_",print_stack_trace_)
+  fflush(stdout);
+  print_stack_trace();
+RETURNS(No)
+
 /* gen0's current trigger threshold, in bytes.  Mirrors the bytes
  * that SYMTA_GEN0_SIZE / gc_set_gen0_pages set. */
 BUILTIN0("gc_gen0_size",gc_gen0_size)
@@ -2364,6 +2384,7 @@ static struct {
   B(gc_set_gen0_pages)
   B(gc_gen0_used)
   B(gc_gen0_size)
+  B(print_stack_trace_)
   B(stack_trace)
   B(get_file_)
   B(set_file_)

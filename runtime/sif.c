@@ -186,6 +186,7 @@ void sif_loader_init() {
   shput(asmsbc,"tcall"    ,SBC_TCALL);
   shput(asmsbc,"tmcall"   ,SBC_TMCALL);
   shput(asmsbc,"ctx"      ,SBC_CTX);
+  shput(asmsbc,"lsrc"     ,SBC_LSRC); /* CORE-1: line-source marker */
 
   shput(asmsbc,"setjmp"   ,SBC_SETJMP);
   shput(asmsbc,"longjmp"  ,SBC_LONGJMP);

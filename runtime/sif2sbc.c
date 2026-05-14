@@ -813,6 +813,21 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT8(SBC_CTX);
       EMIT8(3);
       break;}
+    case SBC_LSRC: {
+      /* CORE-1: source-line marker -- writes (row, col) into
+       * api.frame->row/col so the next stack trace can report the
+       * actual call site instead of just the function header.
+       * Row is 24-bit (16M lines, more than any sane source file);
+       * col is 8-bit (256 columns; if exceeded the column saturates
+       * but the row still updates -- better than dropping the
+       * marker entirely). */
+      uint32_t row = (uint32_t)strtol(as[1],0,10);
+      uint32_t col = (uint32_t)strtol(as[2],0,10);
+      if (col > 0xFF) col = 0xFF;
+      EMIT8(SBC_LSRC);
+      EMIT24(row);
+      EMIT8(col);
+      break;}
     default: {
       fprintf(stderr, "sif2sbc: bad operator `%s`\n", as[0]);
       exit(-1);

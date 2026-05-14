@@ -353,28 +353,6 @@ catches things without dragging in the rest of Symta.
 
 ## Compiler / parser
 
-### \[P0\] **CORE-1** Stack traces lie about line numbers
-
-> **Where:** [`runtime/bltin.c`](runtime/bltin.c) (the
-> stack-trace printer), [`src/compiler.s`](src/compiler.s)
-> (function-metadata source position)
-> **Problem:** `foo.s:1310,7` often points at a comment line
-> or whitespace; the actual error is in a function whose body
-> lives 30 lines earlier. Working around it takes "± 20 lines
-> from the printed location" as a heuristic. Highest-impact
-> infrastructure investment, because every other tool builds
-> on accurate locations.
-> **Fix:** plumb per-instruction source positions through the
-> SIF assembler into the SBC metadata. The compiler already
-> tracks them in the SSA stream; the loss happens during
-> assembly. Verify on every example's expected error path that
-> the printed `row,col` lands on the offending token.
-> **Regression strategy:** the lineno test suite
-> (`tests/runtime/lineno-check.sh`) is the right place — its
-> existing 5 cases pin known-good positions, extend with the
-> patterns from `symta-review.md`.
-> `effort: weekend`
-
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c),

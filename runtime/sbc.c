@@ -1685,6 +1685,16 @@ dyn sbc_exec_fn(uint8_t *pin) {
       fprintf(stderr, "SBC_CTX: bad type=%d\n", type);
     }
     BREAK;}
+  OP(SBC_LSRC) {
+    uint32_t row = RD24;
+    uint32_t col = RD8;
+    if (getenv("CORE1_TRACE_LSRC")) {
+      fprintf(stderr, "[LSRC] frame=%p row=%u col=%u\n",
+              (void*)api.frame, row, col);
+    }
+    api.frame->row = (int)row;
+    api.frame->col = (int)col;
+    BREAK;}
   DEFAULT {
 #if 1
     int opcode = pin[-1];

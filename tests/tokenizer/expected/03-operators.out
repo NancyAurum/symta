@@ -42,19 +42,3 @@ assignment family:
   %= %=
 single-quote / backtick / backslash:
 `t`:1,6: EOF in string
-
-Stack Trace:
-  0000000000000000:text.tokenize:0,0,builtin
-  0000000000000000:dump_tokens:5,16,C:/Users/nangl/d/code/som/symta/tests/tokenizer/cases/03-operators.s
-  0000000000000000:<toplevel>:5,16,C:/Users/nangl/d/code/som/symta/tests/tokenizer/cases/03-operators.s
-  0000000000000000:sif_eval_:0,0,builtin
-  0000000000000000:unnamed:227,11,C:/Users/nangl/d/code/som/symta/src/eval.s
-  0000000000000000:list.apply:0,0,builtin
-  0000000000000000:fn.():85,12,C:/Users/nangl/d/code/som/symta/src/core_.s
-  0000000000000000:unnamed:1124,20,C:/Users/nangl/d/code/som/symta/src/core_.s
-  0000000000000000:list.apply:0,0,builtin
-  0000000000000000:fn.():85,12,C:/Users/nangl/d/code/som/symta/src/core_.s
-  0000000000000000:btland:1115,9,C:/Users/nangl/d/code/som/symta/src/core_.s
-  0000000000000000:btrap:1124,8,C:/Users/nangl/d/code/som/symta/src/core_.s
-  0000000000000000:eval_file:209,78,C:/Users/nangl/d/code/som/symta/src/eval.s
-  0000000000000000:<toplevel>:6,12,./src/go.s

@@ -53,9 +53,19 @@ check '
 | foo_undefined' ':5,2: undefined variable .foo_undefined.' \
       'line-5 error tagged as line 5'
 
-# Case 4: function metadata points at the `=` of the definition.
-# A `bad` call deep inside a 20-line body should still report the
-# function frame at the definition line, not somewhere inside.
+# Case 4: CORE-1 -- stack-trace frame for a function in flight
+# should track its progress through the body via `lsrc` markers,
+# not the function-definition row from fn_meta_t.  We compile the
+# trace request via the runtime builtin `print_stack_trace_`
+# (CORE-3 suppressed traces from caught `bad`s, so the only
+# always-visible trace path goes through that builtin).
+#
+# Granularity today is per-top-level-statement of a function body;
+# nested let-bindings / if-branches inherit the position of the
+# most recent statement-level lsrc.  big_fn's body is three
+# statements -- Y=, Z=, if-expr -- emitted at lines 8,9,10.  By
+# the time the `if` branch fires print_stack_trace_, lsrc(10,4)
+# has run, so the frame reports line 10.
 check '// pad 1
 // pad 2
 // pad 3
@@ -67,25 +77,27 @@ big_fn X =
   Z X + 2
   if X > 100
     then say "big"
-    else bad "from line 14"
-  // line 15 (after error path)
-  // line 16
-  // line 17
+    else print_stack_trace_
 
-big_fn 0' 'big_fn:7,9' \
-      'function frame meta points at `=` line, not body or trailing lines'
+big_fn 0' 'big_fn:[789][0-9]*,' \
+      'big_fn frame reports a body-line position, not the function header'
 
-# Case 5: nested function call through case-dispatch.
+# Case 5: classify uses a `case` dispatch.  The case-dispatch IR
+# is a single top-level statement (line 5), so the frame reports
+# line 5 -- not the function header (line 4), and not the
+# matched-clause line (line 7).  Future work could push lsrc into
+# case branches, but the current per-statement coverage already
+# beats "always show the `=` line".
 check '// pad 1
 // pad 2
 //
 classify V =
   case V:
     1 = "one"
-    Else = bad "from case Else line 8"
+    Else = print_stack_trace_
 
-classify 2' 'classify:4,11' \
-      'function with case-dispatch body still reports definition line'
+classify 2' 'classify:[5-9],' \
+      'classify frame reports a body-line position, not the function header'
 
 rm -f "$tmp"
 

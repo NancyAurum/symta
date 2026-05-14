@@ -168,7 +168,9 @@ enum {
 /*9D*/ SBC_NO,
 /*9E*/ SBC_INC,
 /*9F*/ SBC_DEC,
-/*A0*/ SBC_UNUSEDA0,
+/*A0*/ SBC_LSRC,        /* CORE-1: source-line marker.  Updates
+                          api.frame->row/col so stack traces can
+                          report per-instruction positions. */
 /*A1*/ SBC_UNUSEDA1,
 /*A2*/ SBC_UNUSEDA2,
 /*A3*/ SBC_UNUSEDA3,

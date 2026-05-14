@@ -29,6 +29,11 @@ GClosure No // other lambdas, this lambda references
 GBases No
 GUniquifyStack No
 GSrc: 0 0 unknown
+GLastSrc: 0 0 unknown // CORE-1: most recent (Row,Col) we emitted
+                     //         an `lsrc` marker for, so we can
+                     //         skip emission when the position
+                     //         didn't change since the last
+                     //         instruction.
 GAll @rand all
 GRestartPoint No
 
@@ -37,7 +42,23 @@ GRestartPoint No
 type fnmeta name!0 size!0 nargs!0 origin!0:
   name!Name size!Size /*closure size*/ nargs!Nargs origin!Origin
 
-ssa @As = | push As GOut
+// CORE-1: emit an `lsrc Row Col` SIF line before each `ssa` call
+// whose source position has *advanced* past the last marker.
+// We require monotonic forward progress because `uniquify_form`
+// wraps each sub-expression in `let GSrc <child src>` which
+// restores GSrc to the enclosing position when the child returns;
+// without the forward check we'd emit a spurious `lsrc <header>`
+// after every nested let-binding pops back, leaving stack traces
+// stuck at the function header (which is exactly the CORE-1 bug
+// we're fixing).
+ssa @As = | R GSrc.0
+          | C GSrc.1
+          | LR GLastSrc.0
+          | LC GLastSrc.1
+          | when R > LR or (R >< LR and C > LC):
+            | push [lsrc R C] GOut
+            | GLastSrc = GSrc
+          | push As GOut
           | No
 
 ssaI @As = | push As GInits
@@ -271,7 +292,14 @@ ssa_progn K Xs =
   till Xs.end:
     X pop Xs
     when Xs.end: D =  K
-    ssa_expr D X
+    // CORE-1: every statement in a block has its own source
+    // position via X.meta_.  Update GSrc into that scope so the
+    // `ssa` wrapper emits an `lsrc Row Col` line at the right
+    // place even when the inner expression doesn't carry meta
+    // itself (bare identifier calls, simple atoms, etc).
+    Src X.meta_
+    if got Src: let GSrc Src: ssa_expr D X
+      else ssa_expr D X
     when Xs.end and case X [_label@Zs] 1: ssa_atom D No
 
 compiler_error Msg =

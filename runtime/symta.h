@@ -225,6 +225,16 @@ struct frame_t {
   frame_t *prev;
   void **vars;
   int nvars;
+  /* CORE-1: most-recently-seen source position for this frame.
+   * Updated in-flight by the SBC_LSRC opcode the compiler emits
+   * before each source-line change.  When the frame is suspended
+   * (the active function called another), this records the row/col
+   * of the call site so stack traces can name the instruction the
+   * caller is paused on, not just the function header from
+   * fn_meta_t.  Zero means "no source mapping yet" -- fall back
+   * to the fn_meta_t header position. */
+  int row;
+  int col;
 };
 
 //maximum number of arguments to a native function
@@ -379,7 +389,9 @@ typedef struct tot_entry_t { //table of tables entry
   frame_t frm_; \
   frm_.prev = api.frame; \
   api.frame = (frame_t*)&frm_; \
-  frm_.clsr = f;
+  frm_.clsr = f; \
+  frm_.row = 0; \
+  frm_.col = 0;
 
 
 #define CLOSE_FRAME api.frame = frm_.prev;
