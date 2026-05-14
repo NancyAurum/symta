@@ -294,7 +294,6 @@ uint8_t *sif2sbc(sif_t *sif) {
         }
       }
       EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
-      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_TMCALL: {
       int oval = refidx(as[1]);
@@ -303,7 +302,6 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(oval);
       EMIT16(midx);
       EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
-      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_TCALL: {
       int fval = refidx(as[1]);
@@ -612,7 +610,6 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(refidx(as[2]));
       EMIT16(refidx(as[3]));
       EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
-      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_FXNLSET: {
       if (!strcmp(as[1],"dummy")) {
@@ -628,7 +625,6 @@ uint8_t *sif2sbc(sif_t *sif) {
         EMIT16(refidx(as[4]));
       }
       EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
-      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;}
     case SBC_FXNSIZE: {
       EMIT8(SBC_FXNSIZE);
@@ -643,7 +639,6 @@ uint8_t *sif2sbc(sif_t *sif) {
       EMIT16(refidx(as[2]));
       EMIT16(refidx(as[3]));
       EMIT16(mcache_counter++); /* RT-7: 2-byte mcache id */ 
-      for (j = 0; j < 6; j++) EMIT8(SBC_NOP); /* RT-7: 6 filler NOPs */
       break;
     }
     case SBC_FXNADD:
@@ -988,7 +983,10 @@ uint8_t *sif2sbc(sif_t *sif) {
   wb = 0;
 
   /* tot_sz counts the (count, offset) pairs in the trailing tot:
-   * 7 lookup tables + nrs + linenos + RT-7 mcache count. */
+   * 7 lookup tables + nrs + linenos + RT-7 mcache.  The RT-7
+   * mcache entry's offset field doubles as a format flag for
+   * stage 2 -- see the EMIT24 pair near the bottom of this
+   * function. */
   int tot_sz = 7 + 3;
 
   EMIT16(0); //descriptor
@@ -1014,12 +1012,16 @@ uint8_t *sif2sbc(sif_t *sif) {
    * Count is entries, not bytes; each entry is 12 bytes. */
   EMIT24(lineno_sz);
   EMIT24(lineno_ofs);
-  /* RT-7: (count, 0) for D-side mcache slot count.  The offset
-   * is unused -- mcaches live in a runtime-malloc'd array, not
-   * in the SBC file -- but we keep the slot for tot's uniform
-   * (count, offset) layout. */
+  /* RT-7: count = number of D-side mcache slots.  Mcaches live
+   * in a runtime-malloc'd array, not in the SBC file, so the
+   * "offset" field is repurposed as a format flag:
+   *   0 = legacy 8-byte cache slot (pre-RT-7 8 SBC_NOPs, or
+   *       RT-7 stage 1's 2-byte id + 6 SBC_NOP filler)
+   *   1 = compact 2-byte cache slot (just the uint16_t id)
+   * The runtime reads this into `sbc->cache_slot_size` so
+   * MCACHE_SKIP / MCACHE_CALL advance pin correctly. */
   EMIT24(mcache_counter);
-  EMIT24(0);
+  EMIT24(1); /* RT-7 stage 2: compact 2-byte cache slots */
 
 
   hdr = wb;
