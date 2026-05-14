@@ -11,6 +11,7 @@
 #include "flt16.h"
 #include "fs.h"
 #include "reader.h"
+#include "meta_table.h"
 
 
 #include "prf.h"
@@ -440,6 +441,19 @@ BUILTIN1("parse_table_c_", parse_table_c_, C_ANY, x)
 RETURNS(reader_parse_table(x))
 BUILTIN1("parse_tokens_c_", parse_tokens_c_, C_ANY, x)
 RETURNS(reader_parse_tokens(x))
+
+/* Weak meta table -- see runtime/meta_table.h.  Used by the
+ * Symta-side `meta` function to attach source positions to AST
+ * nodes via object identity, instead of wrapping nodes in a
+ * `meta` struct that intercepts method dispatch through `__`. */
+BUILTIN2("meta_attach_", meta_attach_, C_ANY, obj, C_ANY, src)
+  meta_set_(obj, src);
+RETURNS(obj)
+BUILTIN1("meta_lookup_", meta_lookup_, C_ANY, obj)
+RETURNS(meta_get_(obj))
+BUILTIN1("meta_present_", meta_present_, C_ANY, obj)
+RETURNS(FXN(meta_has_(obj)))
+
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2497,6 +2511,9 @@ static struct {
   B(parse_strip_c_)
   B(parse_table_c_)
   B(parse_tokens_c_)
+  B(meta_attach_)
+  B(meta_lookup_)
+  B(meta_present_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)
