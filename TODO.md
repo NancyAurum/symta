@@ -364,9 +364,38 @@ what's left.
 
 ---
 
-## Lexical macro processor (`runtime/ncm.h`)
+## Lexical macro processor (`symta/ncm/src/ncm.h`)
 
-(All four open NCM items closed; see Done section.)
+### \[P1\] **NCM-5** Empty variadic call segfaults NCM
+
+> **Where:** [`symta/ncm/src/ncm.h`](symta/ncm/src/ncm.h) macro
+> expansion path; [`symta/ncm/tests/cases/fn_macros.c`](symta/ncm/tests/cases/fn_macros.c)
+> (line is currently commented out as `v1 = all()`).
+> **Problem:** a variadic macro called with zero args
+> segfaults the standalone `ncm.exe` AND would crash any
+> Symta build that goes through the same code path (the same
+> `ncm.h` body is consumed by `symta/runtime/ncm.c`).
+> Surfaced by the new `symta/ncm/tests/` suite, which is
+> exactly its job -- catching NCM-level bugs without dragging
+> in the full Symta pipeline.
+> Reproducer:
+>
+> ```
+> #all([Xs]) [Xs]
+> v = all()       // SIGSEGV here
+> ```
+>
+> The non-empty form `all(1, 2, 3)` works fine; the bug is
+> specifically the zero-arg path through the variadic
+> binding logic.
+> **Fix sketch:** trace from `process_file`'s macro-call
+> handling into `macroexpand2` and the `[Xs]` variadic
+> binding -- whatever pointer is being dereferenced to copy
+> the captured-args text is presumably NULL when no args
+> follow the `(`.  Empty-string default plus a length-0
+> guard should suffice.
+> `effort: afternoon` (locate the deref + add the guard;
+> reactivate the test case)
 
 ---
 

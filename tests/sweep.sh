@@ -16,6 +16,9 @@ for s in tokenizer reader macros runtime compiler gfx ffi am uim; do
   "$SH" tests/$s/run.sh 2>&1 | grep "^Summary" || echo "(no summary)"
 done
 
+echo -n "ncm: "
+"$SH" ncm/tests/run.sh 2>&1 | grep "^Summary" || echo "(no summary)"
+
 echo -n "lineno: "
 "$SH" tests/runtime/lineno-check.sh 2>&1 | grep "^Summary"
 

@@ -1,0 +1,15 @@
+#line 1 "hex_fmt.c"
+                                                                 
+                                                                  
+                                                        
+ 
+                                                              
+                                                                   
+                                                             
+                               
+hex_in_X  = 0xff
+hex_in_x  = 0xFF
+dec_of_hex = 16
+neg_hex    = -16
+big_hex    = 0xfeedface
+mix        = 16 + 32 = 48
