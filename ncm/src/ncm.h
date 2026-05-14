@@ -1131,18 +1131,30 @@ no_setarg:
       xs_n = fmt("%s_n", a);
       xs_nv = fmt("%d", l);
       shput(at, xs_n, xs_nv);
-      for (int k = 0; k < l; k++) {
-        if (k) aput(v,',');
-        char *p = as[j];
-        for (; *p; p++) {
-          aput(v,*p);
+      if (l > 0) {
+        for (int k = 0; k < l; k++) {
+          if (k) aput(v,',');
+          char *p = as[j];
+          for (; *p; p++) {
+            aput(v,*p);
+          }
+          arrfree(as[j]);
+          as[j] = 0;
+          j++;
         }
-        arrfree(as[j]);
-        as[j] = 0;
-        j++;
+        aput(v, 0);
+        as[j-1] = v;
+      } else {
+        /* NCM-5: zero-arg variadic call (`#all([Xs]) [Xs]` /
+         * `all()`).  The loop above didn't run, so j stayed at its
+         * incoming value; the old `as[j-1] = v` here was an
+         * out-of-bounds write into as[-1] -> SIGSEGV.  An empty
+         * variadic binds to the empty string; use the static `""`
+         * literal (same trick as the bodyarg branch below) so
+         * inject_vars sees an empty value and the cleanup loop has
+         * nothing to free for this slot. */
+        v = "";
       }
-      aput(v, 0);
-      as[j-1] = v;
     } else if (i == m->bodyarg) {
       v = this->abody.ptr;
       if (!v) v = ""; //should never happen
@@ -1596,7 +1608,21 @@ symbol:;
     arrfree(name);
     if (!s) return 0;
     if (def_check) return 1;
-    return strtol(s, 0, 10);
+    /* NCM-7: recursively evaluate the macro body / arg value so
+     * that
+     *   #A 5
+     *   #B A
+     *   #[B]    -> 5    (was: 0, because strtol("A",..) stopped
+     *                    at the non-digit)
+     * and the nested-call case
+     *   #double(X) #[2*X]
+     *   #[2 * double(5)]    -> 20   (was: 0, because strtol
+     *                                 ate the leading "2" of
+     *                                 "double(5)" wrong)
+     * both work.  eval_expr_standalone handles plain numerics
+     * ("5" -> 5) identically to the old strtol path, so this is
+     * strictly additive. */
+    return eval_expr_standalone(this, s, 0);
   } else if (ch == MCH) {
     pop_char();
     skipws(this, SKIPWS_ESC_NL);

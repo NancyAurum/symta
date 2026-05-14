@@ -366,36 +366,11 @@ what's left.
 
 ## Lexical macro processor (`symta/ncm/src/ncm.h`)
 
-### \[P1\] **NCM-5** Empty variadic call segfaults NCM
+(NCM-1..7 all closed.  See Done section.)
 
-> **Where:** [`symta/ncm/src/ncm.h`](symta/ncm/src/ncm.h) macro
-> expansion path; [`symta/ncm/tests/cases/fn_macros.c`](symta/ncm/tests/cases/fn_macros.c)
-> (line is currently commented out as `v1 = all()`).
-> **Problem:** a variadic macro called with zero args
-> segfaults the standalone `ncm.exe` AND would crash any
-> Symta build that goes through the same code path (the same
-> `ncm.h` body is consumed by `symta/runtime/ncm.c`).
-> Surfaced by the new `symta/ncm/tests/` suite, which is
-> exactly its job -- catching NCM-level bugs without dragging
-> in the full Symta pipeline.
-> Reproducer:
->
-> ```
-> #all([Xs]) [Xs]
-> v = all()       // SIGSEGV here
-> ```
->
-> The non-empty form `all(1, 2, 3)` works fine; the bug is
-> specifically the zero-arg path through the variadic
-> binding logic.
-> **Fix sketch:** trace from `process_file`'s macro-call
-> handling into `macroexpand2` and the `[Xs]` variadic
-> binding -- whatever pointer is being dereferenced to copy
-> the captured-args text is presumably NULL when no args
-> follow the `(`.  Empty-string default plus a length-0
-> guard should suffice.
-> `effort: afternoon` (locate the deref + add the guard;
-> reactivate the test case)
+If a new bug surfaces, add a probe to `symta/ncm/tests/cases/`
+first; that's the layer below `tests/runtime/25-lexmacro` and
+catches things without dragging in the rest of Symta.
 
 ---
 
@@ -865,9 +840,31 @@ point at the same fix.
   [`dev/ncm.md`](dev/ncm.md): directive reference, expression-
   language precedence table, format-spec table, line-by-line
   map into `runtime/ncm.h`.
+- ~~**NCM-5** Empty variadic call segfaults NCM.~~ Surfaced by
+  the new `symta/ncm/tests/` suite (commit `3e6b17f`); the
+  zero-arg path in `macroexpand_fn` wrote `as[j-1] = v` with
+  `j == 0`, an out-of-bounds write into `as[-1]`.  Fix: when
+  `l == 0`, bind the variadic to the static empty string `""`
+  (same pattern the bodyarg branch already uses).  Pinned by
+  `tests/cases/fn_macros.c`.
+- ~~**NCM-6** `%x` and `%X` case mapping inverted from C
+  `printf`.~~ Audited callers (zero source-code dependencies
+  on the inversion), swapped the two `sprintf` calls in
+  `cmd_fmt`'s hex branch.  Now `%x` → lowercase, `%X` →
+  uppercase, matching C convention.
+- ~~**NCM-7** `eval_term` `strtol`'d macro bodies / arg values
+  literally.~~ `#A 5; #B A; #[B]` silently returned 0 (strtol
+  stopped at the non-digit), and any nested-call expansion
+  in `#[expr]` lost the inner result (so
+  `#double(X) #[2*X] ; #[double(double(5))]` returned 0
+  instead of 20).  Replaced the bare `strtol` with
+  `eval_expr_standalone`, which handles plain numerics
+  identically and recurses through macro chains for the
+  general case.  Pinned by `tests/cases/nested_eval.c`.
 
-All three bug fixes pinned by a new section 11 in
-`examples/25-lexmacro.s` (NCM-1/2/3 regression probes).
+All NCM bug fixes pinned by `examples/25-lexmacro.s`
+section 11 (Symta-side integration) + the standalone
+`symta/ncm/tests/cases/` suite (NCM-only).
 
 ### Infrastructure (earlier)
 
