@@ -69,7 +69,7 @@ interpreter Root =
     Expr
       | Val eval Expr Env!Env RootFolder!Root
       | if Val.is_text: Val = [Val].as_text.tail.lead
-      | if got Val: say Val^~(1.is_bterror Val.text)
+      | if got Val: say Val(1.is_bterror=Val.text)
 
 case Args [@_ '-h'+'--help' @_]
 | print_usage
@@ -84,8 +84,8 @@ case Args ['-r' UserRoot @Xs]
 | Root = UserRoot
 | Args = Xs
 
-Root = Root.replace('\\' '/')
-less Root.last >< '/': Root = "[Root]/"
+Root = Root{'\\'='/'}
+less Root.~ >< '/': Root = "[Root]/"
 less "[Root]sbc/compiler.sbc".exists: bad "Missing [Root]sbc/compiler.sbc"
 
 //less "[Root]src/compiler.s".exists: bad "Missing [Root]src/compiler.s"
@@ -112,6 +112,6 @@ case Args
   Else | interpreter Root
 
 when got SrcDir:
-| SrcDir = SrcDir.replace('\\' '/')
-| DstDir = DstDir.replace('\\' '/')
+| SrcDir = SrcDir{'\\'='/'}
+| DstDir = DstDir{'\\'='/'}
 | build Root SrcDir dst!DstDir

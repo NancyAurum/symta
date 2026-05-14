@@ -257,14 +257,6 @@ list.change K V = [@$take(K) V @$drop(K+1)]
 text.del K = [@$take(K) @$drop(K+1)].text
 text.insert K V = [@$take(K) V @$drop(K)].text
 text.change K V = [@$take(K) V @$drop(K+1)].text
-// `text.replace Old New`: substitute every occurrence of Old
-// (one character) with New (one character).  Wraps `$map` so
-// Old / New can be runtime values (the `{C1=C2}` char-mapping
-// brace syntax wants literal patterns at compile time).  Used
-// by `pkg/symta/src/go.s` for path-separator normalisation.
-text.replace Old New = $map(C => if C >< Old then New else C).text
-// `text.last`: alias for `text.~`, returning the last char.
-text.last = $~
 
 `..` X N = dup N X
 
