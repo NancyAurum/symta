@@ -131,12 +131,16 @@ JavaScript famously evaluates `1 + "1"` to `"11"` (string), then
 catch — and which carries the source location of the offending
 expression.
 
-There is no implicit `null`-to-anything conversion.  There is no
-"truthy if you squint" rule; Symta's `if` takes a boolean, and
-the empty list is *not* false the way it is in Lua, because
-"empty" and "false" mean different things.  None of this requires
-ceremony — you write the same arithmetic you always would, but
-the runtime doesn't lie to you about types you didn't ask for.
+There is no implicit "null-to-anything" conversion.  There is
+no "truthy if you squint" rule.  `if`, `when`, `and`, `or`, and
+`not` all treat the integer `0` as false and *every other value*
+as true — the empty list, atoms, text, and even Symta's "no
+value" marker `No` are all truthy.  This is the opposite of
+Lua's "empty table is false" or Python's "empty list is false";
+the distinction between "I have no value" (`No` — like SQL
+`NULL`) and "I have the value zero" (`0`) is preserved.  Use
+`got X` to test "is X a value" and `not X` to test "is X
+zero".  Details in the *Truthiness* sidebar below.
 
 ### 3.  One operator that rewrites *trees*, not just elements
 
@@ -332,20 +336,21 @@ There's no infix `^` for power — `^` in Symta means *apply on
 the left*, so `3 ^ square` is `square(3)`.  Integer power is
 `int.pow`; for floats use `Math.pow`.
 
-Comparisons return either `1` or `No`:
+Comparisons return `0` for false and `1` for true:
 
 ```symta
 3 < 5              // 1
-3 < 1              // No
-3 >< 3             // 1     -- structural equality, on anything
+3 < 1              // 0
+3 >< 3             // 1     -- `><` is structural equality, on anything
+3 >< 5             // 0
 "abc" >< "abc"     // 1
 [1 2 3] >< [1 2 3] // 1
 ```
 
-`No` is the universal "not present / not truthy" value — see the
-sidebar on `No` in the chapter on Conditionals.  It's *not* the
-same as the empty list or the integer zero, but it's truthy under
-the same rules.
+There is no separate `bool` type — `0` and `1` *are* the
+booleans, and the only thing `if` / `when` / `and` / `or` / `not`
+treat as false is the integer `0`.  Every other value — including
+`No`, `[]`, atoms, lists, text, anything — is truthy.
 
 ## Variables — names that bind
 
@@ -745,22 +750,50 @@ less X.is_int: bad "Expected an integer, got [X]"
 anything left.  `N<int?` reads "name this match `N`, and only
 match if it satisfies the predicate `int?`."
 
-### What is `No`?
+### Truthiness — and why `No` is not "false"
 
-`No` is the universal "no value" — what you'd call `null`,
-`nil`, `None`, or `nullptr` in another language.  It compares
-unequal to everything except itself, it's falsy under `if`, and
-it's the value functions return when there's nothing to say.
-But unlike Java's `null`:
+Symta has no `bool` type.  The integer `0` is the only thing
+that `if`, `when`, `less`, `and`, `or`, and `not` treat as
+false; *every other value*, including `No`, the empty list, and
+atoms, is truthy.
 
-- Dereferencing `No.foo` returns `No`, not a crash.  Optional
-  navigation is the default.
-- Comparing `No` to numbers behaves consistently
-  (`No < 5` is `1` because "no value" is less than any value).
-- The compiler tracks `No` through type inference.
+`No` is something else entirely.  It's the "no value" marker —
+the value you get back from a missing hashtable key, an SQL
+column that holds `NULL`, the unset slot of a record, the start
+value of an accumulator before you know whether you're summing
+ints or floats.  In short, it's *the absence of a value*, not
+"false".  Symta's `No` plays the same role `NULL` plays in SQL
+or `None` plays in a Pandas dataframe — but never the role
+`false` plays.
 
-You'll write `if got X: ...` more than `if X <> No: ...`,
-because `got` is the idiomatic "does this value exist".
+What this buys you:
+
+- **`No` is the additive identity.**  `No + 7` is `7`, `5 + No`
+  is `5`.  An accumulator initialised to `No` doesn't care
+  whether the first value it sees is an int or a float; it
+  picks up whatever type arrives first.  This is why
+  `[1 2 3].z` works on any numeric type without you having to
+  specify a starting zero — the runtime uses `No`.
+
+- **Missing-key lookups don't crash.**  `T.unknown` returns
+  `No`, not an exception.  Optional navigation is the default;
+  the burden of "did I get a value?" is on the caller, not on
+  every read site.
+
+- **`got X` is the proper "X is a value" test.**  It returns
+  `1` for everything except `No`.  Use `got X` when you want
+  "is this populated", not `if X`.
+
+- **`No` is *truthy* under `if`.**  This is the foot-gun.
+  `if T.missing: say "got it"` will print "got it", because
+  `No <> 0`.  Use `if got T.missing: ...` or `when got X: ...`
+  instead.  The same applies to `while`, `until`, and the
+  short-circuit operators.
+
+If you've used SQL: `No` is `NULL`, `0` is `false`.  You
+wouldn't write `WHERE col`; you'd write `WHERE col IS NOT NULL`
+or `WHERE col = 0`.  Symta is the same — just spelled
+`got X` and `not X`.
 
 ## Loops
 
