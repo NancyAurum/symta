@@ -46,6 +46,10 @@ help_key_ K =
     else "[K]"
 
 help_set Sym Doc =
+| @"Attach a docstring to a name, so `help name` can read it back.
+Legacy entry-point that populates the runtime Help_Table.  New code
+should use `@\"text\"` heads in function bodies instead -- those write
+into the SBC docs section and avoid any prebuilt hashtable."
 | Key help_key_ Sym
 | Help_Table.Key = Doc
 | Doc
@@ -57,11 +61,17 @@ help_set Sym Doc =
 // `help_set` calls to `@"text"` heads, the legacy fallback
 // goes away.
 help_get Sym =
+| @"Look up the docstring registered for a name.  Returns No if undocumented.
+Tries the SBC docs sections (populated at compile time) first, falls back
+to the legacy in-memory Help_Table for symbols not yet migrated."
 | Key help_key_ Sym
 | Doc help_section_lookup_ Key
 | if got Doc then Doc else Help_Table.Key
 
-help_names = Help_Table.l{?0}    // list of documented symbol names
+help_names =
+| @"Return the list of every documented symbol name in the legacy Help_Table.
+Does NOT include symbols whose docs live in SBC docs sections."
+| Help_Table.l{?0}
 
 // `ssv_ Section Symbol Value` -- "set section symbol value".  The general
 // intrinsic emitted by the function/method-defining macros for any side-
@@ -72,6 +82,11 @@ help_names = Help_Table.l{?0}    // list of documented symbol names
 // its own area of the SBC file, with lazy on-demand load -- this Symta-
 // side stub keeps the user-facing API identical until that lands.
 ssv_ Section Sym Value =
+| @"Set-section-symbol-value.  Legacy Symta-side stub kept only as a no-op
+for very old SBCs that may still invoke it at runtime.  The user-facing
+mechanism is the compile-time `_ssv` intrinsic, which routes docs into
+the SBC docs section instead of a runtime hashtable.
+Args: ssv_ Section Symbol Value -- Section and Symbol are texts."
 | if Section >< 'docs' then help_set Sym Value else No
 
 // Runtime backends for the `help` macro (defined in src/macro.s).
@@ -123,7 +138,9 @@ no.`>>` B =
 _.bool = 1
 int.bool = if Me: 1 else 0
 float.bool = Me <> 0.0
-text.bool = if Me.end: 0 else 1
+text.bool =
+| @"0 for the empty text, 1 otherwise."
+| if Me.end: 0 else 1
 no.bool = 0
 
 text.`+` B = "[Me][B]"
@@ -167,31 +184,49 @@ _fixtext_.is_fixtext = 1
 _.is_table = 0
 
 _.copy = Me
-list.copy = map X Me X
+list.copy =
+| @"Shallow copy of a list -- elements are shared."
+| map X Me X
 
 _.deep_copy = Me
-list.deep_copy = map X Me X.deep_copy
+list.deep_copy =
+| @"Recursive deep copy of a list.  Nested lists are copied too."
+| map X Me X.deep_copy
 
-methods Object = Object^methods_.t
+methods Object =
+| @"Return the table of methods defined for the given value.
+Example:  methods 42          // table of int methods"
+| Object^methods_.t
 
 _.`()` A = A.Me
 fn.`()` @As = As.apply(Me)
 
 _.`{}` F = $map(F)
 
-int.sign = if Me < 0 then -1
-           else if Me > 0 then 1
-           else 0
+int.sign =
+| @"-1 for negative, 0 for zero, 1 for positive."
+| if Me < 0 then -1
+  else if Me > 0 then 1
+  else 0
 
-float.sign = if Me < 0.0 then -1.0
-             else if Me > 0.0 then 1.0
-             else 0.0
+float.sign =
+| @"Same as int.sign but returns floats."
+| if Me < 0.0 then -1.0
+  else if Me > 0.0 then 1.0
+  else 0.0
 
-list.sign = map X Me X.sign
+list.sign =
+| @"Elementwise sign on a numeric list (each element -> -1, 0, or 1)."
+| map X Me X.sign
 
-int.abs = _abs Me
+int.abs =
+| @"Absolute value of an integer.  Note: `abs(-5)` does NOT work because
+`(-5)` is parsed as a function call.  Use `(0-5).abs` instead."
+| _abs Me
 
-float.abs = _abs Me
+float.abs =
+| @"Absolute value of a float."
+| _abs Me
 
 float.log2 = $log/2.0.log
 
@@ -221,17 +256,27 @@ list.`*` Ys =
    else map X Me: X*Ys
 list.`/` A = map X Me: X/A
 list.`%` A = map X Me: X%A
-list.float = map X Me: X.float
-list.int = map X Me: X.int
+list.float =
+| @"Convert every element of a numeric list to float."
+| map X Me: X.float
+list.int =
+| @"Convert every element of a numeric list to int."
+| map X Me: X.int
 list.round = Me{?round}
 
 zip Xs Ys =
+| @"Element-wise pair two lists into a list of 2-element lists.
+Example:  zip \[1 2 3\] \[a b c\]   // ((1 a) (2 b) (3 c))
+The result is truncated to the length of the shorter input."
 | Xs Xs.l
 | Ys Ys.l
 | Sz min Xs.n Ys.n
 | dup I Sz: Xs.I,Ys.I
 
-list.zip = dup I Me.0.n: map Xs Me Xs.I
+list.zip =
+| @"Transpose a list of equal-length lists.
+Example:  \[\[1 2 3\] \[a b c\]\].zip   // ((1 a) (2 b) (3 c))"
+| dup I Me.0.n: map Xs Me Xs.I
 
 text.`<` B =
 | less B.is_text: bad "cant compare string `[Me]` with [B]"
@@ -252,24 +297,28 @@ text.`<` B =
 text.`*` N = @text: dup N: Me
 
 text.is_upcase =
+| @"Test whether every character is an uppercase ASCII letter."
 | times I $n:
   | C $I.code
   | when C < 'A'.code or 'Z'.code < C: ret   0
 | 1
 
 text.is_downcase =
+| @"Test whether every character is a lowercase ASCII letter."
 | times I $n:
   | C $I.code
   | when C < 'a'.code or 'z'.code < C: ret   0
 | 1
 
 text.is_digit =
+| @"Test whether every character is an ASCII digit (0-9)."
 | times I $n:
   | C $I.code
   | when C < '0'.code or '9'.code < C: ret   0
 | 1
 
 text.is_alpha =
+| @"Test whether every character is an ASCII letter (a-z or A-Z)."
 | times I $n:
   | C $I.code
   | when C < 'a'.code or 'z'.code < C:
@@ -292,14 +341,18 @@ text.has F =
 | 0
 */
 
-text.u = //upcase text
+text.u =
+| @"Upcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
+Example:  \"Hello\".u   // \"HELLO\""
 | Ys map Char $l
   | C Char.code
   | if C < 'a'.code or 'z'.code < C then Char
     else (C - 'a'.code + 'A'.code).char
 | Ys.text
 
-text.d = //downcase text
+text.d =
+| @"Downcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
+Example:  \"Hello\".d   // \"hello\""
 | Ys map Char $l
   | C Char.code
   | if C < 'A'.code or 'Z'.code < C then Char
@@ -308,15 +361,25 @@ text.d = //downcase text
 
 
 text.title =
+| @"Capitalise the first character of a text.
+Example:  \"hello world\".title   // \"Hello world\"   (first char only!)"
 | less $n: ret   Me
 | if $0.is_upcase then Me else "[$0.u][$tail]"
 
 _.is_keyword = 0
-text.is_keyword = not: $n and $0.is_upcase
+text.is_keyword =
+| @"A text is a \"keyword\" (variable) if it starts with an uppercase letter.
+Example:  \"Foo\".is_keyword   // 1
+          \"foo\".is_keyword   // 0"
+| not: $n and $0.is_upcase
 
 text.trim s/' ' i/0 l/1 r/1 =
+| @"Strip leading and trailing instances of a separator (default space).
+Keyword args: s/separator (default \" \"), l/1, r/1 select which sides.
+Example:  \"  hi  \".trim         // \"hi\"
+          \"***hi***\".trim(s/\\*)  // \"hi\""
 | Xs $l
-| when L: 
+| when L:
   | It case Xs [$S@Zs] Zs
   | while It: Xs =  It
 | when R
@@ -327,15 +390,20 @@ text.trim s/' ' i/0 l/1 r/1 =
 | Xs.text
 
 text.begin T =
-  if T.is_text: ret $upto(T.n) >< T
-  T.any: X => $upto(X.n) >< X
+| @"Test whether this text starts with the given prefix (or any of a list).
+Example:  \"hello world\".begin(\"hello\")   // 1"
+| if T.is_text: ret $upto(T.n) >< T
+| T.any: X => $upto(X.n) >< X
 
 int.map F = dup I Me: F(I)
 
 int.keep F = $l.keep(F)
 int.skip F = $l.skip(F)
 
-list.i = dup I $n: [I Me^pop]
+list.i =
+| @"Pair each element with its index, producing a list of \[I value\] pairs.
+Useful for indexed iteration via destructured map bodies."
+| dup I $n: [I Me^pop]
 
 text.i = $l.i
 
@@ -343,9 +411,15 @@ list.`.` K =
 | times I K: Me =  $tail
 | $head
 
-list.del K = [@$take(K) @$drop(K+1)]
-list.insert K V = [@$take(K) V @$drop(K)]
-list.change K V = [@$take(K) V @$drop(K+1)]
+list.del K =
+| @"Remove the element at index K.  Returns a new list."
+| [@$take(K) @$drop(K+1)]
+list.insert K V =
+| @"Insert value V at index K, shifting later elements right."
+| [@$take(K) V @$drop(K)]
+list.change K V =
+| @"Replace the element at index K with value V."
+| [@$take(K) V @$drop(K+1)]
 
 text.del K = [@$take(K) @$drop(K+1)].text
 text.insert K V = [@$take(K) V @$drop(K)].text
@@ -354,13 +428,17 @@ text.change K V = [@$take(K) V @$drop(K+1)].text
 `..` X N = dup N X
 
 list.n =
+| @"Length of a list -- O(1) on regular lists."
 | S 0
 | till $end
   | Me =  $tail
   | S+
 | S
 
-list.end = _eq $n 0
+list.end =
+| @"Test whether a list is empty.  Returns 1 if empty, else 0.
+Use this instead of .n equal-test -- O(1) on every list representation."
+| _eq $n 0
 
 text.end = _eq $n 0
 
@@ -373,9 +451,16 @@ list.bytes =
 
 list.utf8 = $bytes.utf8
 
-list.head = $0
+list.head =
+| @"First element of a list.  Returns No on an empty list.
+See also: .tail, .end (test for empty)."
+| $0
 
-list.tail = $l.tail
+list.tail =
+| @"All elements after the first.  Returns the empty list when
+the input has zero or one elements.
+See also: .head, .lead (all but last)."
+| $l.tail
 
 no.'*head' = No
 list.'*head' = if $end: No else $head
@@ -435,6 +520,7 @@ list.`>>` Xs =
 | ret   A >> B
 
 list.f =
+| @"Reverse a list (flip).  Returns a new list; the original is untouched."
 | N $n
 | Ys dup N
 | while N
@@ -454,7 +540,12 @@ text.f = $l.f.text
 text.cnt C = $l.cnt^C
 
 
-list.map F = dup $n: F(Me^pop)
+list.map F =
+| @"Apply a function to every element, collecting results.
+Example: Xs.map(X => X * X) squares each element.
+Use `&fn` to pass a named function: Xs.map(&sq).
+The `Xs{Body}` operator is the same thing with a richer body grammar."
+| dup $n: F(Me^pop)
 hard_list.map F = dup I $n: F($I)
 _list_.map F = dup I $n: F(|_lget Me I)
 text.map F = $l.map(F)
@@ -462,6 +553,9 @@ text.map F = $l.map(F)
 list.`^^` X = map Y Me Y^^X
 
 list.fold Run F =
+| @"Left fold with an explicit initial value.
+Example: Xs.fold 100 (Acc X => Acc + X) -- 100 plus sum of Xs.
+Same shape as foldl in Haskell or reduce in JS.  For sum use .z."
 | for X Me: Run = F(Run X)
 | Run
 
@@ -469,6 +563,8 @@ list.e F = till $end: F(Me^pop)
 hard_list.e F = times I $n: F($I)
 
 list.z =
+| @"Sum a list of numbers.  Mixed int/float promotes to float.
+Empty list returns 0."
 | S 0
 | till $end: S += pop Me
 | S
@@ -493,6 +589,10 @@ hard_list.cnt F =
 | C
 
 list.keep F =
+| @"Keep elements for which the predicate returns truthy.
+Example: Xs.keep(X => X > 0) keeps positives.
+Use `&fn` to pass a named predicate: Xs.keep(&is_odd).
+See also: .skip (inverse), the `:Cond` form for in-line filters."
 | Ys:
 | if F.is_fn
   then for X Me: when F(X): Ys =  [X@Ys]
@@ -500,6 +600,7 @@ list.keep F =
 | Ys.f
 
 list.skip F =
+| @"Drop elements for which the predicate returns truthy.  Inverse of .keep."
 | Ys:
 | if F.is_fn
   then for X Me: less F(X): Ys =  [X@Ys]
@@ -507,6 +608,8 @@ list.skip F =
 | Ys.f
 
 list.j =
+| @"Concatenate a list of lists into a single flat list.
+Sometimes spelled \"join\" or \"flatten\" elsewhere."
 | Rs dup $map(?n).z
 | I 0
 | for Ys Me: for Y Ys: Rs.(I+) =  Y
@@ -523,10 +626,15 @@ list.l =
 | Ys
 int.l = dup I Me: I //iota operator
 
-list.apply F = $l.apply(F)
+list.apply F =
+| @"Call a function with this list as its argument list.
+Example:  \[1 2 3\].apply(min)   // min(1, 2, 3) -> 1"
+| $l.apply(F)
 list.apply_method F = $l.apply_method(F)
 
 list.text @As =
+| @"Join a list of text values into one text, optionally with a separator.
+Example: Xs.text(\", \") joins with comma-space.  Non-text elements are coerced via interpolation."
 | R $l
 | if As.n then R.text(As.0) else R.text
 
@@ -544,7 +652,10 @@ list.split S =
   | P =  $locate(F)
 | [Me@Ys].f
 
-text.split F = $l.split(F).map(X=>X.text)
+text.split F =
+| @"Split a text on a delimiter.  Returns a list of texts.
+Empty pieces are kept."
+| $l.split(F).map(X=>X.text)
 
 text.all F = $l.all(F)
 text.any F = $l.any(F)
@@ -593,10 +704,13 @@ list.unurl =
 | when Ext <> '': Ext =  ".[Ext]"
 | "[Folder][Name][Ext]"
 
-list.take N = dup N: Me^pop
+list.take N =
+| @"First N elements of a list.  Returns the whole list if N >= length."
+| dup N: Me^pop
 hard_list.take N = dup I N $I
 
 list.drop N =
+| @"All elements after the first N.  Returns empty if N >= length."
 | times I N Me^pop
 | Me
 
@@ -688,11 +802,14 @@ text.takeIf F = $l.takeIf(F).text
 _.rmap F = F(Me)
 list.rmap F = map X Me X.rmap(F)
 
-list.infix Item = // intersperse from Haskell
+list.infix Item =
+| @"Insert a value between every two adjacent elements.
+Example:  \[\\a \\b \\c\].infix(\\sep)   // (a sep b sep c)"
 | N $n*2-1
 | if N < 0 then [] else dup I N: if I%2 then Item else Me^pop
 
 list.locate F =
+| @"Return the INDEX of the first matching element, or No."
 | less F.is_fn: F = (X => F >< X)
 | for (I 0; not $end; I+): when F(Me^pop): ret   I
 
@@ -705,6 +822,7 @@ text.locate F =
   else times I $n: when F >< $I: ret   I
 
 list.find F =
+| @"Return the first element for which the predicate is truthy, or No."
 | if F.is_fn
   then for (I 0; not $end; I+):
   | It Me^pop; when F(It): ret   It
@@ -732,6 +850,9 @@ _list_.find F =
 
 
 list.group N =
+| @"Group a list into chunks of N elements.
+Example:  \[1 2 3 4 5 6\].group(2)   // ((1 2) (3 4) (5 6))
+          \[1 2 3 4 5\].group(2)     // ((1 2) (3 4) (5)) -- trailing partial"
 | Y Ys []
 | I 0
 | till $end
@@ -757,12 +878,14 @@ list.any F =
 | 0
 
 list.max =
+| @"Largest element of a list, by < comparison.  Empty list returns No."
 | when $end: ret   No
 | M $head
 | for X Me: when X > M: M =  X
 | M
 
 list.min =
+| @"Smallest element of a list, by < comparison.  Empty list returns No."
 | when $end: ret   No
 | M $head
 | for X Me: when X < M: M =  X
@@ -873,13 +996,24 @@ tbl.__ Method Args =
 | if _gt Args.n 1
   then Args.0.(Method^_method_name.tail) =  Args.1 // strip `assign indicator`
   else Me.(Method^_method_name)
-tbl.map F = $l.map(F)
-tbl.as_text = "@{[$l{"[?0.as_text]![?1.as_text]"}.text(' ')]}"
-tbl.copy = $l.t
-tbl.deep_copy = $l.t
-tbl.s @As = $l.s @As
+tbl.map F =
+| @"Apply a function to each key-value pair, collecting the results."
+| $l.map(F)
+tbl.as_text =
+| @"Render the table as its @-curly key!value literal text form."
+| "@{[$l{"[?0.as_text]![?1.as_text]"}.text(' ')]}"
+tbl.copy =
+| @"Shallow copy of a table.  Values shared; keys are."
+| $l.t
+tbl.deep_copy =
+| @"Recursive deep copy of a table."
+| $l.t
+tbl.s @As =
+| @"Sort a tables key-value pairs the same way list.s does for a list of pairs."
+| $l.s @As
 
 list.t =
+| @"Convert a list of pair-lists to a table.  Inverse of `tbl.l`."
 | T!
 | for [K V] Me: T.K =  V
 | T
@@ -887,6 +1021,8 @@ list.t =
 list.bag = Me{?,1}.t
 
 list.uniq =
+| @"Remove consecutive duplicates, preserving first occurrence.
+Use .s first if you want to dedupe over the whole list regardless of order."
 | Seen!
 | $skip(X => got Seen.X or (Seen.X = 1) and 0)
 
@@ -1070,7 +1206,9 @@ sort_asc Xs =
   | Root =  merge Root.ILeft Root.IRight
   | V
 
-list.s @As = 
+list.s @As =
+| @"Sort a list in ascending order, stable.  Accepts a comparator lambda
+for descending or custom orderings.  Returns a fresh list."
 | F No
 | case As
   [A] | F =  A
@@ -1107,6 +1245,7 @@ list.sortBy F =
 
 //= parse text as integer; an optional argument provides Radix
 text.int @Radix =
+| @"Parse a text as an integer.  Returns No on parse error."
 | Rdx 10
 | when Radix.n: Rdx =  Radix.0
 | T Me.u
@@ -1339,6 +1478,9 @@ lexical_macro_expand SrcFile Text LexP =
 //lexP provides paths for the lexical macro-processor
 //if macroexpansion without the paths is needed, just pass []
 text.parse Src!'<none>' LexP!No =
+| @"Parse text as Symta source code, returning the AST as nested lists.
+Useful for DSL parsers and the JSON/XML examples that rewrite their syntax
+into Symta source and let the reader do the heavy lifting."
 | Text Me
 | when got LexP: Text = lexical_macro_expand Src Text LexP
 | R parse_strip_c_: parse_tokens_c_: add_bars_c_: Text.tokenize(Src)
@@ -1360,12 +1502,32 @@ text.sexp Src!'<none>' LexP!No List!0 =
 
 
 //===========================================================================
-// Standard library documentation (read at REPL via `help \\name`)
+// Legacy `help_set` calls -- shrinking residual.
 //===========================================================================
-// Docstrings are single-quoted to avoid string interpolation of any
-// example brackets they contain.  They register into the same
-// `help_set`-backed map introduced at the top of this file.
+// Symbols defined in *Symta source* (functions and methods in this
+// file or its peers) now carry their docstrings as `@"text"` heads
+// on the definition body; those land in the SBC docs section at
+// compile time and are looked up by `help_get` via the C-side
+// `help_section_lookup_` builtin.  See HELP-3 commits.
+//
+// The entries that remain below are the ones that *cannot* yet
+// route through that mechanism:
+//
+//   - macros defined in `macro.s` (`got`, `not`, `when`, `less`,
+//     `min`, `max`, `no`, `help`) -- the `=:` form does not flow
+//     through `prefix_doc`.  Macro-doc support is a planned
+//     follow-up.
+//   - runtime builtins (`rand_get`, `rand_set`, `rand_push`,
+//     `rand_pop`, `say_`, `typename`, `text.n`, `text.flt`,
+//     `text.utf8`, `int.float`, `float.int`) -- these live in
+//     `runtime/bltin.c` with no Symta source body to host an
+//     `@"text"` head.  A C-side `BUILTIN_HELP` static table is
+//     the planned end-state; for now the docs live here.
+//
+// Once both follow-ups land, every entry below disappears and so
+// does `Help_Table`/`help_set` itself.
 
+// --- macros (defined in macro.s) ----------------------------------
 help_set \got 'Test whether a value exists.  Returns 1 if X is anything but No, else 0.
 Distinct from `not X`, which tests for the integer 0.
 See also: not (test for zero), No (the no-value marker).'
@@ -1383,6 +1545,9 @@ help_set \less 'Inverse of `when`: runs the body when the condition is falsy (ze
 Idiomatic for guard clauses at the top of a function.
 Example:  less B: bad "division by zero"'
 
+help_set \no 'Test whether a value is No.  Inverse of `got`.
+Returns 1 if X is No, else 0.'
+
 help_set \min 'Minimum of the given values.  Variadic.
 Example: min 3 7 2 8 1 returns 1.
 For the minimum element of a list, use `.min` (the method).
@@ -1392,81 +1557,21 @@ help_set \max 'Maximum of the given values.  Variadic.
 Example: max 3 7 2 8 1 returns 8.
 See also: min, list.max, list.min.'
 
-help_set \list.n 'Length of a list -- O(1) on regular lists.'
+help_set \help 'Print REPL help (no args) or documentation for a symbol.
+Usage: `help` for the banner; `help say` for one symbols docs;
+`help_names()` to list every documented symbol.'
 
-help_set \list.head 'First element of a list.  Returns No on an empty list.
-See also: .tail, .end (test for empty).'
+// --- runtime builtins (defined in runtime/bltin.c) ---------------
+help_set \say_ 'Print values without appending a newline.  Same argument shape
+as `say`.  Use for assembling text from several calls or for REPL-like prompts.
+Example:  say_ "> "; X parse get_line()'
 
-help_set \list.tail 'All elements after the first.  Returns the empty list when
-the input has zero or one elements.
-See also: .head, .lead (all but last).'
-
-help_set \list.end 'Test whether a list is empty.  Returns 1 if empty, else 0.
-Use this instead of `.n >< 0` -- O(1) on every list representation.'
-
-help_set \list.f 'Reverse a list (flip).  Returns a new list; the original is untouched.'
-
-help_set \list.s 'Sort a list in ascending order.  Stable.  Accepts a comparator lambda:
-descending sort is `Pairs.s | ? > ??` where `?` and `??` are the two elements.
-Returns a fresh list.'
-
-help_set \list.z 'Sum a list of numbers.  Mixed int/float promotes to float.
-Empty list returns 0.'
-
-help_set \list.max 'Largest element of a list, by < comparison.  Empty list returns No.'
-
-help_set \list.min 'Smallest element of a list, by < comparison.  Empty list returns No.'
-
-help_set \list.j 'Concatenate a list of lists into a single flat list.
-Sometimes spelled "join" or "flatten" elsewhere.'
-
-help_set \list.i 'Pair each element with its index, producing a list of [I value] pairs.
-Useful for indexed iteration via destructured map bodies.'
-
-help_set \list.uniq 'Remove consecutive duplicates, preserving first occurrence.
-Use .s first if you want to dedupe over the whole list regardless of order.'
-
-help_set \list.keep 'Keep elements for which the predicate returns truthy.
-Example: Xs.keep(X => X > 0) keeps positives.
-Use `&fn` to pass a named predicate: Xs.keep(&is_odd).
-See also: .skip (inverse), the `:Cond` form for in-line filters.'
-
-help_set \list.skip 'Drop elements for which the predicate returns truthy.  Inverse of .keep.'
-
-help_set \list.map 'Apply a function to every element, collecting results.
-Example: Xs.map(X => X * X) squares each element.
-Use `&fn` to pass a named function: Xs.map(&sq).
-The `Xs{Body}` operator is the same thing with a richer body grammar.'
-
-help_set \list.take 'First N elements of a list.  Returns the whole list if N >= length.'
-
-help_set \list.drop 'All elements after the first N.  Returns empty if N >= length.'
-
-help_set \list.find 'Return the first element for which the predicate is truthy, or No.'
-
-help_set \list.locate 'Return the INDEX of the first matching element, or No.'
-
-help_set \list.fold 'Left fold with an explicit initial value.
-Example: Xs.fold 100 (Acc X => Acc + X) -- 100 plus sum of Xs.
-Same shape as foldl in Haskell or reduce in JS.  For sum use .z.'
-
-help_set \list.text 'Join a list of text values into one text, optionally with a separator.
-Example: Xs.text(", ") joins with comma-space.  Non-text elements are coerced via interpolation.'
-
-help_set \list.t 'Convert a list of pair-lists to a table.  Inverse of `tbl.l`.'
-
-help_set \tbl.l 'Convert a table to a list of [key value] pairs.  Inverse of `list.t`.'
+help_set \typename 'Return the type name of a value, as text.
+Example:  typename 42         // "int"
+          typename "abc"      // "text"
+          typename [1 2 3]    // "list"'
 
 help_set \text.n 'Length of a text in characters (codepoints, not bytes).'
-
-help_set \text.split 'Split a text on a delimiter.  Returns a list of texts.
-Empty pieces are kept.'
-
-help_set \text.parse 'Parse text as Symta source code, returning the AST as nested lists.
-Useful for DSL parsers and the JSON/XML examples that rewrite their syntax
-into Symta source and let the reader do the heavy lifting.'
-
-help_set \text.int 'Parse a text as an integer.  Returns No on parse error.'
 
 help_set \text.flt 'Parse a text as a floating-point number.  Returns No on parse error.'
 
@@ -1474,159 +1579,7 @@ help_set \text.utf8 'Convert text to its UTF-8 byte sequence as a list of intege
 
 help_set \int.float 'Convert an integer to a float.'
 
-help_set \int.abs 'Absolute value of an integer.  Note: `abs(-5)` does NOT work because
-`(-5)` is parsed as a function call.  Use `(0-5).abs` instead.'
-
 help_set \float.int 'Truncate a float to an integer (toward zero).'
-
-help_set \help 'Print REPL help (no args) or documentation for a symbol.
-Usage: `help` for the banner; `help \\say` for one symbols docs;
-`help_names()` to list every documented symbol.'
-
-help_set \help_set 'Attach a docstring to a name, so `help \\name` can read it back.
-Docstrings are stored in a runtime map (Help_Table).  See also: help, help_get.'
-
-help_set \help_get 'Look up the docstring registered for a name.  Returns No if undocumented.'
-
-help_set \help_names 'Return the list of every documented symbol name.'
-
-help_set \ssv_ 'Set-section-symbol-value.  General intrinsic for attaching
-side-data to a definition.  Today only the `docs` section is honoured
-(delegating to `help_set`); future sections will cover type annotations,
-graphical assets, audio data, anything else a macro wants to attach.
-Eventually `ssv_` will be a compile-time intrinsic that emits each
-section into a dedicated area of the SBC file.  Until then, this
-Symta-side stub keeps the user-facing API identical.
-Args: ssv_ Section Symbol Value -- Section and Symbol are texts.'
-
-
-// ---------------------------------------------------------------
-// Type system + introspection
-// ---------------------------------------------------------------
-
-help_set \typename 'Return the type name of a value, as text.
-Example:  typename 42         // "int"
-          typename "abc"      // "text"
-          typename [1 2 3]    // "list"'
-
-help_set \methods 'Return the table of methods defined for the given value.
-Example:  methods 42          // table of int methods'
-
-help_set \got 'Test whether a value exists.  Returns 1 if X is anything but No, else 0.
-This is the proper "did this lookup succeed" test, since `if T.missing:`
-would always fire (No is truthy under control flow).
-Example:  if got T.name: say T.name'
-
-help_set \no 'Test whether a value is No.  Inverse of `got`.
-Returns 1 if X is No, else 0.'
-
-
-// ---------------------------------------------------------------
-// More list methods
-// ---------------------------------------------------------------
-
-help_set \list.copy 'Shallow copy of a list -- elements are shared.'
-
-help_set \list.deep_copy 'Recursive deep copy of a list.  Nested lists are copied too.'
-
-help_set \list.zip 'Transpose a list of equal-length lists.
-Example:  [[1 2 3] [a b c]].zip   // ((1 a) (2 b) (3 c))'
-
-help_set \list.group 'Group a list into chunks of N elements.
-Example:  [1 2 3 4 5 6].group(2)   // ((1 2) (3 4) (5 6))
-          [1 2 3 4 5].group(2)     // ((1 2) (3 4) (5)) -- trailing partial'
-
-help_set \list.infix 'Insert a value between every two adjacent elements.
-Example:  [\\a \\b \\c].infix(\\sep)   // (a sep b sep c)'
-
-help_set \list.del 'Remove the element at index K.  Returns a new list.'
-
-help_set \list.insert 'Insert value V at index K, shifting later elements right.'
-
-help_set \list.change 'Replace the element at index K with value V.'
-
-help_set \list.apply 'Call a function with this list as its argument list.
-Example:  [1 2 3].apply(min)   // min(1, 2, 3) -> 1'
-
-help_set \list.bool '0 for the empty list, 1 otherwise.'
-
-help_set \list.sign 'Elementwise sign on a numeric list (each element -> -1, 0, or 1).'
-
-help_set \list.float 'Convert every element of a numeric list to float.'
-
-help_set \list.int 'Convert every element of a numeric list to int.'
-
-
-// ---------------------------------------------------------------
-// More text methods
-// ---------------------------------------------------------------
-
-help_set \text.u 'Upcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
-Example:  "Hello".u   // "HELLO"'
-
-help_set \text.d 'Downcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
-Example:  "Hello".d   // "hello"'
-
-help_set \text.title 'Capitalise the first character of a text.
-Example:  "hello world".title   // "Hello world"   (first char only!)'
-
-help_set \text.trim 'Strip leading and trailing instances of a separator (default space).
-Keyword args: s/separator (default " "), l/1, r/1 select which sides.
-Example:  "  hi  ".trim         // "hi"
-          "***hi***".trim(s/\\*)  // "hi"'
-
-help_set \text.is_keyword 'A text is a "keyword" (variable) if it starts with an uppercase letter.
-Example:  "Foo".is_keyword   // 1
-          "foo".is_keyword   // 0'
-
-help_set \text.is_alpha 'Test whether every character is an ASCII letter (a-z or A-Z).'
-
-help_set \text.is_digit 'Test whether every character is an ASCII digit (0-9).'
-
-help_set \text.is_upcase 'Test whether every character is an uppercase ASCII letter.'
-
-help_set \text.is_downcase 'Test whether every character is a lowercase ASCII letter.'
-
-help_set \text.begin 'Test whether this text starts with the given prefix (or any of a list).
-Example:  "hello world".begin("hello")   // 1'
-
-help_set \text.bool '0 for the empty text, 1 otherwise.'
-
-
-// ---------------------------------------------------------------
-// Hash table methods
-// ---------------------------------------------------------------
-
-help_set \tbl.copy 'Shallow copy of a table.  Values shared; keys are.'
-
-help_set \tbl.deep_copy 'Recursive deep copy of a table.'
-
-help_set \tbl.as_text 'Render the table as its `@{key!value ...}` literal text form.'
-
-help_set \tbl.map 'Apply a function to each [key value] pair, collecting the results.'
-
-help_set \tbl.s 'Sort a tables KV pairs the same way `list.s` does for a list of pairs.'
-
-help_set \tbl.copy 'Shallow copy of a table.'
-
-
-// ---------------------------------------------------------------
-// Arithmetic helpers
-// ---------------------------------------------------------------
-
-help_set \int.sign '-1 for negative, 0 for zero, 1 for positive.'
-help_set \float.sign 'Same as int.sign but returns floats.'
-help_set \float.abs 'Absolute value of a float.'
-help_set \int.float 'Convert an integer to a float.'
-
-
-// ---------------------------------------------------------------
-// Misc
-// ---------------------------------------------------------------
-
-help_set \zip 'Element-wise pair two lists into a list of 2-element lists.
-Example:  zip [1 2 3] [a b c]   // ((1 a) (2 b) (3 c))
-The result is truncated to the length of the shorter input.'
 
 help_set \rand_get 'Return a pseudo-random integer.  Seeded from the random_seed_ table.'
 help_set \rand_set 'Set the PRNG seed.'
