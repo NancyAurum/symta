@@ -2,15 +2,27 @@ game compilation benchmark: 21811 source lines
   symta: <repo>/symta/symta.exe
   game:  <repo>/game
 
-[cold]  38-40 s   121 modules   rc=0   (3 runs: 38.73 / 39.99 / 37.84)
+[cold]  20-23 s   121 modules   rc=0   (warm-cache band: 20.65 /
+                                        22.20 / 23.03 s; cold-FS
+                                        outliers can hit 42-50 s
+                                        under Defender)
 
-[warm]  0.24-0.39 s   0 modules recompiled   rc=0
+[warm]  0.13-0.25 s   0 modules recompiled   rc=0
 
 # Machine: w64devkit gcc 12.2.0 / Win64 / Intel i7-12700H class.
-# Captured at commit 2129767 ("revert weak-meta table; reader.c
-# allocates `meta` wrappers directly").  Module count dropped from
-# 123 to 121 because reader.s and sexp.s retired in earlier
-# commits (the parser source moved fully into runtime/reader.c).
+# Captured at commit a341309 ("register _.>< / _.<> as direct C
+# builtins").  Two perf wins combined:
+#
+#   1. Reader consolidation (commit 2129767): the C reader is the
+#      production parser, with meta wrapping via direct OBJECT()
+#      allocation in C.  Was 38-40 s by itself.
+#   2. C-side identity comparators (commit a341309): `_.><` and
+#      `_.<>` are runtime builtins doing raw dyn equality, not
+#      Symta-side closures chaining MCALLs.  Took cold from
+#      38-40 s to 20-23 s -- another ~45% reduction.
+#
+# Combined: ~2.5x faster than the pre-consolidation 51-54 s
+# baseline at commit 0b9e2c4.
 #
 # vs the previous baseline (51-54 s at commit 0b9e2c4):
 #   - the C reader is genuinely faster than the Symta-side parser;
