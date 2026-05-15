@@ -105,5 +105,14 @@ H heap; S2{~D.?+}{|H.push@?f}
 (H.n-1){2{H.pop:}(A,B C,D=H.push A+C B,D):}
 C2 [[]H.pop.1](:D,[L R] = @[0,@D L]^r @[1,@D R]^r; D,C=:C,D)
 
-say "compact variant -- all codes by length:"
-say C2.s(?1.n<??1.n)
+// Heap rotations are randomised (heap.s: `1.rand`-driven meld),
+// so equal-priority merges happen in arbitrary order.  For
+// characters with the same frequency the codelen can come back
+// as either 3 or 4 depending on which side of the tree they
+// landed on (the algorithm guarantees the *multiset* of lengths
+// is optimal, not the per-character assignment).  Print the
+// sorted multiset of codelens so the regression diff stays
+// reproducible while still exercising the whole pipeline.
+say "compact variant -- codelens sorted ascending:"
+say C2.map([_ Bits] => Bits.n).s
+say "total compressed bits: [C2{[Ch Bits] => Bits.n*S2.cnt^Ch}{&~s+?}]"

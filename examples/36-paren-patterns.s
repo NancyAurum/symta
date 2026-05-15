@@ -17,11 +17,6 @@
 //   ^r  recursive call to the enclosing pattern lambda
 //   =:  the do-nothing pattern that returns its input unchanged
 //
-// Skipped (broken upstream, mirrored from tests/macros/cases/idioms.s):
-//   L(:@_ -P&=0)   -- "bad match case `&`"
-//   L(/~ P @_)     -- "invalid `~` expr"
-//   L(@_ ~<P @_)   -- "invalid `~` expr"
-//
 // Run:  symta -f examples/36-paren-patterns.s
 
 
@@ -124,14 +119,39 @@ say "ints > 100 in tree: [Big]"                     // (200 300 500)
 // ----------------------------------------------------------------
 // 9. List-shape `L(...)` idioms.
 //
-// `:@_ pred@` -- "skip prefix, then pred matches, then anything"
-// = "is there at least one elem matching pred?"
+// `:@_ pat @` -- "skip prefix, then pat matches, then anything".
+// `pat` here is any Symta pattern -- a literal keyword like \d,
+// a structured shape like \[3 _], or a predicate like ?>3.
 // ----------------------------------------------------------------
 L5 [1 2 3 4 5]
 H1 L5(:@_ ?>3@)
 H2 L5(:@_ ?>9@)
 say "any > 3?  [H1]"                                // 1
 say "any > 9?  [H2]"                                // 0
+
+// `/~ pat @` -- "skip some prefix counted by the index pointer
+// `~`, find pat, then anything after" = "first index of element
+// matching pat", or No if no such element.
+F2 [a b c d e f](/~ d@)
+F3 [a b c e f](/~ d@)
+say "index of \\d in (a b c d e f): [F2]"           // 3
+say "index of \\d in (a b c e f):   [F3]"           // No
+
+// `@_ ~<pat @` -- "skip prefix, return current element (~<) iff
+// it matches pat, then anything after" = "first element matching
+// pat".  Used with `.i` for indexed lookups.
+F4 [:9].i(@_ ~<[3 _]@)
+F5 [:9].i{[3 4]=}(@_ ~<[3 _]@)
+say "first \[3 _\] pair in \[:9\].i: [F4]"              // (3 4)
+say "after stripping \[3 4\]:        [F5]"              // No
+
+// `:@_ -pat @= 0` -- "if any elem does NOT match pat (the `-pat`
+// pattern), return 0; else return the list itself" = forall.
+// `@=` is the rewrite operator inside a pattern body.
+A1 [g g g g g g g g](:@_ -g @= 0)
+A2 [g g g g f g g g](:@_ -g @= 0)
+say "all g?  (eight gs):       [A1]"                // (g g g g g g g g)
+say "all g?  (one f mixed in): [A2]"                // 0
 
 D1 L5(/3 @~)
 D2 L5(@~ /2)

@@ -22,6 +22,12 @@ replace hate with love: (love (a love) love b)
 ints > 100 in tree: (200 300 500)
 any > 3?  1
 any > 9?  0
+index of \d in (a b c d e f): 3
+index of \d in (a b c e f):   No
+first [3 _] pair in [:9].i: (3 4)
+after stripping [3 4]:        No
+all g?  (eight gs):       (g g g g g g g g)
+all g?  (one f mixed in): 0
 drop first 3:        (4 5)
 drop last 2:         (1 2 3)
 drop ends (1 and 1): (2 3 4)
