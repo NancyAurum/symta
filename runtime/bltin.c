@@ -11,6 +11,7 @@
 #include "flt16.h"
 #include "fs.h"
 #include "reader.h"
+#include "meta_table.h"
 
 
 #include "prf.h"
@@ -440,6 +441,26 @@ BUILTIN1("parse_table_c_", parse_table_c_, C_ANY, x)
 RETURNS(reader_parse_table(x))
 BUILTIN1("parse_tokens_c_", parse_tokens_c_, C_ANY, x)
 RETURNS(reader_parse_tokens(x))
+
+/* Weak hashtable -- single global instance.  Keys are heap-object
+ * dyns held weakly: GC drops entries whose key isn't reachable
+ * from anywhere else.  Values are strongly held.  See
+ * runtime/meta_table.h and tests/runtime/wh-test.s. */
+BUILTIN2("wh_set_",   wh_set_,   C_ANY, key, C_ANY, val)
+  meta_set_(key, val);
+RETURNS(val)
+BUILTIN1("wh_get_",   wh_get_,   C_ANY, key)
+RETURNS(meta_get_(key))
+BUILTIN1("wh_has_",   wh_has_,   C_ANY, key)
+RETURNS(FXN(meta_has_(key)))
+BUILTIN1("wh_del_",   wh_del_,   C_ANY, key)
+  meta_del_(key);
+RETURNS(No)
+BUILTIN0("wh_clear_", wh_clear_)
+  meta_clear_();
+RETURNS(No)
+BUILTIN0("wh_n_",     wh_n_)
+RETURNS(FXN((int64_t)meta_n_()))
 
 
 BUILTIN1("text.flt",text_flt,C_ANY,o)
@@ -2499,6 +2520,12 @@ static struct {
   B(parse_strip_c_)
   B(parse_table_c_)
   B(parse_tokens_c_)
+  B(wh_set_)
+  B(wh_get_)
+  B(wh_has_)
+  B(wh_del_)
+  B(wh_clear_)
+  B(wh_n_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)
