@@ -51,7 +51,7 @@ clean V =
            then V.tail{&clean}
            else V{&clean}
     else if V.is_table
-      then V.l{[K Val] = [K (Val ^ clean)]}.t
+      then V.l{[K Val] = [K Val^clean]}.t
       else V
 
 parse_json Str =
@@ -72,7 +72,7 @@ say ""
 // 4. Query: pick the names of every admin user.
 //    `.keep` + `{}` map, both pattern-destructuring on the row.
 // ----------------------------------------------------------------
-Admins T.users.keep(| U => U.role >< \admin)
+Admins T.users.keep(U => U.role >< \admin)
 say "admins:"
 for U Admins: say "  [U.name] (age [U.age])"
 say ""

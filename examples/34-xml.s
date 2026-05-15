@@ -45,14 +45,14 @@ say ""
 //    A child is a 2-element `[\name value]` list, so destructuring
 //    in `.keep` picks them straight out.
 // ----------------------------------------------------------------
-Tags T.tail.keep(| C => C.0 >< \tag)
+Tags T.tail.keep(C => C.0 >< \tag)
 say "tag children:"
 for [_ V] Tags: say "  - [V]"
 say ""
 
 // Pull a specific child by name:
 find_child Tree Name =
-  Found Tree.tail.keep(| C => C.0 >< Name)
+  Found Tree.tail.keep(C => C.0 >< Name)
   if Found.n then Found.0.1 else No
 say "title:  [find_child T \title]"
 say "year:   [find_child T \year]"

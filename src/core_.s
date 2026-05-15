@@ -1316,3 +1316,135 @@ text.sexp Src!'<none>' LexP!No List!0 =
 | R parse_strip_c_: parse_tokens_c_: Text.tokenize(Src)
 | if List: ret R
 | if R.end: No else R.0
+
+
+//===========================================================================
+// Standard library documentation (read at REPL via `help \\name`)
+//===========================================================================
+// Docstrings are single-quoted to avoid string interpolation of any
+// example brackets they contain.  They register into the same
+// `help_set`-backed map introduced at the top of this file.
+
+help_set \got 'Test whether a value exists.  Returns 1 if X is anything but No, else 0.
+Distinct from `not X`, which tests for the integer 0.
+See also: not (test for zero), No (the no-value marker).'
+
+help_set \not 'Logical negation.  Returns 1 if X is the integer 0, else 0.
+In Symta the only falsy value is 0; No and atoms and lists are all truthy.
+Use `got` to check for No, `not` for zero.'
+
+help_set \when 'Conditional execution -- runs the body if the condition is truthy.
+The body is everything indented under the `when:` line.
+Returns No when the condition is falsy (the integer 0).
+See also: less (inverse), if (with else-branch).'
+
+help_set \less 'Inverse of `when`: runs the body when the condition is falsy (zero).
+Idiomatic for guard clauses at the top of a function.
+Example:  less B: bad "division by zero"'
+
+help_set \min 'Minimum of the given values.  Variadic.
+Example: min 3 7 2 8 1 returns 1.
+For the minimum element of a list, use `.min` (the method).
+See also: max, list.min, list.max.'
+
+help_set \max 'Maximum of the given values.  Variadic.
+Example: max 3 7 2 8 1 returns 8.
+See also: min, list.max, list.min.'
+
+help_set \list.n 'Length of a list -- O(1) on regular lists.'
+
+help_set \list.head 'First element of a list.  Returns No on an empty list.
+See also: .tail, .end (test for empty).'
+
+help_set \list.tail 'All elements after the first.  Returns the empty list when
+the input has zero or one elements.
+See also: .head, .lead (all but last).'
+
+help_set \list.end 'Test whether a list is empty.  Returns 1 if empty, else 0.
+Use this instead of `.n >< 0` -- O(1) on every list representation.'
+
+help_set \list.f 'Reverse a list (flip).  Returns a new list; the original is untouched.'
+
+help_set \list.s 'Sort a list in ascending order.  Stable.  Accepts a comparator lambda:
+descending sort is `Pairs.s | ? > ??` where `?` and `??` are the two elements.
+Returns a fresh list.'
+
+help_set \list.z 'Sum a list of numbers.  Mixed int/float promotes to float.
+Empty list returns 0.'
+
+help_set \list.max 'Largest element of a list, by < comparison.  Empty list returns No.'
+
+help_set \list.min 'Smallest element of a list, by < comparison.  Empty list returns No.'
+
+help_set \list.j 'Concatenate a list of lists into a single flat list.
+Sometimes spelled "join" or "flatten" elsewhere.'
+
+help_set \list.i 'Pair each element with its index, producing a list of [I value] pairs.
+Useful for indexed iteration via destructured map bodies.'
+
+help_set \list.uniq 'Remove consecutive duplicates, preserving first occurrence.
+Use .s first if you want to dedupe over the whole list regardless of order.'
+
+help_set \list.keep 'Keep elements for which the predicate returns truthy.
+Example: Xs.keep(X => X > 0) keeps positives.
+Use `&fn` to pass a named predicate: Xs.keep(&is_odd).
+See also: .skip (inverse), the `:Cond` form for in-line filters.'
+
+help_set \list.skip 'Drop elements for which the predicate returns truthy.  Inverse of .keep.'
+
+help_set \list.map 'Apply a function to every element, collecting results.
+Example: Xs.map(X => X * X) squares each element.
+Use `&fn` to pass a named function: Xs.map(&sq).
+The `Xs{Body}` operator is the same thing with a richer body grammar.'
+
+help_set \list.take 'First N elements of a list.  Returns the whole list if N >= length.'
+
+help_set \list.drop 'All elements after the first N.  Returns empty if N >= length.'
+
+help_set \list.find 'Return the first element for which the predicate is truthy, or No.'
+
+help_set \list.locate 'Return the INDEX of the first matching element, or No.'
+
+help_set \list.fold 'Left fold with an explicit initial value.
+Example: Xs.fold 100 (Acc X => Acc + X) -- 100 plus sum of Xs.
+Same shape as foldl in Haskell or reduce in JS.  For sum use .z.'
+
+help_set \list.text 'Join a list of text values into one text, optionally with a separator.
+Example: Xs.text(", ") joins with comma-space.  Non-text elements are coerced via interpolation.'
+
+help_set \list.t 'Convert a list of pair-lists to a table.  Inverse of `tbl.l`.'
+
+help_set \tbl.l 'Convert a table to a list of [key value] pairs.  Inverse of `list.t`.'
+
+help_set \text.n 'Length of a text in characters (codepoints, not bytes).'
+
+help_set \text.split 'Split a text on a delimiter.  Returns a list of texts.
+Empty pieces are kept.'
+
+help_set \text.parse 'Parse text as Symta source code, returning the AST as nested lists.
+Useful for DSL parsers and the JSON/XML examples that rewrite their syntax
+into Symta source and let the reader do the heavy lifting.'
+
+help_set \text.int 'Parse a text as an integer.  Returns No on parse error.'
+
+help_set \text.flt 'Parse a text as a floating-point number.  Returns No on parse error.'
+
+help_set \text.utf8 'Convert text to its UTF-8 byte sequence as a list of integers.'
+
+help_set \int.float 'Convert an integer to a float.'
+
+help_set \int.abs 'Absolute value of an integer.  Note: `abs(-5)` does NOT work because
+`(-5)` is parsed as a function call.  Use `(0-5).abs` instead.'
+
+help_set \float.int 'Truncate a float to an integer (toward zero).'
+
+help_set \help 'Print REPL help (no args) or documentation for a symbol.
+Usage: `help` for the banner; `help \\say` for one symbols docs;
+`help_names()` to list every documented symbol.'
+
+help_set \help_set 'Attach a docstring to a name, so `help \\name` can read it back.
+Docstrings are stored in a runtime map (Help_Table).  See also: help, help_get.'
+
+help_set \help_get 'Look up the docstring registered for a name.  Returns No if undocumented.'
+
+help_set \help_names 'Return the list of every documented symbol name.'

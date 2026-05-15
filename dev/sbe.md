@@ -457,8 +457,8 @@ say: 3 ^ square                 // 81
 Higher-order functions take lambdas just like any other value:
 
 ```symta
-[1 2 3 4 5].keep(| X => X > 2)  // (3 4 5)
-[10 20 30].map(| X => X / 10)   // (1 2 3)
+[1 2 3 4 5].keep(X => X > 2)    // (3 4 5)
+[10 20 30].map(X => X / 10)     // (1 2 3)
 ```
 
 The bare `?` inside a `{}` body is shorthand for "the current
@@ -1212,14 +1212,13 @@ Documentation is attached to source declarations with
 ```symta
 help_set \sum 'Sum a list of numbers.
 Empty list returns 0; mixed int/float promotes to float.
-Example:  [1 2 3].sum  // -> 6'
+Example: [1 2 3].sum -> 6'
 
 sum L = L{? => ?+R}
 ```
 
-At REPL time, `help \sum` reads it back.  The documentation is
-*in* the source code where it belongs, so it never goes stale,
-and the REPL is the way to read it.
+At REPL time, `help \sum` reads it back.  Documentation lives
+*in* the source code where it belongs, so it never goes stale.
 
 ```symta
 help                            // print general usage
@@ -1227,27 +1226,32 @@ help \sum                       // show docs for `sum`
 help_names()                    // list every documented symbol
 ```
 
+The whole standard library — including the `{}` operator
+helpers — comes with docs out of the box.  Try `help \list.keep`,
+`help \text.parse`, `help \when`, `help \got` at the REPL.
+
 Two refinements are on the milestone roadmap:
 
-1.  **A `doc` macro** so that the same docstring can be written
-    immediately *before* the definition without an explicit
-    `\sym` repetition:
+1.  **A `doc` macro** so the docstring can be written
+    immediately *before* a definition without repeating the
+    name:
     ```symta
     doc 'Sum a list of numbers.'
     sum L = L{? => ?+R}
     ```
-    The macro picks up the next top-level definition's name and
-    routes the string to `help_set` for you.
+    The macro will pair the string with the next top-level
+    definition and route it to `help_set` for you.  Until it
+    lands, write `help_set \sum '...'` explicitly above the
+    definition; the runtime API is the same.
 
-2.  **A dedicated SBC section** for docstrings, sitting beside
-    the existing line-number and (future) type-introspection
-    side-tables.  Once that lands, docs are *not* loaded into
-    memory until they're asked for — only the offset table is.
-    External tooling can read docs without instantiating the
-    runtime.
+2.  **A dedicated SBC docstring section** sitting beside the
+    existing line-number side-table.  Once that lands, docs
+    are loaded lazily — only the offset table is read at
+    module load.  External tooling can inspect docs without
+    instantiating the runtime.
 
-Both are non-breaking — the `help` / `help_set` / `help_names`
-API stays the same.
+Both refinements are non-breaking — the
+`help` / `help_set` / `help_names` API stays the same.
 
 The stdlib reference that previous versions of this document
 tried to inline is gone deliberately.  Use `help`.
