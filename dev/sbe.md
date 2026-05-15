@@ -600,6 +600,60 @@ reach for in another language (`flatMap`, `groupBy`, `partition`,
 `chunks_of`, `windows`, `zip_with`) collapse into one-liners
 right here in the syntax.
 
+### AST / XML rewriting: `=:` and bare `@`
+
+Two tiny sugars make `{}` into a serious tool for transforming
+trees of data — compiler intermediate representations, XML and
+JSON document trees, configuration formats, anything with a
+recursive shape.
+
+**Bare `@` in a pattern** is shorthand for `@_` — "match the
+rest, throw it away".  So `[A B@]` means "a list with at least
+two items; bind A and B to the first two and discard whatever
+follows":
+
+```symta
+[[1 2 3] [4 5] [a b c d]]{[A B@] =: B A}
+//   ((2 1) (5 4) (b a))
+```
+
+The first two elements get bound, the rest get dropped, then the
+output is `[B A]`.
+
+**`=:` on the right-hand side** is shorthand for `= [...]` —
+"wrap the listed items into a fresh list as the replacement".
+It removes the bracket noise that would otherwise clutter every
+tree-rewrite rule.  Compare:
+
+```symta
+// Without the sugars, an AST rewrite reads like Lisp:
+AST{[\plus A B] = [\sum A B]}
+
+// With them, it reads like a rewrite rule should:
+AST{[\plus A B] =: \sum A B}
+```
+
+A small example — rename `plus` and `mul` nodes inside a list of
+expression trees:
+
+```symta
+Asts [[plus 1 2] [mul 3 4] [plus 5 6]]
+say Asts{[\plus A B] =: \sum     A B}    // ((sum 1 2) (mul 3 4) (sum 5 6))
+say Asts{[\mul  A B] =: \product A B}    // ((plus 1 2) (product 3 4) (plus 5 6))
+```
+
+Pipe several such rewrites together and you have an AST
+transform pass.  Recurse into sub-lists (via `@?`) and you have
+a *whole-tree* transform pass.  Whole compiler back-ends fit in
+under fifty lines this way; the Symta compiler itself uses
+exactly this pattern for several of its own simplification
+passes.
+
+The three knobs together — pattern, splice-in (`@X`), and
+splice-out (`=: ...` or `= @[...]`) — are why a language with
+six lines of grammar can express what AWK, sed, jq, XSLT, and
+half of LINQ would need three different libraries for.
+
 ## Reduction
 
 Symta's standard list methods cover most reductions you'd reach
