@@ -587,6 +587,12 @@ hcase SsaFormCases Xs (K)
   [_ffi_get Type Ptr Off] | ssa nld K Type.1 Ptr^ev Off^ev
   [_ffi_set Type Ptr Off Val] | ssa nst Type.1 Ptr^ev Off^ev Val^ev
                               | ssa mv K 0
+  // `_ssv Section Symbol Value` -- set-section-symbol-value
+  // intrinsic emitted by the function-defining macro when it sees
+  // an `@"text"` head.  For now we compile it to a plain call to
+  // the runtime helper `ssv_`; later this will become a real
+  // compile-time intrinsic that emits to a dedicated SBC section.
+  [_ssv @As] | ssa_apply K 'ssv_' As
 
 ssa_form K Xs =
 | when Xs.end:

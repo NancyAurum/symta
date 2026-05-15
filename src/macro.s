@@ -1601,18 +1601,76 @@ expand_block_item_insert Xs = //insert a `@| ...` style expression
   Ys map X Xs: expand_block_item X
   Ys.j
 
+// `@"text"` at the head of a definition's body becomes the
+// definition's docstring.  The function-defining macro prepends
+// the body with `[ssv_ 'docs' Name Text]` -- a compile-time
+// intrinsic (see `src/compiler.s` SsaFormCases) that today
+// compiles to a runtime `ssv_` call, and tomorrow can emit to a
+// dedicated SBC docstring section.  Full pipeline trace in
+// `../dev/help-pipeline.md`.
+
+// Returns the docstring text if X is `(@ (" Text))`; else No.
+// Tolerates the 1-element list wrapping that the parser puts
+// around each statement inside a `|` block.
+maybe_doc X =
+| Y if X.is_list and X.n >< 1 and X.0.is_list then X.0 else X
+| less Y.is_list and Y.n >< 2: ret No
+| less Y.0 >< '@': ret No
+| Z Y.1
+| less Z.is_list and Z.n >< 2: ret No
+| less Z.0 >< '"': ret No
+| if Z.1.is_text then Z.1 else No
+
+// Returns Body unchanged unless its first statement was `@"text"`,
+// in which case the first statement is replaced with a call to
+// `ssv_ 'docs' Name <text>`.  Text args are wrapped in `_quote`
+// because docstrings often start with uppercase letters that
+// uniquify would otherwise treat as variable names.
+//
+// The reader produces three body shapes; we handle all three by
+// inspecting Body[0] rather than matching nested case patterns:
+//   ((| stmt1 stmt2 ...))   -- multi-line `|` block, 1-elem outer
+//   ((stmt1))               -- single-expr body, 1-elem outer
+//   (stmt1 stmt2 ...)       -- flat multi-stmt (method-style)
+build_ssv Name T =
+  [ssv_ [_quote 'docs'] [_quote Name] [_quote T]]
+
+prefix_doc Body Name =
+| less Body.is_list and Body.n > 0: ret Body
+| First Body.0
+| if Body.n >< 1 and First.is_list and First.n > 0 and First.0 >< '|'
+    then
+      // `|` block: pull stmts out of the block.
+      Stmts First.tail
+      less Stmts.n > 0: ret Body
+      T maybe_doc Stmts.0
+      less got T: ret Body
+      [[`|` [build_ssv(Name T)] @Stmts.tail]]
+    else
+      // Flat or single-expr: First IS the first statement.
+      T maybe_doc First
+      less got T: ret Body
+      if Body.n >< 1
+        then [build_ssv(Name T)]
+        else [build_ssv(Name T) @Body.tail]
+
 expand_block_item Expr =
   Y case Expr:
       [`=` [[Op<`.`+`.=` Type<1.is_keyword Method] @Args] Body] =
         when Op><`.=`: Method = "=[Method]"
+        Body = prefix_doc Body "[Type].[Method]"
         expand_block_item_method Type Method Args Body
       [`=` [['@' Method] @Args] Body] =
         less GLastType: mex_error "no type declared beforehard"
         case Method nullary_,Name: Method = Name
+        Body = prefix_doc Body "[GLastType].[Method]"
         expand_block_item_method GLastType Method Args Body
       [`=` [Name @Args] Value] =
-        if Name.is_keyword then expand_block_item_fn Name Args Value
-        else
+        if Name.is_keyword
+          then
+            Value = prefix_doc Value "[Name]"
+            expand_block_item_fn Name Args Value
+          else
             when Args.n: mex_error "`=`: left side has too many expressions"
             [No (expand_assign Name Value)]
       Else =
