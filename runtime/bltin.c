@@ -513,9 +513,15 @@ static char *sbc_data_str(sbc_t *sbc, uint32_t ofs) {
 }
 
 BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
+  /* text_to_cstring returns a pointer into the shared api.sbuf
+   * stretchy buffer.  We must finish using `name` before any other
+   * runtime call that could call text_to_cstring (e.g. TEXT/
+   * alloc_text), so we grab the matching val pointer first, break
+   * out of the loop, and only then build the result. */
   char *name = text_to_cstring(name_text);
   R = No;
-  for (int i = 0; i < sbcs_loaded; i++) {
+  char *found_val = 0;
+  for (int i = 0; i < sbcs_loaded && !found_val; i++) {
     sbc_t *sbc = sbcs[i];
     if (!sbc->doc_table || !sbc->doc_sz) continue;
     uint8_t *p = sbc->doc_table;
@@ -526,15 +532,16 @@ BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
       char *sym = sbc_data_str(sbc, sym_ofs);
       char *val = sbc_data_str(sbc, val_ofs);
       if (sym && val && !strcmp(sym, name)) {
-        GC_DISABLE();
-        TEXT(R, val);
-        GC_ENABLE();
-        goto done;
+        found_val = val;
+        break;
       }
     }
   }
-done:
-  free(name);
+  if (found_val) {
+    GC_DISABLE();
+    TEXT(R, found_val);
+    GC_ENABLE();
+  }
 RETURNS(R)
 
 /* Legacy `help_set_` / `help_get_` / `help_names_` (in-memory

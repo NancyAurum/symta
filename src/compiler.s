@@ -531,7 +531,7 @@ ssa_ssv K As =
 | ssa mv K 0
 
 get_quote_text X =
-  case X
+  case X:
     [_quote S] = S
     Else = compiler_error "_ssv arg must be a quoted string, got [X]"
 

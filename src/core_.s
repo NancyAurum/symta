@@ -849,23 +849,25 @@ list.as_text = "([(map X Me X.as_text).text(' ')])"
 _.textify_ = $as_text
 text.textify_ = Me
 
-say @As = say_ "[As{"[?]"}.text(' ')]\n"
-
-bad @Text = rterr_ "[Text.text ' ']"
-
-help_set \say 'Print one or more values, separated by spaces, followed by a newline.
-Lists print as parenthesised forms; tables print as @{key!val ...}.
+say @As =
+| @"Print one or more values, separated by spaces, followed by a newline.
+Lists print as parenthesised forms; tables print as @-key-val groups.
 Double-quoted text with bracketed expressions is interpolated.
-See also: say_ (no newline), bad (raise an error).'
+See also: say_ (no newline), bad (raise an error)."
+| say_ "[As{"[?]"}.text(' ')]\n"
 
+bad @Text =
+| @"Raise a runtime error with the joined-text argument list as the message.
+Caught by `btrap` on the call path; otherwise terminates with the error and source location.
+Example:  less B: bad 'division by zero'
+See also: btrap (catch), bterror (test for error value)."
+| rterr_ "[Text.text ' ']"
+
+// `say_` is a runtime builtin; its docs will move to a C-side
+// BUILTIN_HELP table in a follow-up.  Leaving the legacy entry for now.
 help_set \say_ 'Print values without appending a newline.  Same argument shape
 as `say`.  Use for assembling text from several calls or for REPL-like prompts.
 Example:  say_ "> "; X parse get_line()'
-
-help_set \bad 'Raise a runtime error with the joined-text argument list as the message.
-Caught by `btrap` on the call path; otherwise terminates with the error and source location.
-Example:  less B: bad "division by zero"
-See also: btrap (catch), bterror (test for error value).'
 
 tbl.__ Method Args =
 | if _gt Args.n 1
