@@ -233,6 +233,13 @@ eval_file SrcFile RootFolder!No BuildFolder!No SrcFolders![] Uses![rt_ core_] =
       GCompiledModules (!)
       GShowInfo 0
   | Entry @rand tmp
+  // Anything the file `use`s gets compiled into GSbcFolder
+  // (tmp/sbc/ by default).  The C-side `load_sbc` only scans
+  // `lib_folders`, which by default holds just main sbc/, so
+  // tell the runtime to look in GSbcFolder too -- otherwise a
+  // file-mode `use heap` compiles fine but then fails to load.
+  // `build` (project mode) already does this; mirror it.
+  | add_sbc_folder GSbcFolder
   | Expr btrap: => load_symta_file No SrcFile
   | when Expr.is_bterror: ret Expr
   | SIFText btrap: => compile_expr Entry 'no_src' No Expr Uses!Uses DoExport!0

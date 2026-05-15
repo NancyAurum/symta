@@ -1,21 +1,31 @@
 // 26-huffman.s -- Huffman codes for a string
 //
-// Builds an optimal prefix-code tree for the characters of a
-// fixed string, then walks the tree to derive each character's
-// bit code. Demonstrates:
+// Two implementations of the same algorithm, side by side.
+// Doubles as a stress test for the macro/compiler -- any botched
+// modification tends to break this file first.
+//
+//   1. Readable walk-through (~80 lines): a sorted-list priority
+//      queue, named helpers, named tree-walk function.
+//   2. Dense one-liner-per-step variant (5 working lines): uses
+//      the heap module (`use heap //heap.s`) and the `X(...)`
+//      paren-pattern lambda for the tree walk.
+//
+// Demonstrates:
 //
 //   * Auto-closure `~D.?+` -- the famous one-liner frequency
 //     counter: implicitly declared table D, increment entry for
 //     the current char `?`, return D.
 //   * Repeated extraction of the two smallest items to build the
-//     tree bottom-up. We use a sorted list as the priority queue
-//     so the example stays a single file; for production code,
-//     symta/src/heap.s gives an O(log n) version.
+//     tree bottom-up. First version uses a sorted list as the
+//     priority queue; second uses heap.s for an O(log n) push/pop.
 //   * Recursive tree walk with an accumulator of bits.
 //   * Decorate-sort-undecorate for deterministic ordering when
 //     keys would otherwise collide.
 //
 // Run:  symta -f examples/26-huffman.s
+
+use heap //heap.s
+
 
 S "osteoclasts undergo apoptosis at the end of the bone resorption phase"
 
@@ -77,3 +87,23 @@ say "first 8 codes (shortest):"
 for [Ch Bits] SortedCodes.take(8):
   Joined Bits{X => "[X]"}.text
   say "  '[Ch]' -> [Joined]"
+
+
+// ================================================================
+// Compact variant -- same algorithm in 5 lines of body.
+//
+//   H heap; S{~D.?+}{|H.push@?f}     count + heap-push in one pass
+//   (H.n-1){2{H.pop:}(A,B C,D=...)}   merge two smallest, repeat
+//   C [[]H.pop.1](:D,[L R] = ...)     unroll tree to (char, bits)
+//
+// Each `{}` and `(...)` macro stays heavy in the macroexpander
+// and compiler, so this file failing usually means a regression
+// in one of those.
+// ================================================================
+S2 "osteoclasts undergo apoptosis at the end of the bone resorption phase"
+H heap; S2{~D.?+}{|H.push@?f}
+(H.n-1){2{H.pop:}(A,B C,D=H.push A+C B,D):}
+C2 [[]H.pop.1](:D,[L R] = @[0,@D L]^r @[1,@D R]^r; D,C=:C,D)
+
+say "compact variant -- all codes by length:"
+say C2.s(?1.n<??1.n)
