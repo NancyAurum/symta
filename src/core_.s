@@ -58,13 +58,16 @@ help @Args =
     []
       | say "Symta REPL help"
       | say "----------------"
-      | say "  help SYMBOL          -- show docs for SYMBOL  (try: help \\say)"
-      | say "  help_names           -- list every documented symbol"
-      | say "  module_exports MOD   -- list everything exported by a module"
-      | say "                          (try: module_exports \\core_)"
-      | say "  module_help MOD      -- list a module's exports with one-line docs"
-      | say "  usage                -- list command-line arguments"
-      | say "  exit / quit          -- leave the REPL"
+      | say "  help \\name             -- show docs for a plain function"
+      | say "                            (try: help \\say)"
+      | say "  help 'type.method'     -- show docs for a method"
+      | say "                            (try: help 'int.bump')"
+      | say "  help_names             -- list every documented symbol"
+      | say "  module_exports \\mod    -- list everything exported by a module"
+      | say "                            (try: module_exports \\core_)"
+      | say "  module_help \\mod       -- list a module's exports with one-line docs"
+      | say "  usage                  -- list command-line arguments"
+      | say "  exit / quit            -- leave the REPL"
     [Sym]
       | Doc help_get Sym
       | if Doc
