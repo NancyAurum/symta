@@ -126,7 +126,7 @@ Or just open the REPL:
    Single-file examples (00–09, 11, 14, 17–20, 22–25) run with
    `symta -f examples/NN-*.s`; project examples (10, 12, 13, 15,
    16, 21) build with `symta examples/NN-name && examples/NN-name/go.exe`.
-2. **[dev/sbe.txt](dev/sbe.txt)** — *Learn Symta by Example*, the
+2. **[dev/sbe.md](dev/sbe.md)** — *Learn Symta by Example*, the
    long-form tour of the language: variables, functions, lists,
    pattern matching, OOP, ECS, FFI, macros, the quirky bits, and
    the standard library reference.

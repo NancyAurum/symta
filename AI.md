@@ -2,10 +2,10 @@
 
 > This document is meant to be pasted into an LLM's context as a
 > compact reference for writing or modifying Symta code. It is the
-> distilled subset of [dev/sbe.txt](dev/sbe.txt) plus every gotcha
+> distilled subset of [dev/sbe.md](dev/sbe.md) plus every gotcha
 > we've hit in practice. Read [examples/](examples/) for runnable
 > programs, [architecture.md](architecture.md) for the
-> implementation, and dev/sbe.txt for the long form.
+> implementation, and dev/sbe.md for the long form.
 
 
 ## What Symta is
@@ -538,7 +538,7 @@ EOF
 ## See also
 
 - [examples/](examples/) -- 26 progressively richer programs (00..25)
-- [dev/sbe.txt](dev/sbe.txt) -- the long-form tutorial
+- [dev/sbe.md](dev/sbe.md) -- the long-form tutorial
 - [architecture.md](architecture.md) -- compiler/runtime internals
 - [src/core_.s](src/core_.s) -- the standard library, in Symta
 - [src/macro.s](src/macro.s) -- the built-in macros

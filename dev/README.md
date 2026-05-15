@@ -17,7 +17,7 @@ roadmap, see [`../TODO.md`](../TODO.md).
 
 | File | Topic |
 |------|-------|
-| [`sbe.txt`](sbe.txt) | "Learn Symta by Example" — the long-form tutorial that the `examples/*.s` files are the executable companion to. ~2,700 lines. Kept in dev/ until it's polished enough to publish at the top level. |
+| [`sbe.md`](sbe.md) | "Learn Symta by Example" — the long-form tutorial that the `examples/*.s` files are the executable companion to.  Roughly 1,000 lines, organised as a hook + thirteen short chapters; drops the stale stdlib reference in favour of the `help` builtin. |
 | [`ncm.md`](ncm.md) | NCM ("New C Macroprocessor") — the lexer-stage macro pre-processor.  Design notes + reference. |
 | [`cls.md`](cls.md) | Why the Symta ECS (`cls` / `dsm` / IPS) is shaped the way it is, and how entity lifetime interacts with the generational GC.  Walks the five tiers of entity organisation, the AoS-vs-SoA layout argument, ECS-as-restricted-relational-algebra, and the GC integration protocol.  Background for the adaptive-map design in `runtime/am.h`. |
 

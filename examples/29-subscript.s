@@ -1,6 +1,6 @@
 // 29-subscript.s -- Xs[...] subscript operations
 //
-// The `[...]` postfix is heavily overloaded. sbe.txt's "Advanced
+// The `[...]` postfix is heavily overloaded. sbe.md's "Advanced
 // List Operations" chapter enumerates every shape. This file
 // exercises each at RUNTIME (printing the actual result) so the
 // regression net catches semantics changes, not just parse-shape
@@ -127,7 +127,7 @@ say "T all three keys = [T2]"
 
 
 // ----------------------------------------------------------------
-// 10. Path-component replacement (the practical sbe.txt example).
+// 10. Path-component replacement (the practical sbe.md example).
 // ----------------------------------------------------------------
 P "/usr/local/bin"
 Pr P.split^'/'[~!\hello].text^'/'

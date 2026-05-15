@@ -1,7 +1,7 @@
 // 12-curly.s -- the `{}` map / pattern macro in its many forms.
 //
 // `Xs{...}` is the workhorse: map, filter, reduce, group, accumulate.
-// The body's shape decides what happens. See sbe.txt's "Looping" and
+// The body's shape decides what happens. See sbe.md's "Looping" and
 // "Advanced List-processing constructs" chapters. The READER's job
 // is just to bundle the `{}` body into a `{` token whose payload is
 // the inner forms; the macro layer interprets it.

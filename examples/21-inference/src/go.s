@@ -7,7 +7,7 @@
 // taxonomies fall out for free.
 //
 // This is the canonical "why Symta exists" demo, adapted from the
-// Relation Oriented Programming chapter of dev/sbe.txt.
+// Relation Oriented Programming chapter of dev/sbe.md.
 //
 // Run:  symta examples/21-inference && examples/21-inference/go.exe
 

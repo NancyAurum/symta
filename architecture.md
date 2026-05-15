@@ -2,7 +2,7 @@
 
 A tour of how Symta is put together, current as of May 2026. If
 you want the language tour first, read
-[`dev/sbe.txt`](dev/sbe.txt) ("Learn Symta by Example") and the
+[`dev/sbe.md`](dev/sbe.md) ("Learn Symta by Example") and the
 [`examples/`](examples/) folder. If you want to build it, see
 [`BUILDING.md`](BUILDING.md). If you want the milestone roadmap,
 see [`TODO.md`](TODO.md).
@@ -115,7 +115,7 @@ symta/
                    tests/runtime/.
   tests/           Eight regression suites (see "Testing" below)
   dev/             Long-form notes + editor / bench assets — the
-                   tutorial draft (sbe.txt), ECS design notes
+                   tutorial draft (sbe.md), ECS design notes
                    (cls.md), NCM macro-processor
                    reference (ncm.md), Notepad++ language file,
                    bench-clock setup scripts.  Not required to
@@ -497,7 +497,7 @@ posts will find references to things that have since changed:
 - [`BUILDING.md`](BUILDING.md) — how to build it on each OS
 - [`TODO.md`](TODO.md) — milestone roadmap
 - [`blog.md`](blog.md) — the C reader port story
-- [`dev/sbe.txt`](dev/sbe.txt) — long-form tutorial (~2,700 lines)
+- [`dev/sbe.md`](dev/sbe.md) — long-form tutorial (~2,700 lines)
 - [`dev/cls.md`](dev/cls.md) — why the ECS layer looks the way it does
 - [`../symta-review.md`](../symta-review.md) — a candid one-week
   review of Symta from an outside perspective, written by Claude

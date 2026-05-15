@@ -1,6 +1,6 @@
 // pattern.s -- exercises the case/{} pattern-matcher operators.
 //
-// The pattern grammar is documented in sbe.txt's "Pattern Matching"
+// The pattern grammar is documented in sbe.md's "Pattern Matching"
 // chapter (see also `expand_hole` in symta/src/macro.s).
 //
 // Run with:  symta -f tests-macros/cases/pattern.s

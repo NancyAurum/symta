@@ -1,4 +1,4 @@
-// idioms.s -- compact list-processing patterns from sbe.txt.
+// idioms.s -- compact list-processing patterns from sbe.md.
 //
 // One short example per documented idiom, each followed by its
 // expected value. Together this is the regression net for the
@@ -129,7 +129,7 @@ say Xs{A,B = ~i.A ~j.B}            // -> ((1 2 3) (a b c))
 
 // ----------------------------------------------------------------
 // Three-element row matchers from the trailing example block in
-// sbe.txt's "Advanced List-processing constructs":
+// sbe.md's "Advanced List-processing constructs":
 //   L: [1 1 1] [2 3 4] [5 6]
 // ----------------------------------------------------------------
 say "three-elem map:"

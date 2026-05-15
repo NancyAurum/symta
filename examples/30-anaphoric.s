@@ -8,7 +8,7 @@
 // implicit `it` because multiple binds and pattern filters are
 // possible without inventing more anaphors.
 //
-// See sbe.txt's "Pattern matching inside of `if` and `while` with
+// See sbe.md's "Pattern matching inside of `if` and `while` with
 // the use of /L" chapter.
 //
 // Skipped (broken upstream):

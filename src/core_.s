@@ -1,10 +1,61 @@
 export say bad new_macro meta methods
        rand_get rand_set rand_push rand_pop zip setters_ getters_ atan2
        btland btjump bterror btrap `..`
+       help help_set help_get help_names
 
 _.new_fn_ = No
 
 _.free =
+
+
+//===========================================================================
+// Documentation / help system
+//===========================================================================
+// Symbol-keyed runtime map of `Name -> Docstring`.  Populated by
+// `help_set` calls (typically at module load), read by `help`
+// from the REPL.
+//
+// This is the *user-facing* layer.  When SBC docstring sections
+// land (see the roadmap milestone), each loaded SBC will
+// populate this map automatically from its own embedded doc
+// section, so users never call `help_set` directly.  Until then,
+// docstrings are added by hand inside source via:
+//
+//    help_set \my_function
+//      "The doc string for my_function.
+//       Use \\n to embed newlines."
+//
+// The planned `doc` macro will let you write the same thing as:
+//
+//    doc "The doc string for my_function."
+//    my_function ... = ...
+//
+// which auto-attaches the docstring to the next top-level
+// definition.  Same backing storage either way.
+Help_Table!  // module-level empty table; key=symbol-name, val=docstring
+
+help_set Sym Doc =
+| Help_Table.Sym = Doc
+| Doc
+
+help_get Sym = Help_Table.Sym
+
+help_names = Help_Table.l{?0}    // list of documented symbol names
+
+help @Args =
+| case Args
+    []
+      | say "Symta REPL help"
+      | say "----------------"
+      | say "  help SYMBOL    -- show docs for SYMBOL"
+      | say "  help_names     -- list every documented symbol"
+      | say "  usage          -- list command-line arguments"
+      | say "  exit / quit    -- leave the REPL"
+    [Sym]
+      | Doc help_get Sym
+      | if Doc
+          then say Doc
+          else say "No documentation for `[Sym]`.  Try `help_names` for the list."
 
 //No acts as an identity element in arithmetics
 no.`+` B = B
@@ -762,6 +813,20 @@ text.textify_ = Me
 say @As = say_ "[As{"[?]"}.text(' ')]\n"
 
 bad @Text = rterr_ "[Text.text ' ']"
+
+help_set \say 'Print one or more values, separated by spaces, followed by a newline.
+Lists print as parenthesised forms; tables print as @{key!val ...}.
+Double-quoted text with bracketed expressions is interpolated.
+See also: say_ (no newline), bad (raise an error).'
+
+help_set \say_ 'Print values without appending a newline.  Same argument shape
+as `say`.  Use for assembling text from several calls or for REPL-like prompts.
+Example:  say_ "> "; X parse get_line()'
+
+help_set \bad 'Raise a runtime error with the joined-text argument list as the message.
+Caught by `btrap` on the call path; otherwise terminates with the error and source location.
+Example:  less B: bad "division by zero"
+See also: btrap (catch), bterror (test for error value).'
 
 tbl.__ Method Args =
 | if _gt Args.n 1

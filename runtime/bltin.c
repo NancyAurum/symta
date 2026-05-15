@@ -482,6 +482,54 @@ BUILTIN0("wh_n_",     wh_n_)
 RETURNS(FXN((int64_t)meta_n_()))
 
 
+/* Help system -- string-keyed runtime-global map of name ->
+ * docstring.  Populated by `help_set_` (typically from `doc`
+ * macro expansion, or by direct user calls); read by `help_get_`
+ * (the `help` REPL command).  Keys live in the stb_ds arena
+ * (string-hashtable variant) so we can look them up by char*
+ * without interning.  Values are Symta text dyns held strongly.
+ *
+ * Once SBC sectioning lands (see roadmap), this map will be
+ * populated lazily from each SBC's doc section on load instead
+ * of at runtime.  The user-facing API stays the same. */
+static struct { char *key; void *value; } *help_map = 0;
+static int help_map_init = 0;
+
+BUILTIN2("help_set_", help_set_, C_TEXT, name_text, C_TEXT, doc_text)
+  if (!help_map_init) { sh_new_arena(help_map); help_map_init = 1; }
+  char *name = text_to_cstring(name_text);
+  shput(help_map, name, doc_text);
+  free(name);
+RETURNS(doc_text)
+
+BUILTIN1("help_get_", help_get_, C_TEXT, name_text)
+  if (!help_map_init) { R = No; goto done; }
+  char *name = text_to_cstring(name_text);
+  int i = shgeti(help_map, name);
+  free(name);
+  R = (i < 0) ? No : (dyn)help_map[i].value;
+done:
+RETURNS(R)
+
+BUILTIN0("help_names_", help_names_)
+  /* Returns a Symta list of every documented symbol name. */
+  int n = help_map_init ? (int)shlen(help_map) : 0;
+  if (n == 0) {
+    R = Empty;
+  } else {
+    GC_DISABLE();
+    LIST(R, n);
+    dyn *dst = &LGET(R, 0);
+    for (int i = 0; i < n; i++) {
+      dyn s;
+      TEXT(s, help_map[i].key);
+      dst[i] = s;
+    }
+    GC_ENABLE();
+  }
+RETURNS(R)
+
+
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2544,6 +2592,9 @@ static struct {
   B(wh_del_)
   B(wh_clear_)
   B(wh_n_)
+  B(help_set_)
+  B(help_get_)
+  B(help_names_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)

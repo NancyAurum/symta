@@ -2,7 +2,7 @@
 //
 // The `[...]` postfix is heavily overloaded -- single index, slice,
 // multi-index, replacement (`N!V`), insertion (`@N!V`), negative
-// index (`-I`), `~` for last, range with step. See sbe.txt's
+// index (`-I`), `~` for last, range with step. See sbe.md's
 // "Advanced List Operations" chapter. The reader has to parse all
 // of these as suffix-call forms with the inner tokens grouped under
 // the `[]` token type.

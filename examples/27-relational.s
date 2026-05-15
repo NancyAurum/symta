@@ -7,7 +7,7 @@
 // and one for backward (object -> [subject...]). The query
 // surface is tiny -- `fact`, `who`, `what` -- yet expressive
 // enough for the chaining and inversion at the heart of the
-// "relation-oriented programming" chapter of sbe.txt.
+// "relation-oriented programming" chapter of sbe.md.
 //
 // Run:  symta -f examples/27-relational.s
 
@@ -43,7 +43,7 @@ who V O =
 
 
 // ----------------------------------------------------------------
-// 2. Populate. Mirrors the example from sbe.txt's
+// 2. Populate. Mirrors the example from sbe.md's
 //    "Relation Oriented Programming" section.
 // ----------------------------------------------------------------
 fact \alice      is \programmer
