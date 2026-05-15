@@ -110,26 +110,67 @@ the empty list is *not* false the way it is in Lua, because
 ceremony — you write the same arithmetic you always would, but
 the runtime doesn't lie to you about types you didn't ask for.
 
-### 3.  One operator does map, filter, reduce, replace, parse, and destructure
+### 3.  One operator that rewrites *trees*, not just elements
 
-This is the headline feature.  The same `{}` syntax does what
-five different libraries do in most languages:
+This is the headline feature.  In most languages, *map*,
+*filter*, *reduce*, *substitute*, *parse*, and *destructure* are
+six different tools.  In Symta they are six bodies of the same
+construct — `{}` — and the construct is more powerful than any of
+them on their own, because it can **rewrite consecutive runs of
+elements at once**, not just single elements.  The technical
+name for this is *term rewriting*, and Symta inherits it from
+REFAL, the language Soviet computer scientists used in the 1970s
+to do symbolic mathematics.
+
+The basic forms first:
 
 ```symta
-List{X = X+1}         // map:    add 1 to every element
-List{X = X if X>0}    // filter: keep positives (drop on `=` to nothing)
-List{X => X+R}        // reduce: accumulate via R
-List{X = Replacement} // replace: depends on the pattern X
-"hello"{"l"=\L}       // replace: text in / text out  ("heLLo")
-Form{"[Var]"=T.Var}   // template substitution
+[1 2 3]{?+1}                  // (2 3 4)   -- map: ? is the current element
+[-2 0 3 -1 5]{:?>0}           // (3 5)     -- filter: keep where ?>0 is true
+[-2 0 3 -1 5]{?<<0=}          // (3 5)     -- drop where ?<=0; same effect
+"hello"{l=\L}                 // "heLLo"   -- match the char l, replace with L
 ```
 
-The body inside `{}` is a tiny pattern-action language.  You
-learn it once; you use it everywhere from sorting numbers to
-parsing a JSON document.  And — this is the secret of why Symta
-stays concise without becoming line noise — the patterns
-**compose**.  You can put a `{}` inside a `{}` inside a `{}`.
-Each layer reads like a normal sentence.
+The form that makes Symta different from every other dynamic
+language ships with the unassuming syntax `{A B = ...}`:
+
+```symta
+[1 2 3 4 5 6]{A B = A+B}          // (3 7 11)        sum of every pair
+[a b c d e f]{X Y = Y X}          // (b a d c f e)   swap every pair
+[1 2 3 4 5 6]{A B C = [A B C]}    // ((1 2 3) (4 5 6))  group every three
+
+"the bad cat"{@\bad=\good}        // "the good cat"   multi-char replacement
+```
+
+`{A B = ...}` matches **two consecutive items** and replaces
+them with whatever you write.  `{A B C = ...}` matches three.
+The leftover tail (if the length isn't a multiple of the pattern)
+passes through unchanged.  Bare lowercase characters in the
+pattern match themselves; `\name`-prefixed atoms match their
+spelling.
+
+This is what people mean when they say Symta is a *list-processing
+Lisp* — most "string mangling", "AST rewriting", "data
+normalising" code is just a few of these clauses applied in
+sequence.  The whole CSS pre-processor, the whole templating
+engine, the whole "convert this awkward JSON to that other
+awkward JSON" task is a one-screen pipeline.
+
+The body inside `{}` composes with itself: you can put a `{}`
+inside a `{}` inside a `{}`, each layer reading like a normal
+sentence.  Template substitution from a hash table is one line:
+
+```symta
+Data name!\Nancy age!37 city!\Amsterdam
+Form "Hi! My name is %name%, I'm %age% years old."
+say Form{@"%[V]%"=Data.V}
+//   Hi! My name is Nancy, I'm 37 years old.
+```
+
+`@"%[V]%"` matches the consecutive characters `%`, then any text
+(captured into `V`), then `%`; the replacement is `Data.V`.  One
+line of code replaces the entire library you'd use in Python,
+Ruby, or PHP.
 
 ---
 
@@ -142,30 +183,27 @@ Form "Hi! My name is %name%, I'm %age% years old and I live in %city%."
 say Form{@"%[V]%"=Data.V}
 //   Hi! My name is Nancy, I'm 37 years old and I live in Amsterdam.
 
-say Form("Hi! My name is [Name], I'm [Age] years old and I live in [City]." =: Name Age City)
-//   binds Name="Nancy", Age=37, City="Amsterdam"
+
+// Sum, max, min in three characters each:
+say [3 1 4 1 5 9 2 6].z          // 31  -- sum
+say [3 1 4 1 5 9 2 6].max        // 9
+say [3 1 4 1 5 9 2 6].min        // 1
 
 
-// Frequency table, sorted by count -- 1 line:
-S{~D.?+}.s | ?1 > ??1
+// Quicksort, one line:
+qsort@r H,@T = @T{:?<H}^r, H, @T{?<H=}^r
+say qsort(3,1,4,1,5,9,2,6,5,3)
+//   (1 1 2 3 3 4 5 5 6 9)
 
 
-// Tree walk: collect every int > 100 anywhere inside a nested structure:
-Tree(:_^r@_^r; &~r._<{?>100}<int?)
+// Frequency table from a string (auto-closure ~D collects counts):
+say "hello world"{~D.?+}
+//   @{w!1 ` `!1 h!1 l!3 d!1 o!2 e!1 r!1}
 
 
-// 11-line Prolog-style inference engine, two-way:
-fact Sbj Verb Obj =
-  new Sbj Verb,Obj
-  new Obj "[Verb]_by",Sbj
-
-infer Sbj Verb =
-  Rs Sbj^each{Verb}.skip^No
-  Rs: Rs @Rs{|infer ? Verb}
-  Rs.j
-
-who  Verb Sbj = say infer(Sbj "[Verb]_by").text^" " Verb Sbj
-what Sbj Verb = say Sbj Verb: infer(Sbj Verb).text^", "
+// Prolog-style inference engine in 11 lines.  Forward + backward
+// chaining come for free because every fact is stored twice.
+// (See examples/27-relational.s for the full runnable version.)
 ```
 
 If any of that looks like noise: don't worry.  Below is the same
@@ -251,8 +289,8 @@ tagging) and `float` (boxed IEEE-754 double).
 10 / 3             // 3        integer division
 10 / 3.0           // 3.33...  float division (mixed promotes)
 10 % 3             // 1        modulo
-2 ^ 10             // 1024     power
-abs(-5)            // 5
+(0-5).abs          // 5        method on int (note: `-5` alone parses oddly,
+                   //          so write the negative as 0-5 in expressions)
 min(3 7 2 8 1)     // 1
 max(3 7 2 8 1)     // 8
 ```
@@ -261,6 +299,10 @@ Arithmetic is normal infix.  Function calls don't need parens when
 the meaning is unambiguous: `min 3 7 2` is the same as
 `min(3 7 2)`, the same as `min(3, 7, 2)`.  Use whichever reads
 best.
+
+There's no infix `^` for power — `^` in Symta means *apply on
+the left*, so `3 ^ square` is `square(3)`.  Integer power is
+`int.pow`; for floats use `Math.pow`.
 
 Comparisons return either `1` or `No`:
 
@@ -322,74 +364,72 @@ between the name and the `=`:
 
 ```symta
 double X = X * 2
-say double 21                   // 42
+say: double 21                  // 42
 
 add X Y = X + Y
-say add 2 3                     // 5
-say add(2, 3)                   // also 5
-say 2.add(3)                    // also 5 -- method-call syntax
+say: add 2 3                    // 5
+say: add(2, 3)                  // also 5
+say: 3 ^ double                 // 6 -- "apply double on the left"
 ```
 
 The last expression in the body is the return value.  No
 `return` keyword needed for the normal case.
 
-Bodies can be many lines.  Use indentation, or use `|` at the
-front of a continuation:
+The `:` after `say` matters: `say` is variadic, so
+`say double 21` would print *three* things — the symbol `double`,
+the number `21`, and `say`'s own newline.  `say: double 21` says
+"the rest of the line is one expression", so it prints the result
+of `double 21`.
+
+Method-call syntax `X.method(Y)` only works when `method` is
+*defined on* the value's type — like `text.split` or `int.x`.
+For a plain user-defined function you call it positionally:
+`add 2 3`, never `2.add(3)`.
+
+Bodies can be many lines.  Use indentation:
 
 ```symta
 hypot A B =
   Asq A * A
   Bsq B * B
-  (Asq + Bsq) ^ 0.5
+  (Asq + Bsq).float.sqrt
 
 // Or:
-hypot A B = (A*A + B*B) ^ 0.5
+hypot A B = (A*A + B*B).float.sqrt
 ```
 
 The compiler doesn't care which one you write.  Pick whichever
 the next person to read this file will thank you for.
 
-## Closures and higher-order functions
+## Lambdas
 
-Functions are first-class values.  They capture the names they
-see when they were defined — that's the *lexical scoping*
-promise from up top:
+An anonymous function is `| Args => Body`.  Bind one to a name
+with `&name`:
 
 ```symta
-make_counter Start =
-  N Start
-  // return an anonymous function that closes over N
-  =N | N = N+1 | N
+&square | X => X * X
+say: square 9                   // 81
 
-c1 make_counter 100
-say c1.                         // 100
-say c1.                         // 101
-say c1.                         // 102
+&dist | A B => (A*A + B*B).float.sqrt
+say: dist 3 4                   // 5
 ```
 
-`make_counter 100` returns a closure.  Each call advances its
-private `N`.  Two separate counters don't share state because
-each got its own `N` at creation time.
-
-The `=N | ...` syntax is a lambda — an anonymous function that
-takes `N` (or no args if you omit the first segment).
-
-## Currying and partial application
-
-Underscores stand in for arguments not yet supplied:
+Use `^` to "apply on the left" — a Forth-style postfix call:
 
 ```symta
-add X Y = X + Y
-inc add 1 _                     // a function: \X -> 1 + X
-say inc 5                       // 6
+say: 3 ^ square                 // 81
+[1 2 3]^each{say "[?]"}         // print each on its own line
+```
 
-[1 2 3]{add 10 ?}               // (11 12 13)  -- ? is the lambda arg
+Higher-order functions take lambdas just like any other value:
+
+```symta
+[1 2 3 4 5].keep(| X => X > 2)  // (3 4 5)
+[10 20 30].map(| X => X / 10)   // (1 2 3)
 ```
 
 The bare `?` inside a `{}` body is shorthand for "the current
-element".  Inside an explicit lambda you name your own
-parameter; inside a `{}` you can use `?` and skip the naming
-ceremony.
+element", so `[10 20 30]{?/10}` is the same thing.
 
 ## Multiple return values
 
@@ -397,20 +437,14 @@ A function can return a list and the caller can destructure it
 on the spot:
 
 ```symta
-divmod A B = [A/B, A%B]
+divmod A B = [A/B A%B]
 
 [Q R] divmod 17 5               // Q=3, R=2
 say "Quotient [Q], remainder [R]"
 ```
 
-Or, more idiomatically:
-
-```symta
-Q R divmod 17 5                 // same thing, no brackets needed
-```
-
-The compiler sees two names on the left and expects a 2-element
-list on the right; it pulls them apart automatically.
+The compiler sees `[Q R]` on the left of the binding and expects
+a 2-element list on the right; it pulls them apart automatically.
 
 ---
 
@@ -425,9 +459,10 @@ The single most important data type in Symta.
 [1 2 3]                         // explicit literal
 1,2,3                           // comma-separated, no brackets
 Xs 5,6,7                        // bound to a variable
-:5                              // (1 2 3 4 5) -- range from 1 to N
-:0,5                            // (0 1 2 3 4 5) -- inclusive range from-to
-:100                            // (1 2 3 ... 100)
+[:5]                            // (1 2 3 4 5) -- range 1..N
+[1:5]                           // (1 2 3 4 5) -- explicit start..end
+[0:10:2]                        // (0 2 4 6 8 10) -- range with step
+[\a:\e]                         // (a b c d e) -- letter range
 ```
 
 Symta uses *parenthesised* notation when *printing* lists,
@@ -435,88 +470,126 @@ because that's what fits naturally with how the language reads
 them.  But you don't write `(1 2 3)` to build one — that's a
 function call.  Use `[1 2 3]` or `1,2,3`.
 
-## Indexing
+## Indexing and slicing
 
 ```symta
-Xs 10,20,30,40,50
+Xs [10 20 30 40 50]
 
-Xs.0                             // 10  -- first
-Xs.1                             // 20
-Xs.~                             // 50  -- last
-Xs.~~                            // 40  -- second to last
+Xs[0]                            // 10  -- first
+Xs[1]                            // 20
+Xs[~]                            // 50  -- last; `~` means "the end"
+Xs[:~]                           // (10 20 30 40)  -- "lead" (all but last)
 Xs.n                             // 5   -- length
+
+Xs[2:4]                          // (30 40)     -- slice [start:end]
+Xs[:3]                           // (10 20 30)  -- first 3
+Xs[3:]                           // (40 50)     -- drop first 3
+Xs[0::2]                         // (10 30 50)  -- step 2
 ```
 
-`~` ("twiddle") means "from the end".  This is one of the few
-syntactic conventions you have to learn — Symta uses it everywhere
-positions are involved.  Once you've seen `Xs.~`, `Xs.~~`,
-`Xs.~~~` is obvious.
-
-## Slicing
-
-```symta
-Xs 10,20,30,40,50
-
-Xs.(:3)                          // (10 20 30)  -- first 3
-Xs.(2:4)                         // (30 40)     -- positions 2..4
-Xs.(~~:~)                        // (40 50)     -- last 2
-```
+`~` inside `[...]` means "from the end".  It pairs with offsets:
+`Xs[~+1:0:2]` walks the list backwards in step-2.  See
+[`examples/29-subscript.s`](../examples/29-subscript.s) for the
+full subscript catalogue.
 
 ## Iteration: the `{}` operator
 
 ```symta
-// Map: apply a body to every element.
-[1 2 3]{? + 1}                  // (2 3 4)
+// Map: apply a body to every element.  `?` is the current element.
+[1 2 3]{?+1}                    // (2 3 4)
+[1 2 3]{?*?}                    // (1 4 9)
 
-// Filter: drop elements where the body returns nothing.
-[1 -2 3 -4 5]{? if ?>0}         // (1 3 5)
+// Filter: `:Cond` keeps elements where Cond is true.
+[1 -2 3 -4 5]{:?>0}             // (1 3 5)
 
-// Map + filter, together:
-[1 2 3 4 5]{? * 2 if ?%2><0}    // (4 8)  -- doubles of evens
+// "Drop where" -- the inverse, written as `Cond=`.
+//  Replaces every element that matches Cond with nothing.
+[1 -2 3 -4 5]{?<<0=}            // (1 3 5)  -- ?<<0 means ?<=0
 
-// Both element and index:
-[10 20 30]{[I X] = "[I]:[X]"}   // ("0:10" "1:20" "2:30")
+// Both element and index, using the indexed form:
+[10 20 30].i{[I X] = "[I]:[X]"} // ("0:10" "1:20" "2:30")
 ```
 
-The pattern on the left of the body's `=` matches the input; the
+The pattern on the left of `=` matches the input; the
 expression on the right is what comes out.  Drop the `= EXPR` to
 get plain filtering; drop the pattern to use `?`.
 
-## Reduction
+## REFAL-style group rewriting
+
+Here is where `{}` outgrows its sibling languages.  A pattern
+with **several names** on the left matches **several consecutive
+elements** and replaces them with the right-hand side:
 
 ```symta
-// Sum, written as a fold:
-[1 2 3 4 5]{? => ? + R}         // 15
-
-// Same thing, idiomatically:
-[1 2 3 4 5].sum                 // 15
-
-// Maximum element by some key:
-People{? => if ?.age > R.age then ? else R}
+[1 2 3 4 5 6]{A B = A+B}        // (3 7 11)        -- pairwise sum
+[a b c d e f]{X Y = Y X}        // (b a d c f e)   -- pairwise swap
+[1 2 3 4 5 6]{A B C = [A B C]}  // ((1 2 3) (4 5 6))  -- group by 3
+[1 2 3 4 5 6 7]{A B = A+B}      // (3 7 11 7)      -- dangling tail passes
 ```
 
-`=>` is "fold step": `?` is the current element, `R` is the
-running accumulator.  The initial `R` defaults to the first
-element; you can give it explicitly with `R!START`.
+This is *term rewriting* — the same trick REFAL gave the world
+in 1968 and that has reappeared in TXL, Stratego, and OMeta.
+You can use it to dispatch on the **shape of a run of elements**,
+not just on a single value.  Pulling pairs of `(key, value)` out
+of a flattened list, normalising chunks of an AST, collapsing
+runs of whitespace — every one of these is two characters of
+pattern and one expression of body.
+
+## Reduction
+
+Symta's standard list methods cover most reductions you'd reach
+for a fold for:
+
+```symta
+[1 2 3 4 5].z                   // 15  -- sum
+[3 7 2 8 1].max                 // 8
+[3 7 2 8 1].min                 // 1
+[5 1 4 2].s                     // (1 2 4 5)  -- sort
+[a b a c b].uniq                // (a b c)
+```
+
+For explicit folds, use `.fold InitVal Fn`:
+
+```symta
+[1 2 3 4 5].fold 100 (| A B => A+B)   // 115
+```
+
+Or use an auto-closure variable, which Symta makes especially
+ergonomic:
+
+```symta
+S{~D.?+}                        // freq table -- D is built up as we go
+"hello world"{~D.?+}            // @{h!1 e!1 l!3 o!2 ...}
+```
+
+`~D` introduces an auto-closure table named `D`, and `.?+` does
+"look up the current character's count, post-increment".  The
+final value of `D` is the result of the `{}` expression.
 
 ## Replacement and parsing — the magic trick
 
 ```symta
-// Replace every "a" with "A" in a string:
-"banana"{"a"=\A}                 // "bAnAnA"
+// Single character substitution in text:
+"hello"{l=\L}                    // "heLLo"
 
-// Replace every name in a list:
+// Multi-character substitution -- `@\bad` splices the chars b,a,d
+// into the pattern:
+"Now is a bad time, really bad!"{@\bad=\good}
+//   "Now is a good time, really good!"
+
+// Replace every name in a list of atoms:
 [\alice \bob \carol]{\bob=\BOB}  // (alice BOB carol)
 
-// And in reverse -- pull the values OUT of a string:
-"name=Nancy, age=37"("name=[N], age=[A]" =: N A)
-//  -> binds N="Nancy", A="37" (or 37 if you typed `[A<int]`)
+// Parse the values BACK OUT of a string, using `=:` to bind:
+"Hi! My name is Nancy, I'm 37 years old."("Hi! My name is [N], I'm [A] years old." =: N A)
+//   binds N="Nancy", A="37"
 ```
 
 The `=` inside `{}` is *bidirectional*.  Forwards it substitutes;
-backwards it extracts.  This is what makes the FizzBuzz
-one-liner readable: the body of `{}` is a tiny pattern language
-that you happen to be using to define a numeric rule.
+the `=:` form on the right of a parse extracts.  This is what
+makes the FizzBuzz one-liner readable: the body of `{}` is a tiny
+pattern language that you happen to be using to define a numeric
+rule.
 
 ---
 
@@ -528,11 +601,12 @@ that you happen to be using to define a numeric rule.
 if X > 0: say "positive"
 if X > 0 then say "positive" else say "not positive"
 
-// Multi-branch:
-case X
-  0     | say "zero"
-  N<1.is_int | say "got int [N]"
-  Else  | say "other: [X]"
+// Multi-branch -- note the `:` after the scrutinee:
+classify X = case X:
+  0       = "zero"
+  1+2+3   = "one, two, or three"      // `+` is OR in patterns
+  N<int?  = "some int [N]"            // `<int?` is a type-predicate guard
+  Else    = "other: [Else]"
 
 // Just want to run a block when something is true:
 when Has_files:
@@ -545,7 +619,7 @@ less X.is_int: bad "Expected an integer, got [X]"
 
 `case` matches by pattern, top to bottom.  `Else` catches
 anything left.  `N<int?` reads "name this match `N`, and only
-match if it's an integer."
+match if it satisfies the predicate `int?`."
 
 ### What is `No`?
 
@@ -605,16 +679,14 @@ Strings are sequences of characters, immutable, UTF-8 internally.
 ```symta
 S "hello world"
 
-S.n                              // 11    length
-S.0                              // h     first char
-S.~                              // d     last char
-S.upper                          // HELLO WORLD
-S.title                          // Hello World
+S.n                              // 11               length
+S[0]                             // h                first char
+S[~]                             // d                last char
+S.split(" ")                     // (hello world)    split on a delimiter
+S{l=\L}                          // "heLLo worLd"    replace every `l` with L
+S{@\hello=\HELLO}                // "HELLO world"    multi-char replacement
 
-S.split(" ")                     // ("hello" "world")
-S{"l"=\L}                        // "heLLo worLd"
-
-S("[A] [B]" =: A B)              // A="hello", B="world"
+S("[A] [B]" =: A B)              // A="hello", B="world"  -- parse extract
 ```
 
 Interpolation works inside double quotes:
@@ -766,34 +838,54 @@ types.
 # Part IX — Macros and Quasiquotation
 
 Symta is a Lisp.  Every program is data, and every data shape
-that names something can be transformed by a macro.
+that names something can be transformed by a macro.  Macros are
+defined in a separate `.s` file and `export`ed; their bodies are
+plain Symta that runs at *compile* time, receives the arguments
+as unevaluated AST, and returns new AST.
+
+A first example.  This macro evaluates to a literal at compile
+time:
 
 ```symta
-// A macro that swaps two variables:
-swap! A B =
-  let T A in A = B; B = T
-
-// Use it:
-X 1; Y 2
-swap! X Y
-say [X Y]                        // (2 1)
+// In mymac.s:
+export 'pi'
+pi K = K * 3.14159265
 ```
 
-The `!` suffix marks `swap!` as a macro at the call site.  Inside
-the macro body, ordinary Symta runs at compile time; the macro
-returns code which is then compiled in place.
+```symta
+// In go.s:
+use mymac
+say "pi(2.0) = [pi 2.0]"        // compiler computes 6.2831853 here
+```
 
-For non-trivial macros, you assemble code with the quasiquote
-syntax — backtick to suppress evaluation, `$` to splice values
-back in:
+A macro that needs to *return code*, not just a value, uses the
+`form:` body and `~name` for gensyms:
 
 ```symta
-// A macro that times the execution of an expression:
-time_it Expr =
-  `let Start = clock() in
-     R = $Expr
-     say "took [clock()-Start] ms"
-     R`
+// In mymac.s:
+export 'swap'
+swap A B = form:
+  ~T A                            // ~T is a fresh, unique name per use
+  A = B
+  B = ~T
+```
+
+```symta
+// In go.s:
+use mymac
+A 1; B 2
+swap A B
+say [A B]                       // (2 1)
+```
+
+Splice runtime values back in with `$Expr`; splice lists with
+`$@List`:
+
+```symta
+// Unroll a fixed-count loop at compile time:
+repeat N Body =
+  Copies map I [:N] Body
+  form: `|` $@Copies              // `|` chains multiple statements
 ```
 
 The killer use of macros in practice is *embedded DSLs* — a few
@@ -889,21 +981,19 @@ Symta calls into native code without an external build step.
 Declare the C signature in the source:
 
 ```symta
-use ffi
+ffi_begin local zlib
+ffi zlibVersion.text                              // const char *zlibVersion(void)
+ffi crc32.u4 Crc.u4 Buf.ptr Len.u4                // uLong crc32(uLong, ptr, uInt)
+ffi compress.int Dst.ptr DstLen.ptr Src.ptr SrcLen.u4
 
-ffi_begin libc
-  ffi int   abs    int
-  ffi int   atoi   text
-  ffi text  getenv text
-ffi_end
-
-say abs(-5)                      // 5
-say atoi("42")                   // 42
-say getenv("HOME")               // /home/...
+say zlibVersion                                   // "1.2.13"
 ```
 
 The runtime resolves the symbol at module load, generates a
 trampoline, and you call it like an ordinary Symta function.
+The `.type` suffix declares the C type for each parameter and
+the return: `.text`, `.int`, `.u4`, `.ptr`, `.float`, `.double`,
+`.void`.
 
 For richer cases — SDL2 windows, audio, FreeType text rendering
 — Symta ships pre-built `.ffi` plugin blobs.  `use uim` brings
