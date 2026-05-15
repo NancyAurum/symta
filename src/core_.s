@@ -7,17 +7,6 @@ _.new_fn_ = No
 _.free =
 
 
-// Documentation / help system: see HELP-3 commits.  Three C
-// builtins do all the work (`runtime/bltin.c`):
-//   help_section_lookup_ NAME  -> doc text or No  (used by module_help)
-//   help_banner_               -> prints REPL help banner
-//   help_lookup_ NAME          -> prints doc or "no documentation"
-// The `help` macro (`src/macro.s`) compiles `help` to
-// `help_banner_` and `help X` to `help_lookup_ "<key>"`.  Docs
-// themselves live in each SBC's docs section (compile-time from
-// `@"text"` heads) and in `builtin_docs[]` (for macros and
-// runtime builtins).  No prebuilt hashtable lives at module load.
-
 //No acts as an identity element in arithmetics
 no.`+` B = B
 no.`-` B = B
@@ -1401,9 +1390,3 @@ text.sexp Src!'<none>' LexP!No List!0 =
 | if List: ret R
 | if R.end: No else R.0
 
-
-// All Symta-defined function/method docs now live in their SBC's
-// docs section (compile-time via `@"text"` heads).  All macro and
-// runtime-builtin docs live in the static `builtin_docs[]` table
-// in runtime/bltin.c.  `help_section_lookup_` scans both stores.
-// No prebuilt hashtable, no `help_set` calls anywhere.

@@ -92,7 +92,11 @@ less "[Root]sbc/compiler.sbc".exists: bad "Missing [Root]sbc/compiler.sbc"
 //less "[Root]runtime/symta.h".exists: bad "Missing [Root]runtime/symta.h"
 
 case Args [@_ '-e'+'--eval' Expr @_]
-| Val eval ['|' Expr.parse.0] RootFolder!Root
+| Env!
+| Env.'Env_' = Env
+| Env.'Uses_' =: core_ rt_ eval
+| Env.'Last_' = No
+| Val eval ['|' Expr.parse.0] Env!Env RootFolder!Root
 | if Val.is_bterror: say Val.text else say Val
 | halt
 
