@@ -52,6 +52,29 @@ That's the elevator pitch.  The rest of this document shows you
 why, when you've used the language for a week, the terse form
 becomes the readable one.
 
+### Aside: why it looks like this
+
+Symta started in 2006 as an honest question: *why can't a general
+purpose programming language do what `sed` and regular
+expressions do, without you dropping out into a shell?*  The
+prototype that became Symta has been refined for nearly twenty
+years, through several discarded iterations, until the answer
+settled into the language you're reading about now.
+
+The languages that already give you APL- or J-style brevity for
+list-processing demand you give up alphabetic identifiers and
+grep-friendly source code in exchange.  Symta keeps the words
+short but never replaces them with single Greek letters.  It is
+deliberately terse without ever being cryptic — `{}` is one
+construct, `?` is one role, `@` is one operation, and once
+you've absorbed the half-dozen pieces that make up the language
+core the rest is just standard library.
+
+A consequence: a one-liner Symta program is a viable replacement
+for an awk / sed / jq pipeline, *and* a viable medium for
+exploratory statistical or scientific work where you'd otherwise
+reach for J, K, or APL.  The same language fits both.
+
 ---
 
 ## What Symta gives you that other dynamic languages don't
@@ -527,13 +550,55 @@ elements** and replaces them with the right-hand side:
 [1 2 3 4 5 6 7]{A B = A+B}      // (3 7 11 7)      -- dangling tail passes
 ```
 
+The right-hand side can also *splice* — `@X` inside the
+replacement expands a list back into the surrounding list,
+making `{}` a **length-changing** operation, not just a
+"replace every N with N":
+
+```symta
+[[1 2 3] [4 5] [a b c d]]{X = @X}    // (1 2 3 4 5 a b c d)
+//   -- flatten one level
+```
+
+That last example is **seven characters of body**.  The same
+operation in other dynamic languages:
+
+```python
+# Python
+[x for sub in L for x in sub]            # 27 chars, two-loop comprehension
+# or:
+import itertools; list(itertools.chain.from_iterable(L))   # 49 chars
+```
+
+```javascript
+// JavaScript
+L.flat()                                  // OK -- only after ES2019
+// or:
+L.reduce((a, b) => a.concat(b), [])
+```
+
+```lua
+-- Lua
+local r = {}
+for _, sub in ipairs(L) do
+  for _, x in ipairs(sub) do r[#r+1] = x end
+end                                       -- four lines, two locals
+```
+
 This is *term rewriting* — the same trick REFAL gave the world
 in 1968 and that has reappeared in TXL, Stratego, and OMeta.
 You can use it to dispatch on the **shape of a run of elements**,
 not just on a single value.  Pulling pairs of `(key, value)` out
 of a flattened list, normalising chunks of an AST, collapsing
-runs of whitespace — every one of these is two characters of
+runs of whitespace, flattening or un-flattening trees, splitting
+on a delimiter pattern — every one of these is two characters of
 pattern and one expression of body.
+
+This is what people mean when they say a language is a
+*list-processing Lisp*.  The standard library functions you'd
+reach for in another language (`flatMap`, `groupBy`, `partition`,
+`chunks_of`, `windows`, `zip_with`) collapse into one-liners
+right here in the syntax.
 
 ## Reduction
 
