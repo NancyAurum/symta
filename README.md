@@ -152,6 +152,13 @@ Or just open the REPL:
 
 ---
 
+## Contact
+
+Questions, bug reports, patches, or just to say hello:
+**nangld85@gmail.com**
+
+---
+
 ## License
 
 Symta is dual-licensed under either of:
@@ -161,8 +168,3 @@ Symta is dual-licensed under either of:
 
 at your option. Contributions are accepted under the same dual
 license unless you explicitly say otherwise.
-
----
-
-*By Nancy Sadkov. With thanks to the /prog/riders of bbs.progrider.org
-for early criticism of the language design.*

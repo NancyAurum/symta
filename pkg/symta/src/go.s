@@ -17,8 +17,9 @@ print_usage =
   say '       -f <file>       evaluates a file'
 
 print_version =
-  say "Symta v[rt_get version]"
+  say "Symta v1.1"
   say "Copyright (C) 2022-2026 Nancy Sadkov"
+  say "Contact: nangld85@gmail.com"
   say "See LICENSE for copying conditions"
 
 is_var_sym X = X.is_text and not X.is_keyword

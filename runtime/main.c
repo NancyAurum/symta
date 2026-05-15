@@ -28,7 +28,7 @@ char *main_lib;
 char *main_path;
 void *main_args;
 
-static char *version = "0.0.3";
+static char *version = "1.1";
 
 
 method_node_t *sink;
