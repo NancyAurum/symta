@@ -46,29 +46,30 @@ who V O =
 // 2. Populate. Mirrors the example from sbe.txt's
 //    "Relation Oriented Programming" section.
 // ----------------------------------------------------------------
-fact \bernd  is \hater
-fact \hater  is \stupid
-fact \nancy  is \lisper
-fact \nancy  is 'sex worker'
-fact \lisper is \smart
-fact \nancy  betrayed \russia
-fact \nancy  betrayed \heterosexuality
-fact \bernd  betrayed \reason
+fact \alice      is \programmer
+fact \bob        is \musician
+fact \programmer is \human
+fact \musician   is \human
+fact \human      is \mortal
+fact \alice      wrote \quicksort
+fact \alice      wrote \essay
+fact \bob        wrote \sonata
 
 
 // ----------------------------------------------------------------
 // 3. Direct queries (no inference yet).
 // ----------------------------------------------------------------
-say "what does nancy do? [what \nancy is]"
-say "what did bernd betray? [what \bernd betrayed]"
-say "who betrayed heterosexuality? [who \betrayed \heterosexuality]"
-say "who is smart? [who \is \smart]"
+say "what does alice do?     [what \alice is]"
+say "what did alice write?   [what \alice wrote]"
+say "who wrote sonata?       [who \wrote \sonata]"
+say "who is directly human?  [who \is \human]"
 say ""
 
 
 // ----------------------------------------------------------------
 // 4. Inference: chase `is` chains transitively.
-//    nancy is lisper, lisper is smart  =>  nancy is smart
+//    alice is programmer, programmer is human, human is mortal
+//    =>  alice is mortal
 // ----------------------------------------------------------------
 infer Sbj Verb =
   Direct what Sbj Verb
@@ -84,14 +85,14 @@ infer Sbj Verb =
       Out =: @Out X
   Out
 
-say "nancy is (closure): [infer \nancy \is]"
-say "bernd is (closure): [infer \bernd \is]"
+say "alice is (closure): [infer \alice \is]"
+say "bob   is (closure): [infer \bob   \is]"
 say ""
 
 
 // ----------------------------------------------------------------
 // 5. The inverse query, `who is X`, transitively.
-//    who is smart  =>  lisper, nancy (because nancy is lisper)
+//    who is mortal => human, programmer, musician, alice, bob
 // ----------------------------------------------------------------
 infer_back Verb Obj =
   Direct who Verb Obj
@@ -106,5 +107,5 @@ infer_back Verb Obj =
       Out =: @Out X
   Out
 
-say "who is smart (closure): [infer_back \is \smart]"
-say "who is stupid (closure): [infer_back \is \stupid]"
+say "who is mortal (closure): [infer_back \is \mortal]"
+say "who is human  (closure): [infer_back \is \human]"

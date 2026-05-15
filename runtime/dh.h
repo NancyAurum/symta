@@ -9,13 +9,13 @@
 #define NH_VAL_NIL NIL
 #define NH_PREP
 
-// AM-5 (TODO.md): Robin Hood probing keeps the variance of probe
+// AM-5: Robin Hood probing keeps the variance of probe
 // lengths bounded so we can run the table at a higher load factor
 // without the worst-case-O(N) clustering you get from plain
 // linear probing.
 #define NH_ROBIN_HOOD
 
-// AM-15 (TODO.md): cache the hash alongside each key. dh.h's
+// AM-15: cache the hash alongside each key. dh.h's
 // keys are arbitrary Symta dyns; NH_HASH for list / closure /
 // tag / user-type keys boils down to a MCALL to api.m_hash --
 // ~300 ns/call. Without the cache, every Robin Hood probe step
@@ -26,7 +26,7 @@
 // memory; the win is most of the per-probe MCALL count.
 #define NH_CACHE_HASH
 
-// AM-5 (TODO.md): grow at ~75% load instead of the previous 50%.
+// AM-5: grow at ~75% load instead of the previous 50%.
 // At 50% the table doubled at every doubling-point (used*2 > cap)
 // -- we were paying ~2x the memory for the same population. With
 // Robin Hood the average probe length at 75% load stays near 1.5
@@ -38,7 +38,7 @@
 //#define NH_ZERO_VALS
 #define NH_INIT_VAL(o) o = 0
 
-// AM-3 (TODO.md): inline int/text equality and hashing so the
+// AM-3: inline int/text equality and hashing so the
 // dominant 90%+ of "generic" tables (which in practice are still
 // int- or text-keyed with one stray odd-typed key forcing GENERIC
 // mode) don't pay a full Symta method dispatch on every probe step

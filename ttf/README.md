@@ -61,8 +61,8 @@ real `.ttf` file. There is no "default fallback to a built-in
 glyph table". Without a bundled font, every fresh project would
 have to bring its own — same leaky abstraction as the SDL DLLs
 were before
-[commit 731c53c](https://github.com/NancyAurum/som/commit/731c53c)
+[commit 731c53c](https://github.com/NancySadkov/som/commit/731c53c)
 and the widget pictograms were before
-[commit 550b719](https://github.com/NancyAurum/som/commit/550b719).
+[commit 550b719](https://github.com/NancySadkov/som/commit/550b719).
 Bundling one ~400 KB OFL font here trades a small repo cost for
 a "`use uim` Just Works" out-of-box experience.

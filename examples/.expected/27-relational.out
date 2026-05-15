@@ -1,10 +1,10 @@
-what does nancy do? (lisper `sex worker`)
-what did bernd betray? (reason)
-who betrayed heterosexuality? (nancy)
-who is smart? (lisper)
+what does alice do?     (programmer)
+what did alice write?   (quicksort essay)
+who wrote sonata?       (bob)
+who is directly human?  (programmer musician)
 
-nancy is (closure): (lisper `sex worker` smart)
-bernd is (closure): (hater stupid)
+alice is (closure): (programmer human mortal)
+bob   is (closure): (musician human mortal)
 
-who is smart (closure): (lisper nancy)
-who is stupid (closure): (hater bernd)
+who is mortal (closure): (human programmer musician alice bob)
+who is human  (closure): (programmer musician alice bob)

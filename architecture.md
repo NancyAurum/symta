@@ -4,7 +4,7 @@ A tour of how Symta is put together, current as of May 2026. If
 you want the language tour first, read
 [`dev/sbe.txt`](dev/sbe.txt) ("Learn Symta by Example") and the
 [`examples/`](examples/) folder. If you want to build it, see
-[`BUILDING.md`](BUILDING.md). If you want the open punch-list,
+[`BUILDING.md`](BUILDING.md). If you want the milestone roadmap,
 see [`TODO.md`](TODO.md).
 
 
@@ -114,14 +114,16 @@ symta/
                    Doubles as the runtime regression suite via
                    tests/runtime/.
   tests/           Eight regression suites (see "Testing" below)
-  dev/             Development notebooks + assets — design notes,
-                   raw todos, language-design ideas, the tutorial
-                   draft (sbe.txt). Nothing here is required to
+  dev/             Long-form notes + editor / bench assets — the
+                   tutorial draft (sbe.txt), ECS design notes
+                   (cls.txt / cls-gc.txt), NCM macro-processor
+                   reference (ncm.md), Notepad++ language file,
+                   bench-clock setup scripts.  Not required to
                    build or run Symta.
   README.md        Language tour
   BUILDING.md      Per-platform build instructions
   architecture.md  This file
-  TODO.md          The consolidated punch-list
+  TODO.md          Milestone roadmap
   blog.md          The C-reader-port story (Jan 2026)
 ```
 
@@ -213,8 +215,8 @@ and calls, triggers GC when a generation fills. Built-ins
 backed by C functions.
 
 Slated for upgrade to computed-goto threading (`&&label` GCC
-extension) for 10–30 % throughput — see [`TODO.md`](TODO.md)
-item `RT-1`.
+extension) for an estimated 10–30 % throughput win — part of
+the runtime-optimisation milestone in [`TODO.md`](TODO.md).
 
 
 ## Object representation
@@ -262,8 +264,7 @@ Finalisers (`set_finalizer`) and unwind handlers
 Symta precise resource cleanup without manual reference counting.
 
 The `fin` macro (try/finally) is currently exposed in the
-language but unimplemented at the VM level — see
-[`TODO.md`](TODO.md) item `CORE-2`.
+language but unimplemented at the VM level.
 
 
 ## Tables: the adaptive map (`runtime/am.h`)
@@ -290,8 +291,8 @@ Design notes:
 
 Several improvements are queued — bitmap+exceptions hybrid,
 dense-vector pair for ECS columns, Robin Hood probing,
-inlined int/text keys in the GENERIC path. See `TODO.md` items
-`AM-1` through `AM-7`.
+inlined int/text keys in the GENERIC path. See the runtime
+milestone in [`TODO.md`](TODO.md).
 
 
 ## Modules and build artefacts
@@ -420,8 +421,9 @@ standard ECS pattern presented as ordinary Symta function
 definitions.
 
 Long-form design notes in [`dev/cls.txt`](dev/cls.txt) and
-[`dev/cls-gc.txt`](dev/cls-gc.txt). The dense-iteration
-performance gap is item `AM-2` in `TODO.md`.
+[`dev/cls-gc.txt`](dev/cls-gc.txt). Closing the dense-iteration
+performance gap is part of the runtime milestone in
+[`TODO.md`](TODO.md).
 
 
 ## Testing (`tests/`)
@@ -494,7 +496,7 @@ have since changed:
 
 - [`README.md`](README.md) — what Symta is, why use it, code samples
 - [`BUILDING.md`](BUILDING.md) — how to build it on each OS
-- [`TODO.md`](TODO.md) — open work, ranked by impact × effort
+- [`TODO.md`](TODO.md) — milestone roadmap
 - [`blog.md`](blog.md) — the C reader port story
 - [`dev/sbe.txt`](dev/sbe.txt) — long-form tutorial (~2,700 lines)
 - [`dev/cls.txt`](dev/cls.txt) — why the ECS layer looks the way it does

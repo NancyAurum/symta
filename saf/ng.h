@@ -1,4 +1,4 @@
-// Nancy's General Header
+// ng -- shared general-purpose runtime header
 
 #ifndef NG_H
 #define NG_H

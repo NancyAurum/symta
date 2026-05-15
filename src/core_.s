@@ -824,7 +824,7 @@ type macro @new_macro N E: name!N expander!E
 // through `meta_lookup_`).  This means AST nodes coming out of the
 // parser are plain lists -- no wrapper struct intercepting method
 // dispatch -- which is what unblocks `text.parse` from switching
-// to `parse_strip_c_` (see docs/reader-consolidation.md).
+// to the consolidated C reader (`parse_strip_c_`).
 //
 // For immediates (int, fixtext, No, T_TAG, ...) we fall back to
 // the legacy `meta_wrapper` type: immediates have no GC identity
@@ -1172,8 +1172,7 @@ btrap F = btland: K =>
 // Token type accessors.  The `tok` type itself comes from C
 // (runtime/bltin.c's `tok_` varargs constructor); we just expose
 // per-field readers + the `is_token` discriminator here.  All
-// actual parsing lives in runtime/reader.c -- see
-// docs/reader-consolidation.md for the migration story.
+// actual parsing lives in runtime/reader.c.
 /*
 type token Type Val Src P:
   type!Type

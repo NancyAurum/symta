@@ -2,7 +2,7 @@
 //
 // AM_INT is the most common adaptive-map mode in real Symta code:
 // ECS column tables, gid-keyed indices, anything with int keys
-// that isn't 0-or-1. AM-6 (TODO.md) replaced its stb_ds backing
+// that isn't 0-or-1. AM-6 replaced its stb_ds backing
 // with ih_t (Robin Hood at 75% load). This bench measures the
 // resulting per-op cost on the four read/write paths and on
 // iteration.

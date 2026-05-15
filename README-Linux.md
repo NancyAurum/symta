@@ -148,6 +148,6 @@ If anything breaks, the most useful artefacts are:
   2. Output of `gcc --version`, `uname -a`, `ldd --version`.
   3. `dpkg -l | grep -E 'libsdl2|libpng|zlib|freetype'`.
 
-File an issue at https://github.com/NancyAurum/som with that. The
+File an issue at https://github.com/NancySadkov/som with that. The
 sffi backend lives at `runtime/sffi/arch_x64_sysv.c` — most "FFI call
 crashed" reports trace back there.

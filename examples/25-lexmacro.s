@@ -4,7 +4,7 @@
 // runs after parsing and rewrites AST -- it sees structured forms
 // and produces structured forms.
 //
-// NCM ("Nancy's C Macros", `runtime/ncm.h`) runs BEFORE parsing
+// NCM ("New C Macroprocessor", `runtime/ncm.h`) runs BEFORE parsing
 // and rewrites raw text. It's a more capable cousin of the C
 // preprocessor and is what powers `#:include` directives,
 // per-module `.h` constant headers, and the `text.sexp` lexical-

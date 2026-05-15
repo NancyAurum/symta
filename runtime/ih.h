@@ -2,7 +2,7 @@
 //
 // Drops the stb_ds dependency in favour of the nh_t template
 // that AM_GENERIC already uses, with the Robin Hood + 75% load
-// configuration from dh.h. AM-6 (TODO.md) called this out as the
+// configuration from dh.h. AM-6 called this out as the
 // next consolidation step after AM-5 -- two probing strategies
 // and two memory layouts make perf work twice as expensive.
 //

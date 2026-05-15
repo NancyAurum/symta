@@ -1,4 +1,4 @@
-//Nancy's Hashmap
+// nh -- generic open-addressed hashmap (template header)
 #include <malloc.h>
 #include <stdint.h>
 
@@ -63,7 +63,7 @@ Points to consider:
 #define nh_t PRFX(NH_PFX,,_t)
 #define nh_slot_t PRFX(NH_PFX,,_slot_t)
 
-// AM-pack-v2 (TODO.md): pack {key, val, hash} into one struct
+// AM-pack-v2: pack {key, val, hash} into one struct
 // per slot, inline in the nh_t tail. Hot-path hit reads ONE
 // cache line for everything instead of three (keys[], vals[],
 // hashes[] as separate arrays). Trade: per-slot footprint

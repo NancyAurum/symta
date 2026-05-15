@@ -1,6 +1,6 @@
 # NCM — Lexical Macro Processor
 
-NCM ("Nancy's C Macros") is Symta's text-rewriting macro
+NCM ("New C Macroprocessor") is Symta's text-rewriting macro
 processor.  Source: [`runtime/ncm.h`](../runtime/ncm.h).
 
 It runs **before** the parser and produces text.  Symta's

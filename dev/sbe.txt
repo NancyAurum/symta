@@ -1,6 +1,6 @@
 # Learn Symta by Example
 
-By Nancy Sadkov <nangld85@gmail.com>
+By Nancy Sadkov
 
 
 Table of Contents
@@ -851,9 +851,9 @@ The above is not your usual C++ class declaration, but more of "an entity with n
 Then a bunch of objects can be produced:
 ```
 Ps rowz:
-  person \Nancy       37  \Amsterdam  'Sex Worker'
-  person \Bernd       26  \Berlin     'NEET'
-  person \Bernadette  20  \Stockholm  'Housewife'
+  person \Nancy       37  \Amsterdam  'Programmer'
+  person \Bernd       26  \Berlin     'Designer'
+  person \Bernadette  20  \Stockholm  'Student'
 ```
 
 Now we can print name and city for them.
@@ -869,7 +869,7 @@ Ps.find(?name><\Nancy).rig refugee,'from Russia'
 ```
 
 
-Now Nancy has a refugee status, while the other people on the lists have no need for such plight and the associated behaviors in their lives, neither they want being hunted by the Russian security services for their political opinion.
+Now this one person has an additional `refugee` field attached, while the others on the list don't -- the field is per-entity, not per-class.
 
 
 With refugees appearing in the world, we can do:
@@ -884,7 +884,7 @@ Ps^push^| new name,'Wall-E' age,700 chassis,tracks agency,\AI battery,lithium
 ```
 
 
-Don't be scared by `new`. That `person` above was just a short-hand for calling `new` with predefined arguments, which is the Symta's way to introduce inline singleton classes. In fact, the `cls` macro exists solely for the syntatic sugary convenience when we have a bunch of similar or almost similar objects (i.e. Nancy was a usual person, but then became a refugee).
+Don't be scared by `new`. That `person` above was just a short-hand for calling `new` with predefined arguments, which is the Symta's way to introduce inline singleton classes. In fact, the `cls` macro exists solely for the syntatic sugary convenience when we have a bunch of similar or almost similar objects (i.e. a plain `person` is no different from any other `person`, until at runtime we attach an extra field like `refugee` to a specific one).
 
 
 So now suddenly we have to also process AI and battery charge events, which must be synced with AI, so AI could drive the robot towards a charging station, and AI should know we are on tracks, not bipedal or wheeled. Wall-E also has a program to run, instead of a job in the usual sense, persons hold voluntarily or involuntarily.
@@ -986,14 +986,14 @@ That is all folks! The above code gives us two-way inference (both forward and b
 Lets populate that database:
 ```
 Data rows:
-  bernd is hater
-  hater is stupid
-  nancy is lisper
-  nancy is 'sex worker'
-  lisper is smart
-  nancy betrayed russia
-  nancy betrayed heterosexuality
-  bernd betrayed reason
+  alice      is programmer
+  bob        is musician
+  programmer is human
+  musician   is human
+  human      is mortal
+  alice      wrote quicksort
+  alice      wrote essay
+  bob        wrote sonata
 
 Data{|fact @?}
 ```
@@ -1001,31 +1001,31 @@ Data{|fact @?}
 
 Now we can query the database:
 ```
-who is smart
-who is stupid
-who is hater
+who is mortal
+who is human
+who is programmer
 
-what nancy is
-what bernd is
+what alice is
+what bob is
 
-what nancy betrayed
-what bernd betrayed
+what alice wrote
+what bob wrote
 
-who betrayed heterosexuality
-who betrayed reason
+who wrote sonata
+who wrote quicksort
 ```
 
 The above queries will produce the following answers:
 ```
-lisper nancy is smart
-hater bernd is stupid
-bernd is hater
-nancy is lisper, sex worker, smart
-bernd is hater, stupid
-nancy betrayed russia, heterosexuality
-bernd betrayed reason
-nancy betrayed heterosexuality
-bernd betrayed reason
+human programmer musician alice bob is mortal
+programmer musician alice bob is human
+alice is programmer
+alice is programmer, human, mortal
+bob is musician, human, mortal
+alice wrote quicksort, essay
+bob wrote sonata
+bob wrote sonata
+alice wrote quicksort
 ```
 
 
@@ -1035,10 +1035,10 @@ Yes! It is that easy and simple! Hopefully now you understand why Symta is a sho
 Of course, one can try implementing that without ECS, but it will be less efficient, clunky and wont have the reverse reasoning:
 ```
 Data rows:
-  bernd is a hater
-  a hater is stupid
-  nancy is a lisper
-  a lisper is smart
+  alice is a programmer
+  a programmer is human
+  bob is a musician
+  a musician is human
 
 queryR Name =
   Xs Data{[@$Name is @What] = What; _=}
@@ -1047,8 +1047,8 @@ queryR Name =
 
 query @Name = Name^queryR{?(:a@~;E=E)}.join.text^' '
 
-say nancy is: query nancy
-say bernd is: query bernd
+say alice is: query alice
+say bob is:   query bob
 ```
 
 
@@ -1178,7 +1178,7 @@ cls person name gender
 
 These `cls` inroduce classifiers over our ECS entities (any entity with a name and a gender is a person).
 ```
-P person \Nancy trans_gurl
+P person \Nancy nonbinary
 P.coords_.xyz = 1,2,3
 ```
 
@@ -1192,7 +1192,7 @@ person.is_trans = $gender <> male and $gender <> female
 
 You can think about it as a set of individual interfaces for a single unclassified object, but these interfaces are not abstract but a can attach data onto the object. Yup! Our objects are composed of disjoint classes, each of which can be processed separately, without exposing any of the inner fields. Obviously it solves all the OOP's issues, including the diamond problem, the god object, the scalability issues (when more than one programmer works on a single class hierarchy) and the issues with serialization.
 
-Internally inside the ECS system these classes get escaped by the `cls` name as a prefix, so if we have Nancy as a raw ECS entity `E`, then `E.person_gender` will produce `trans_gurl`. But we can as well declare our person cls as `cls person@p name gender` which will prefix fields with `p`, so we could access them with shorter name at the possiblity of name conflicts (i.e. `pgender`). There is also a way to omit prefix completely or specify unique global names for specific fields.
+Internally inside the ECS system these classes get escaped by the `cls` name as a prefix, so if we have Nancy as a raw ECS entity `E`, then `E.person_gender` will produce `nonbinary`. But we can as well declare our person cls as `cls person@p name gender` which will prefix fields with `p`, so we could access them with shorter name at the possiblity of name conflicts (i.e. `pgender`). There is also a way to omit prefix completely or specify unique global names for specific fields.
 
 Currently ECS is used only for video games, because in the basic implementation it has no encapsulation and there is too little practice around applying it. "Everything global" is fine for video games, where there is a single world. But it gets in the way with a multiverse systems, which have to talk with each other only occasionally and in a controlled way. Still ECS is a superset of OOP and nothing stop people from introducing different kinds of encapsulation, interfacing and types. For some tasks, ECS is slower than the basic OOP, which is more of an optimization hack. But ideally you want everything to be a database table, and if it is a table of XYZ vectors residing in memory, you can process it order of magnitude quicker than a number of sparse XYZ coords each residing in its own objects at a completely different memory location. What is slow is accessing a random field of a random unclassified object, which is rarely done in a well written code. I.e. if you see it in a loop, just iterate over the array instead, and then do join by id with other arrays (akin to SQL joins). Of course, in its most purest form, ECS requires a hashtable, but openhashing tables are basically array, and can be processed as quickly as usual arrays. Furthermore, in scripting languages, like Lua and Python, the language itself overhead will overshadow the ECS table overhead anyway, so why limiting oneself to classic OOP even for basic objects?
 

@@ -18,7 +18,7 @@ print_usage =
 
 print_version =
   say "Symta v[rt_get version]"
-  say "Copyright (C) 2022 Nancy Sadkov"
+  say "Copyright (C) 2022-2026 Nancy Sadkov"
   say "See LICENSE for copying conditions"
 
 is_var_sym X = X.is_text and not X.is_keyword

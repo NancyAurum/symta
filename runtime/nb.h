@@ -1,4 +1,4 @@
-//Nancy's Bitmap
+// nb -- compact bitmap utilities
 
 #ifndef NB_H
 #define NB_H

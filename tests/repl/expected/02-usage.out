@@ -1,5 +1,5 @@
 Symta vXXX
-Copyright (C) 2022 Nancy Sadkov
+Copyright (C) 2022-2026 Nancy Sadkov
 See LICENSE for copying conditions
 Type `usage` to list command line arguments.
 > Usage: symta [OPTION] <SRC_DIR> [DST_DIR]

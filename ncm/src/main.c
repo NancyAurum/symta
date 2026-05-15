@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
 #define P(...) fprintf(stderr, __VA_ARGS__)
   if (arrlen(files) != 2) {
     P("NCM: The New C Macroprocessor\n");
-    P("     (c) 2023 Nancy Sadkov <nangld85@gmail.com>. All Rights Reserved.\n");
+    P("     (c) 2022-2026 Nancy Sadkov.  Dual-licensed MIT OR Apache-2.0.\n");
     P("\n");
     P("USAGE: ncm [OPTIONS] <infile> <outfile>\n");
     P("\n");

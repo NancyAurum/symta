@@ -8,8 +8,8 @@ backed `meta` on a global weak hashtable.  Game cold compile went
 (commit `2129767`) brought cold compile to 38-40 s -- ~25 % BETTER
 than baseline thanks to the C reader.
 
-Nancy's question: "Interpreted code just can't be faster than C.
-Why was the hashtable so slow?"
+The natural question: "Interpreted code just can't be faster than
+C.  Why was the hashtable so slow?"
 
 ## Micro-benchmark results (commit `8f8ff63`)
 

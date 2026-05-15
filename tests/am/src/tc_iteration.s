@@ -102,7 +102,7 @@ tc_iteration =
   // SNAPSHOT semantics: .l / .ks / `for K,V T:` must walk a
   // snapshot. Mutating the table after the snapshot is taken
   // must NOT disturb the snapshot or invalidate iteration.
-  // AM-8 (TODO.md): this is the contract.
+  // AM-8: this is the contract.
   TS (!)
   TS.\a = 1
   TS.\b = 2

@@ -1,6 +1,6 @@
 /*
                   NCM
-        ("Nancy's C Macros")
+        ("New C Macroprocessor")
 
   A lexical macro processor: a more capable cousin of the C
   preprocessor. Supports #-prefixed plain and function-style
@@ -12,7 +12,7 @@
   Exposed to Symta as the `ncm_process_` builtin; see
   examples/25-lexmacro.s for usage.
 
-  Copyright (c) 2023 Nancy Sadkov <nangld85@gmail.com>.
+  Copyright (c) 2022-2026 Nancy Sadkov.
   Distributed under the MIT OR Apache-2.0 dual license terms,
   same as the rest of Symta. See LICENSE-MIT / LICENSE-APACHE.
 */

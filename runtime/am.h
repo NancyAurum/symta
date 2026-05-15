@@ -78,10 +78,6 @@
   walk the table via NH_FOR/internal pointers (e.g. from inside
   a finalizer) are on their own.
 
-  --- references ---
-
-  See TODO.md (AM-* items) for the open polish backlog.
-
 Todo:
 * Efficient strings set representation:
   Use a default value 1 or a radix judy tree instead of a string-keyed hash map.
@@ -139,8 +135,8 @@ extern uint32_t amFinalizerHook;
 #define AM_BITMAP1 5
 
 
-/* symta_itbl was the stb_ds int-keyed row; AM-6 in TODO.md
- * replaced it with ih_t (nh_t-template) for AM_INT. symta_stbl
+/* symta_itbl was the stb_ds int-keyed row; AM-6 replaced
+ * it with ih_t (nh_t-template) for AM_INT. symta_stbl
  * was its string-keyed sibling; AM-6b replaced it with th_t
  * for AM_TEXT. AM-pack-v2 then changed the layout *inside* every
  * nh_t instantiation: keys, values, and (when NH_CACHE_HASH)
@@ -173,7 +169,7 @@ INLINE dyn amGidGet(dyn o, dyn ref) {
     /* Column promoted to GENERIC at some point (mixed key types or
      * a non-int key got written). The keys are stored as full Symta
      * values; look up by the gid-as-int key the same way amGet would.
-     * AM-1 (TODO.md): fixes the latent UB where amGidGet returned
+     * AM-1: fixes the latent UB where amGidGet returned
      * `r` uninitialised on this branch. */
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, FXN(O_GID(ref)));
@@ -182,7 +178,7 @@ INLINE dyn amGidGet(dyn o, dyn ref) {
     /* Text-keyed column being queried by entity GID is a contract
      * violation -- cls fields are integer-keyed by construction.
      * Crash loudly so the bug surfaces at the call site instead of
-     * silently returning garbage. (Also AM-1 / TODO.md.) */
+     * silently returning garbage. (Also AM-1.) */
     fatal("amGidGet: AM_TEXT column queried by integer GID\n");
     r = AM_VOID(o); /* unreachable; keeps the compiler quiet */
   ESAC
@@ -376,7 +372,7 @@ INLINE dyn amHas(dyn o, dyn key) { //Key exists
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
   GOT(AM_BITMAP0)
-    /* AM-12 (TODO.md): bit set ↔ key present (see amSet's
+    /* AM-12: bit set ↔ key present (see amSet's
      * BITMAP0 branch: writing 0 calls nbSet, populating the
      * bit). amGet, amGidGet, and AM_BITMAP1's amHas all agree
      * on this semantic. The original `nbGet == 0` was an
@@ -414,7 +410,7 @@ INLINE dyn amGot(dyn o, dyn key) { //key both exists and has value != No
     dh_t *hm = AM_BASE(o);
     r = dhGet(hm, key);
   GOT(AM_BITMAP0)
-    /* AM-12 (TODO.md): same inversion fix as in amHas above.
+    /* AM-12: same inversion fix as in amHas above.
      * amGot is "present AND value != No"; on BITMAP0 the value
      * is always FXN(0) which is != No, so amGot collapses to
      * the same predicate as amHas. AM-13: same T_INT guard. */
@@ -503,7 +499,7 @@ INLINE void amSet(dyn o, dyn key, dyn value) {
         thDel(&hm, key);
         AM_BASE(o) = hm;
       }
-      /* AM-11 (TODO.md): without this `return`, control falls out
+      /* AM-11: without this `return`, control falls out
        * of the delete-branch switch, past the `if (value==void_val)`
        * block, and into the regular AM_TEXT insert branch below --
        * which would `thSet` the key right back. */
