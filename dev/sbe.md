@@ -1224,11 +1224,14 @@ At REPL time, `help \sum` reads it back.  Documentation lives
 help                            // print general usage
 help \sum                       // show docs for `sum`
 help_names()                    // list every documented symbol
+module_exports \core_           // list every export of the core module
+module_help    \core_           // same, with a one-line doc next to each
 ```
 
 The whole standard library — including the `{}` operator
 helpers — comes with docs out of the box.  Try `help \list.keep`,
-`help \text.parse`, `help \when`, `help \got` at the REPL.
+`help \text.parse`, `help \when`, `help \got`, or
+`module_help \macro` at the REPL.
 
 Two refinements are on the milestone roadmap:
 

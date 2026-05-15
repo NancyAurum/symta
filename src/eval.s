@@ -1,5 +1,5 @@
 use compiler macro
-export build eval eval_file
+export build eval eval_file module_exports module_help
 
 GRootFolder No   //compiler root folder
 GBuildFolder No  //project build folder
@@ -245,3 +245,38 @@ list.eval Env!No RootFolder!No BuildFolder!No =
 //allow stuff like "1+2".eval
 text.eval Env!No RootFolder!No BuildFolder!No =
   eval Me.parse.0 Env!Env RootFolder!RootFolder BuildFolder!BuildFolder
+
+
+// Normalise one element from `sbc_exports` to a plain text symbol name.
+// `sbc_exports` returns parsed AST tokens; macro-keyword exports come back
+// wrapped as `(`\\` name)` (the atom-literal form), and other exports are
+// already plain texts.  We collapse both shapes to the bare name.
+norm_export_name X =
+  if X.is_list and X.0 >< '\\' and X.n >< 2 then "[X.1]" else "[X]"
+
+// `module_exports \mod` -- list the symbols exported by a loaded SBC module.
+// Built-in modules (rt_) come from the runtime's `builtins_` table; on-disk
+// modules are read out of `sbc/<mod>.sbc`.  Returns a list of symbol names
+// as plain texts, sorted alphabetically for deterministic display.
+module_exports Name =
+| ModName "[Name]"
+| Raw if ModName >< 'rt_' then (builtins_){?0} else
+        SbcFile "[GSbcFolder][ModName].sbc"
+        if SbcFile.exists then sbc_exports ModName else No
+| if no Raw then No else Raw{&norm_export_name}.s
+
+// `module_help \mod` -- list every exported symbol in `mod`, with whatever
+// help text is registered for each.  The convenient "show me everything in
+// this module" command at the REPL.
+module_help Name =
+| Exports module_exports Name
+| if no Exports
+    then say "no module [Name] (try: core_, rt_, macro, eval, compiler)"
+    else
+      | say "Exports of [Name] ([Exports.n] symbols):"
+      | for Sym Exports:
+          | Doc help_get Sym
+          | First_line if Doc.is_text then Doc.split('\n').head else No
+          | if got First_line
+              then say "  [Sym]  --  [First_line]"
+              else say "  [Sym]"

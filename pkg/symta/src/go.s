@@ -28,7 +28,7 @@ interpreter Root =
 | say "Type `usage` to list command line arguments."
 | Env!
 | Env.'Env_' = Env
-| Env.'Uses_' =: core_ rt_
+| Env.'Uses_' =: core_ rt_ eval
 | Env.'Last_' = No
 | Done 0
 | till Done:
