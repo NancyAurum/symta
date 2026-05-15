@@ -29,19 +29,22 @@ say ""
 
 
 // ----------------------------------------------------------------
-// 2. Parse: rewrite JSON tokens into Symta tokens.
+// 2. Parse: a single REFAL pass over the character stream that
+//    rewrites JSON tokens into Symta tokens.
 //
-//   "..."  -> ...      (drop string quotes -- Symta atoms self-quote)
-//   ,      -> SPACE    (whitespace separates Symta items)
-//   :      -> !        (Symta's key marker)
-//   {      -> @{       (Symta's table literal)
+//     "   ->     (dropped -- Symta atoms self-quote)
+//     ,   ->  space
+//     :   ->  !         (Symta's key marker)
+//     {   ->  @{        (Symta's table literal -- one char becomes
+//                        two, hence the splice form `= @[...]`)
 //
-// Each substitution is a one-liner.  Chain them and feed the
-// result to `text.parse`.
-// ----------------------------------------------------------------
+// Four clauses, one pass; the result feeds straight into Symta's
+// own `text.parse`.
+//
 // `[a b c]` parses in Symta as ``(`[]` a b c)`` -- the `[]` symbol
 // is the call-target.  We strip that marker recursively after
 // parsing so JSON arrays become plain Symta lists.
+// ----------------------------------------------------------------
 clean V =
   if V.is_list
     then if V.0 >< `[]`
@@ -52,11 +55,7 @@ clean V =
       else V
 
 parse_json Str =
-  S Str
-  S = S.split('"').text('')
-  S = S.split(',').text(' ')
-  S = S.split(':').text('!')
-  S = S.split('{').text('@{')
+  S Str.l{`"`= ; `,`=` `; `:`=`!`; `{`= @[`@` `{`]}.text
   S.parse.0.0 ^ clean
 
 

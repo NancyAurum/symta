@@ -1,4 +1,4 @@
-header:   (name age city salary)
+header:    (name age city salary)
 row count: 4
 
 ages:      (30 25 28 40)
@@ -16,13 +16,13 @@ name, monthly salary:
   carol: 5000
   dave: 4583
 
-rows with `tax` column appended:
+rows with tax column appended:
   (alice `30` Utrecht `50000` 15000)
   (bob `25` Berlin `45000` 13500)
   (carol `28` Amsterdam `60000` 18000)
   (dave `40` Rotterdam `55000` 16500)
 
---- re-emitted CSV (with tax column) ---
+--- re-emitted CSV ---
 name,age,city,salary,tax
 alice,30,Utrecht,50000,15000
 bob,25,Berlin,45000,13500
