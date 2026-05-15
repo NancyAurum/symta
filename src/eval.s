@@ -275,7 +275,7 @@ module_help Name =
     else
       | say "Exports of [Name] ([Exports.n] symbols):"
       | for Sym Exports:
-          | Doc help_get Sym
+          | Doc help_section_lookup_ Sym
           | First_line if Doc.is_text then Doc.split('\n').head else No
           | if got First_line
               then say "  [Sym]  --  [First_line]"

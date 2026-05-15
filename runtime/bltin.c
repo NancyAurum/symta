@@ -624,6 +624,62 @@ BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
   }
 RETURNS(R)
 
+/* `help_banner_` -- printed when the user types bare `help` at
+ * the REPL.  Used to be a Symta function in core_.s; lives here
+ * now so the help system stops referencing anything Symta-side. */
+BUILTIN0("help_banner_", help_banner_)
+  printf("Symta REPL help\n");
+  printf("----------------\n");
+  printf("  help <name>            -- show docs for `<name>`\n");
+  printf("                            (try: help say, help int.bump)\n");
+  printf("  module_exports <mod>   -- list everything exported by a module\n");
+  printf("                            (try: module_exports core_)\n");
+  printf("  module_help <mod>      -- list a module's exports with one-line docs\n");
+  printf("  usage                  -- list command-line arguments\n");
+  printf("  exit / quit            -- leave the REPL\n");
+  R = No;
+RETURNS(R)
+
+/* `help_lookup_ Key` -- what the `help X` macro emits.  Looks up
+ * the doc via the same path help_section_lookup_ uses and prints
+ * either the doc or a `no documentation` message.  Returns No. */
+BUILTIN1("help_lookup_", help_lookup_, C_TEXT, name_text)
+  char *name = text_to_cstring(name_text);
+  const char *found_val = 0;
+
+  for (int i = 0; i < sbcs_loaded && !found_val; i++) {
+    sbc_t *sbc = sbcs[i];
+    if (!sbc->doc_table || !sbc->doc_sz) continue;
+    uint8_t *p = sbc->doc_table;
+    for (uint32_t j = 0; j < sbc->doc_sz; j++) {
+      uint32_t sym_ofs = p[0] | (p[1]<<8) | (p[2]<<16);
+      uint32_t val_ofs = p[3] | (p[4]<<8) | (p[5]<<16);
+      p += 6;
+      char *sym = sbc_data_str(sbc, sym_ofs);
+      char *val = sbc_data_str(sbc, val_ofs);
+      if (sym && val && !strcmp(sym, name)) {
+        found_val = val;
+        break;
+      }
+    }
+  }
+  if (!found_val) {
+    for (const builtin_doc_t *b = builtin_docs; b->name; b++) {
+      if (!strcmp(b->name, name)) { found_val = b->doc; break; }
+    }
+  }
+
+  if (found_val) {
+    printf("%s\n", found_val);
+  } else {
+    /* `name` is still valid -- text_to_cstring's api.sbuf hasn't
+     * been re-used because we haven't called anything that uses
+     * it. */
+    printf("No documentation for `%s`.\n", name);
+  }
+  R = No;
+RETURNS(R)
+
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
 RETURNS(R)
@@ -2687,6 +2743,8 @@ static struct {
   B(wh_clear_)
   B(wh_n_)
   B(help_section_lookup_)
+  B(help_banner_)
+  B(help_lookup_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)

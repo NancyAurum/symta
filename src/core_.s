@@ -1,61 +1,22 @@
 export say bad new_macro meta methods
        rand_get rand_set rand_push rand_pop zip setters_ getters_ atan2
        btland btjump bterror btrap `..`
-       help_get
-       help_banner_ help_lookup_
 
 _.new_fn_ = No
 
 _.free =
 
 
-//===========================================================================
-// Documentation / help system  (HELP-3 final form)
-//===========================================================================
-// All docs come from `help_section_lookup_` (C builtin), which
-// scans two stores on demand: (1) each loaded SBC's docs section
-// -- populated at compile time from `@"text"` heads via the `_ssv`
-// intrinsic; (2) the static `builtin_docs[]` table in
-// `runtime/bltin.c` for macros and runtime builtins that have no
-// Symta source body.  No prebuilt hashtable lives at module load.
-
-// Normalise a help-table key.  Atom literals like `\say` already
-// evaluate to text, but `\list.keep` parses as `(`.` list keep)` --
-// an AST form, not text.  Walk the AST recursively to recover the
-// human-readable "list.keep" text.
-help_key_ K =
-| if K.is_text then K
-  else if K.is_list and K.n >< 3 and K.0 >< '.'
-    then "[help_key_ K.1].[help_key_ K.2]"
-    else "[K]"
-
-help_get Sym =
-| @"Look up the docstring registered for a name.  Returns No if undocumented.
-Scans the SBC docs sections (compile-time `@\"text\"` heads) and the static
-C-side builtin docs table -- no module-load-time hashtable involvement."
-| Key help_key_ Sym
-| help_section_lookup_ Key
-
-// Runtime backends for the `help` macro (defined in src/macro.s).
-// `help_banner_` is what the macro emits when called with no
-// args; `help_lookup_ Key` is what it emits when called with one
-// arg (after rewriting the arg's AST shape into a text key).
-help_banner_ =
-| say "Symta REPL help"
-| say "----------------"
-| say "  help <name>            -- show docs for `<name>`"
-| say "                            (try: help say, help int.bump)"
-| say "  module_exports <mod>   -- list everything exported by a module"
-| say "                            (try: module_exports core_)"
-| say "  module_help <mod>      -- list a module's exports with one-line docs"
-| say "  usage                  -- list command-line arguments"
-| say "  exit / quit            -- leave the REPL"
-
-help_lookup_ Key =
-| Doc help_get Key
-| if got Doc
-    then say Doc
-    else say "No documentation for `[Key]`."
+// Documentation / help system: see HELP-3 commits.  Three C
+// builtins do all the work (`runtime/bltin.c`):
+//   help_section_lookup_ NAME  -> doc text or No  (used by module_help)
+//   help_banner_               -> prints REPL help banner
+//   help_lookup_ NAME          -> prints doc or "no documentation"
+// The `help` macro (`src/macro.s`) compiles `help` to
+// `help_banner_` and `help X` to `help_lookup_ "<key>"`.  Docs
+// themselves live in each SBC's docs section (compile-time from
+// `@"text"` heads) and in `builtin_docs[]` (for macros and
+// runtime builtins).  No prebuilt hashtable lives at module load.
 
 //No acts as an identity element in arithmetics
 no.`+` B = B
