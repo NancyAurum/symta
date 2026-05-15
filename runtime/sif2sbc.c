@@ -67,6 +67,7 @@ uint8_t *sif2sbc(sif_t *sif) {
   instr_t **libs = 0;
   instr_t **imlib = 0;
   instr_t **im = 0;
+  instr_t **doc = 0;     /* HELP-3: docstring entries from `t doc <sym> <val>` SIF directives. */
 
   labels_t l2o = 0; //label to offset map
   sh_new_arena(l2o); //store key copies
@@ -181,6 +182,7 @@ uint8_t *sif2sbc(sif_t *sif) {
         //printf("imlib: %s\n", as[2]);
         arrput(imlib, ins);
       } else if (!strcmp(as[1],"im")) arrput(im, ins);
+      else if (!strcmp(as[1],"doc")) arrput(doc, ins);
       else {
         fprintf(stderr, "sif2c: bad table type `%s`\n", as[1]);
         exit(-1);
@@ -979,15 +981,38 @@ uint8_t *sif2sbc(sif_t *sif) {
     EMIT16(linenos[i].pad);
   }
 
+  /* HELP-3: emit the docstring section after lineno.  Each entry
+   * is six bytes: 3-byte symbol-name offset (into data) followed
+   * by 3-byte docstring-text offset (into data).  Both strings
+   * live in the existing data section -- the runtime helper can
+   * resolve them without a copy. */
+  int doc_ofs = arrlen(wb);
+  int doc_sz = arrlen(doc);
+  for (i = 0; i < doc_sz; i++) {
+    instr_t *ins = doc[i];
+    char **as = ins->args;
+    /* args: ["t", "doc", "<sym-label>", "<val-label>"] */
+    if (arrlen(as) < 4) {
+      fprintf(stderr, "sif2c: `t doc` needs 2 labels at row %d\n", ins->row);
+      exit(-1);
+    }
+    int sym_ofs = shget(l2o, as[2]);
+    int val_ofs = shget(l2o, as[3]);
+    EMIT24(sym_ofs);
+    EMIT24(val_ofs);
+  }
+
   tbls = wb;
   wb = 0;
 
   /* tot_sz counts the (count, offset) pairs in the trailing tot:
-   * 7 lookup tables + nrs + linenos + RT-7 mcache.  The RT-7
-   * mcache entry's offset field doubles as a format flag for
-   * stage 2 -- see the EMIT24 pair near the bottom of this
-   * function. */
-  int tot_sz = 7 + 3;
+   * 7 lookup tables + nrs + linenos + RT-7 mcache + HELP-3 docs.
+   * The RT-7 mcache entry's offset field doubles as a format flag
+   * for stage 2 -- see the EMIT24 pair near the bottom of this
+   * function.  The HELP-3 docs entry (count, offset) points to
+   * a flat array of (sym_ofs:24, val_ofs:24) pairs, both offsets
+   * referring into the data section. */
+  int tot_sz = 7 + 3 + 1;
 
   /* Format identification: 4-byte magic + 2-byte revision.
    * `sbc_new` checks both before touching anything else.  See
@@ -1026,6 +1051,9 @@ uint8_t *sif2sbc(sif_t *sif) {
    * MCACHE_SKIP / MCACHE_CALL advance pin correctly. */
   EMIT24(mcache_counter);
   EMIT24(1); /* RT-7 stage 2: compact 2-byte cache slots */
+  /* HELP-3: docstring section -- count + offset into tbls. */
+  EMIT24(doc_sz);
+  EMIT24(doc_ofs);
 
 
   hdr = wb;
@@ -1050,6 +1078,7 @@ uint8_t *sif2sbc(sif_t *sif) {
   arrfree(rs);
   arrfree(nrs);
   arrfree(linenos);
+  arrfree(doc);
   arrfree(hdr);
   arrfree(code);
   arrfree(tbls);

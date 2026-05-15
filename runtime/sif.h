@@ -315,6 +315,13 @@ typedef struct sbc_t {
    * Allocated by `sbc_prepare` once `mcache_cnt` is known. */
   mcache_t *mcaches;
   uint32_t mcache_cnt;
+  /* HELP-3: docstring section.  Each entry is six bytes:
+   * 3-byte symbol-name offset into `data`, then 3-byte
+   * docstring offset into `data`.  Both strings are
+   * NUL-terminated where they sit; lookups can return
+   * a `char *` directly without copying. */
+  uint8_t *doc_table;
+  uint32_t doc_sz;
   tot_entry_t rtot[7]; //relocated tot
   dyn *tx;
   dyn *ty;

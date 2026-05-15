@@ -482,16 +482,64 @@ BUILTIN0("wh_n_",     wh_n_)
 RETURNS(FXN((int64_t)meta_n_()))
 
 
-/* Help system -- string-keyed runtime-global map of name ->
- * docstring.  Populated by `help_set_` (typically from `doc`
- * macro expansion, or by direct user calls); read by `help_get_`
- * (the `help` REPL command).  Keys live in the stb_ds arena
- * (string-hashtable variant) so we can look them up by char*
- * without interning.  Values are Symta text dyns held strongly.
+/* Help system -- HELP-3 final form.  Docstrings live in each
+ * loaded SBC's docs section (populated at compile time by the
+ * `_ssv` intrinsic; written by sif2sbc.c into a `(sym_ofs:24,
+ * val_ofs:24)` flat array; loaded by sbc.c into
+ * `sbc->doc_table` / `sbc->doc_sz`).  Lookups scan the loaded
+ * SBCs on demand -- no prebuilt `Help_Table`.
  *
- * Once SBC sectioning lands (see roadmap), this map will be
- * populated lazily from each SBC's doc section on load instead
- * of at runtime.  The user-facing API stays the same. */
+ * The legacy `help_set_`/`help_get_`/`help_names_` API below is
+ * still here to keep the existing `help_set` Symta-side callers
+ * working during the migration; once core_.s migrates to
+ * `@"text"` everywhere this section can be deleted entirely.
+ *
+ * `help_section_lookup_section_(filename, name)` walks ONE SBC's docs
+ * section for a name; returns the doc text or No.
+ * `help_section_lookup_(name)` walks ALL loaded SBCs.
+ */
+
+extern sbc_t *sbcs[];
+extern int sbcs_loaded;
+
+/* Read a NUL-terminated string at the given offset.  Offsets in
+ * the docs section are relative to `sbc->code` (the start of
+ * the code+data block) -- the same convention used by
+ * `sbc->src_file_string` and friends.  Offset zero means
+ * "no string". */
+static char *sbc_data_str(sbc_t *sbc, uint32_t ofs) {
+  if (!ofs) return 0;
+  return (char *)(sbc->code + ofs);
+}
+
+BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
+  char *name = text_to_cstring(name_text);
+  R = No;
+  for (int i = 0; i < sbcs_loaded; i++) {
+    sbc_t *sbc = sbcs[i];
+    if (!sbc->doc_table || !sbc->doc_sz) continue;
+    uint8_t *p = sbc->doc_table;
+    for (uint32_t j = 0; j < sbc->doc_sz; j++) {
+      uint32_t sym_ofs = p[0] | (p[1]<<8) | (p[2]<<16);
+      uint32_t val_ofs = p[3] | (p[4]<<8) | (p[5]<<16);
+      p += 6;
+      char *sym = sbc_data_str(sbc, sym_ofs);
+      char *val = sbc_data_str(sbc, val_ofs);
+      if (sym && val && !strcmp(sym, name)) {
+        GC_DISABLE();
+        TEXT(R, val);
+        GC_ENABLE();
+        goto done;
+      }
+    }
+  }
+done:
+  free(name);
+RETURNS(R)
+
+/* Legacy `help_set_` / `help_get_` / `help_names_` (in-memory
+ * map).  Deprecated once core_.s migrates fully to `@"text"`,
+ * but kept here so existing `help_set "..."` calls still work. */
 static struct { char *key; void *value; } *help_map = 0;
 static int help_map_init = 0;
 
@@ -2595,6 +2643,7 @@ static struct {
   B(help_set_)
   B(help_get_)
   B(help_names_)
+  B(help_section_lookup_)
   B(get_meta_)
   B(set_meta_)
   B(intern_)

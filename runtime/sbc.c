@@ -96,6 +96,16 @@ sbc_t *sbc_new(uint8_t *pin, int64_t size, char *path) {
     return 0;
   }
   sbc->mcaches = 0; /* allocated lazily in sbc_prepare */
+  /* HELP-3: docstring section (tot[10]).  Optional -- older SBCs
+   * compiled before the format extension leave both fields zero. */
+  if (tot_sz >= 11) {
+    sbc->doc_sz = (uint32_t)RD24;
+    uint32_t doc_ofs = (uint32_t)RD24;
+    sbc->doc_table = sbc->doc_sz ? (sbc->tbls + doc_ofs) : 0;
+  } else {
+    sbc->doc_sz = 0;
+    sbc->doc_table = 0;
+  }
 
   sbc->filename = strdup(path);
   sbc->mt = 0;

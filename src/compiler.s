@@ -20,6 +20,12 @@ GImportsCount No
 GTexts No
 GTextsMap No
 GTextsCount No
+GSsv No   // HELP-3: per-module set-section-symbol-value entries collected
+          // at compile time from `_ssv` intrinsic.  Each entry is
+          // [SectionLabel SymbolLabel ValueLabel] where each label
+          // is a `b<rand>` cstring reference into the data section.
+          // Flushed as `t doc <sym> <val>` SIF directives in
+          // ssa_to_sif_do_header (currently only the `docs` section).
 GMethods No //resolved methods
 GMethodsCount No
 GImportLibs No
@@ -513,6 +519,22 @@ ssa_text String =
   push String^ssa_cstring GTexts
   as Tx "tx\[[GTextsCount+]\]": GTextsMap.String = Tx
 
+// `_ssv` compile-time intrinsic.  Each arg is a `(_quote "...")`
+// node from the macro; we pull out the string and pin it as a
+// cstring in the data section, recording (Section, Symbol, Value)
+// label triple in GSsv for emission to a SIF `t doc` directive.
+ssa_ssv K As =
+| Section get_quote_text As.0
+| Symbol  get_quote_text As.1
+| Value   get_quote_text As.2
+| push [Section^ssa_cstring Symbol^ssa_cstring Value^ssa_cstring] GSsv
+| ssa mv K 0
+
+get_quote_text X =
+  case X
+    [_quote S] = S
+    Else = compiler_error "_ssv arg must be a quoted string, got [X]"
+
 ssa_ffi_call K Type F As =
 | F =  ev F
 | As =  map A As: ev A
@@ -588,15 +610,8 @@ hcase SsaFormCases Xs (K)
   [_ffi_set Type Ptr Off Val] | ssa nst Type.1 Ptr^ev Off^ev Val^ev
                               | ssa mv K 0
   // `_ssv <section> <symbol> <value>` -- set-section-symbol-value
-  // compile-time intrinsic.  HELP-3 (in `symta-TODO.md`) makes
-  // this collect into a per-module GSsv table and flush as SIF
-  // directives, populating named SBC sections.  Until the
-  // sif2sbc.c / sbc.c side is wired up (needs C rebuild), the
-  // intrinsic just emits a no-op -- no runtime call, no
-  // per-invocation overhead.  Docs registered via `@"text"`
-  // are temporarily lost; existing `help_set ... "..."` sites
-  // in core_.s remain the doc source until HELP-3 completes.
-  [_ssv @As] | ssa mv K 0
+  // compile-time intrinsic.  See ssa_ssv below.
+  [_ssv @As] | ssa_ssv K As
 
 ssa_form K Xs =
 | when Xs.end:
@@ -777,6 +792,7 @@ produce_ssa Expr =
       GTexts []
       GTextsMap (!)
       GTextsCount 0
+      GSsv []
       GMethods (!)
       GMethodsCount 0
       GImportLibs (!)
@@ -808,7 +824,8 @@ produce_ssa Expr =
     Imps Imps.s(?0 < ??0)
     Header: header OrigString GBytes tbls fmtbl,Metas
             [tx,GTexts.f ty,Types mt,Meths
-             libs,Libs imlib,Imps{?1} im,Imps{?2}]
+             libs,Libs imlib,Imps{?1} im,Imps{?2}
+             doc,GSsv.f]
     for X GInits.f: push X GOut
     EntryHeader GOut.f
     GOut = []
@@ -836,7 +853,14 @@ ssa_to_sif_do_header DepsList ExportsList Header =
     if FileSrc><Src: "[NArgs] [Name] [Fn] [Row] [Col]"
     else "[NArgs] [Name] [Fn] [Row] [Col] [Src]"
   TableDecls: stable(fm MetaXs)
-  for [Name Xs] Tables: push stable(Name Xs) TableDecls
+  for [Name Xs] Tables:
+    if Name >< doc
+      // HELP-3 doc entries: each X is a [SectionLabel SymLabel ValLabel]
+      // triple; emit `t doc <sym> <val>` (Section is dropped for now --
+      // only one section recognised downstream by sif2sbc.c).
+      then DocLines map [_ Sym Val] Xs: "t doc [Sym] [Val]"
+           when DocLines.n > 0: push DocLines.text('\n') TableDecls
+      else push stable(Name Xs) TableDecls
   DepsExpInc:
   if ExportsList:
     push [__deplist DepsList.text(' ')^cstring_bytes] Bytes

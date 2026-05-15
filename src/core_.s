@@ -50,9 +50,16 @@ help_set Sym Doc =
 | Help_Table.Key = Doc
 | Doc
 
+// HELP-3: `help_get` now scans the loaded SBCs' docs sections
+// FIRST (built into the SBCs at compile time by `@"text"` /
+// `_ssv`); falls back to the legacy `Help_Table` only if
+// nothing is found there.  Once core_.s migrates all
+// `help_set` calls to `@"text"` heads, the legacy fallback
+// goes away.
 help_get Sym =
 | Key help_key_ Sym
-| Help_Table.Key
+| Doc help_section_lookup_ Key
+| if got Doc then Doc else Help_Table.Key
 
 help_names = Help_Table.l{?0}    // list of documented symbol names
 
