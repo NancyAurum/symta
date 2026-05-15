@@ -1,7 +1,7 @@
 export say bad new_macro meta methods
        rand_get rand_set rand_push rand_pop zip setters_ getters_ atan2
        btland btjump bterror btrap `..`
-       help help_set help_get help_names
+       help help_set help_get help_names ssv_
 
 _.new_fn_ = No
 
@@ -41,6 +41,17 @@ help_set Sym Doc =
 help_get Sym = Help_Table.Sym
 
 help_names = Help_Table.l{?0}    // list of documented symbol names
+
+// `ssv_ Section Symbol Value` -- "set section symbol value".  The general
+// intrinsic emitted by the function/method-defining macros for any side-
+// data attached to a definition.  Today only `docs` is recognised
+// (delegated to `help_set`); future sections will cover type annotations,
+// graphical asset blobs, audio data, etc.  Eventually the compiler will
+// recognise `ssv_` as a compile-time intrinsic and route each section into
+// its own area of the SBC file, with lazy on-demand load -- this Symta-
+// side stub keeps the user-facing API identical until that lands.
+ssv_ Section Sym Value =
+| if Section >< 'docs' then help_set Sym Value else No
 
 help @Args =
 | case Args
@@ -1451,3 +1462,146 @@ Docstrings are stored in a runtime map (Help_Table).  See also: help, help_get.'
 help_set \help_get 'Look up the docstring registered for a name.  Returns No if undocumented.'
 
 help_set \help_names 'Return the list of every documented symbol name.'
+
+help_set \ssv_ 'Set-section-symbol-value.  General intrinsic for attaching
+side-data to a definition.  Today only the `docs` section is honoured
+(delegating to `help_set`); future sections will cover type annotations,
+graphical assets, audio data, anything else a macro wants to attach.
+Eventually `ssv_` will be a compile-time intrinsic that emits each
+section into a dedicated area of the SBC file.  Until then, this
+Symta-side stub keeps the user-facing API identical.
+Args: ssv_ Section Symbol Value -- Section and Symbol are texts.'
+
+
+// ---------------------------------------------------------------
+// Type system + introspection
+// ---------------------------------------------------------------
+
+help_set \typename 'Return the type name of a value, as text.
+Example:  typename 42         // "int"
+          typename "abc"      // "text"
+          typename [1 2 3]    // "list"'
+
+help_set \methods 'Return the table of methods defined for the given value.
+Example:  methods 42          // table of int methods'
+
+help_set \got 'Test whether a value exists.  Returns 1 if X is anything but No, else 0.
+This is the proper "did this lookup succeed" test, since `if T.missing:`
+would always fire (No is truthy under control flow).
+Example:  if got T.name: say T.name'
+
+help_set \no 'Test whether a value is No.  Inverse of `got`.
+Returns 1 if X is No, else 0.'
+
+
+// ---------------------------------------------------------------
+// More list methods
+// ---------------------------------------------------------------
+
+help_set \list.copy 'Shallow copy of a list -- elements are shared.'
+
+help_set \list.deep_copy 'Recursive deep copy of a list.  Nested lists are copied too.'
+
+help_set \list.zip 'Transpose a list of equal-length lists.
+Example:  [[1 2 3] [a b c]].zip   // ((1 a) (2 b) (3 c))'
+
+help_set \list.group 'Group a list into chunks of N elements.
+Example:  [1 2 3 4 5 6].group(2)   // ((1 2) (3 4) (5 6))
+          [1 2 3 4 5].group(2)     // ((1 2) (3 4) (5)) -- trailing partial'
+
+help_set \list.infix 'Insert a value between every two adjacent elements.
+Example:  [\\a \\b \\c].infix(\\sep)   // (a sep b sep c)'
+
+help_set \list.del 'Remove the element at index K.  Returns a new list.'
+
+help_set \list.insert 'Insert value V at index K, shifting later elements right.'
+
+help_set \list.change 'Replace the element at index K with value V.'
+
+help_set \list.apply 'Call a function with this list as its argument list.
+Example:  [1 2 3].apply(min)   // min(1, 2, 3) -> 1'
+
+help_set \list.bool '0 for the empty list, 1 otherwise.'
+
+help_set \list.sign 'Elementwise sign on a numeric list (each element -> -1, 0, or 1).'
+
+help_set \list.float 'Convert every element of a numeric list to float.'
+
+help_set \list.int 'Convert every element of a numeric list to int.'
+
+
+// ---------------------------------------------------------------
+// More text methods
+// ---------------------------------------------------------------
+
+help_set \text.u 'Upcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
+Example:  "Hello".u   // "HELLO"'
+
+help_set \text.d 'Downcase a text.  Letters A-Z and a-z only; non-ASCII passes through.
+Example:  "Hello".d   // "hello"'
+
+help_set \text.title 'Capitalise the first character of a text.
+Example:  "hello world".title   // "Hello world"   (first char only!)'
+
+help_set \text.trim 'Strip leading and trailing instances of a separator (default space).
+Keyword args: s/separator (default " "), l/1, r/1 select which sides.
+Example:  "  hi  ".trim         // "hi"
+          "***hi***".trim(s/\\*)  // "hi"'
+
+help_set \text.is_keyword 'A text is a "keyword" (variable) if it starts with an uppercase letter.
+Example:  "Foo".is_keyword   // 1
+          "foo".is_keyword   // 0'
+
+help_set \text.is_alpha 'Test whether every character is an ASCII letter (a-z or A-Z).'
+
+help_set \text.is_digit 'Test whether every character is an ASCII digit (0-9).'
+
+help_set \text.is_upcase 'Test whether every character is an uppercase ASCII letter.'
+
+help_set \text.is_downcase 'Test whether every character is a lowercase ASCII letter.'
+
+help_set \text.begin 'Test whether this text starts with the given prefix (or any of a list).
+Example:  "hello world".begin("hello")   // 1'
+
+help_set \text.bool '0 for the empty text, 1 otherwise.'
+
+
+// ---------------------------------------------------------------
+// Hash table methods
+// ---------------------------------------------------------------
+
+help_set \tbl.copy 'Shallow copy of a table.  Values shared; keys are.'
+
+help_set \tbl.deep_copy 'Recursive deep copy of a table.'
+
+help_set \tbl.as_text 'Render the table as its `@{key!value ...}` literal text form.'
+
+help_set \tbl.map 'Apply a function to each [key value] pair, collecting the results.'
+
+help_set \tbl.s 'Sort a tables KV pairs the same way `list.s` does for a list of pairs.'
+
+help_set \tbl.copy 'Shallow copy of a table.'
+
+
+// ---------------------------------------------------------------
+// Arithmetic helpers
+// ---------------------------------------------------------------
+
+help_set \int.sign '-1 for negative, 0 for zero, 1 for positive.'
+help_set \float.sign 'Same as int.sign but returns floats.'
+help_set \float.abs 'Absolute value of a float.'
+help_set \int.float 'Convert an integer to a float.'
+
+
+// ---------------------------------------------------------------
+// Misc
+// ---------------------------------------------------------------
+
+help_set \zip 'Element-wise pair two lists into a list of 2-element lists.
+Example:  zip [1 2 3] [a b c]   // ((1 a) (2 b) (3 c))
+The result is truncated to the length of the shorter input.'
+
+help_set \rand_get 'Return a pseudo-random integer.  Seeded from the random_seed_ table.'
+help_set \rand_set 'Set the PRNG seed.'
+help_set \rand_push 'Push the current PRNG state on a stack for later restoration.'
+help_set \rand_pop 'Restore the most recently pushed PRNG state.'
