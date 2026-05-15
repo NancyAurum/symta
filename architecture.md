@@ -116,7 +116,7 @@ symta/
   tests/           Eight regression suites (see "Testing" below)
   dev/             Long-form notes + editor / bench assets — the
                    tutorial draft (sbe.txt), ECS design notes
-                   (cls.txt / cls-gc.txt), NCM macro-processor
+                   (cls.md), NCM macro-processor
                    reference (ncm.md), Notepad++ language file,
                    bench-clock setup scripts.  Not required to
                    build or run Symta.
@@ -420,8 +420,8 @@ part initialisation, finalisation, external timer ticks. The
 standard ECS pattern presented as ordinary Symta function
 definitions.
 
-Long-form design notes in [`dev/cls.txt`](dev/cls.txt) and
-[`dev/cls-gc.txt`](dev/cls-gc.txt). Closing the dense-iteration
+Long-form design notes in [`dev/cls.md`](dev/cls.md).
+Closing the dense-iteration
 performance gap is part of the runtime milestone in
 [`TODO.md`](TODO.md).
 
@@ -458,9 +458,8 @@ standard one (`make compare` in GCC, stage3 in Rust); see
 
 ## What used to be different
 
-This section exists because someone reading old commits, blog
-posts, or `dev/cls.txt` will find references to things that
-have since changed:
+This section exists because someone reading old commits or blog
+posts will find references to things that have since changed:
 
 - **`src/reader.s` no longer exists.** The parser is in
   `runtime/reader.c`. See `blog.md`.
@@ -499,7 +498,7 @@ have since changed:
 - [`TODO.md`](TODO.md) — milestone roadmap
 - [`blog.md`](blog.md) — the C reader port story
 - [`dev/sbe.txt`](dev/sbe.txt) — long-form tutorial (~2,700 lines)
-- [`dev/cls.txt`](dev/cls.txt) — why the ECS layer looks the way it does
+- [`dev/cls.md`](dev/cls.md) — why the ECS layer looks the way it does
 - [`../symta-review.md`](../symta-review.md) — a candid one-week
   review of Symta from an outside perspective, written by Claude
   during the SoM revival

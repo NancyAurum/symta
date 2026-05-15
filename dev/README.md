@@ -19,7 +19,7 @@ roadmap, see [`../TODO.md`](../TODO.md).
 |------|-------|
 | [`sbe.txt`](sbe.txt) | "Learn Symta by Example" — the long-form tutorial that the `examples/*.s` files are the executable companion to. ~2,700 lines. Kept in dev/ until it's polished enough to publish at the top level. |
 | [`ncm.md`](ncm.md) | NCM ("New C Macroprocessor") — the lexer-stage macro pre-processor.  Design notes + reference. |
-| [`cls.txt`](cls.txt), [`cls-gc.txt`](cls-gc.txt) | Why the Symta ECS (`cls` / `dsm` / IPS) is shaped the way it is, and how entity lifetime interacts with the generational GC. Background for understanding the adaptive-map design in `runtime/am.h`. |
+| [`cls.md`](cls.md) | Why the Symta ECS (`cls` / `dsm` / IPS) is shaped the way it is, and how entity lifetime interacts with the generational GC.  Walks the five tiers of entity organisation, the AoS-vs-SoA layout argument, ECS-as-restricted-relational-algebra, and the GC integration protocol.  Background for the adaptive-map design in `runtime/am.h`. |
 
 ## Bench / profiling
 
@@ -31,6 +31,4 @@ roadmap, see [`../TODO.md`](../TODO.md).
 
 | File | Use |
 |------|-----|
-| [`logo.jpg`](logo.jpg), `logo.xcf.zip` | Project logo + the editable GIMP source. |
-| [`flt32bit.svg`](flt32bit.svg), [`flt64bit.svg`](flt64bit.svg) | IEEE-754 layout diagrams used in talks / docs. |
 | [`npp_symta.xml`](npp_symta.xml) | Notepad++ language definition file for `.s` files. Import via Settings → Style Configurator. |
