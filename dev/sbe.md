@@ -1222,16 +1222,19 @@ At REPL time, `help \sum` reads it back.  Documentation lives
 
 ```symta
 help                            // print general usage
-help \sum                       // show docs for `sum`
+help say                        // show docs for `say` -- no quoting needed
+help list.keep                  // method docs -- dot form also unquoted
 help_names()                    // list every documented symbol
-module_exports \core_           // list every export of the core module
-module_help    \core_           // same, with a one-line doc next to each
+module_exports core_            // list every export of the core module
+module_help    core_            // same, with a one-line doc next to each
 ```
 
-The whole standard library — including the `{}` operator
-helpers — comes with docs out of the box.  Try `help \list.keep`,
-`help \text.parse`, `help \when`, `help \got`, or
-`module_help \macro` at the REPL.
+`help` is a macro: it picks up the AST shape of its argument
+(plain name, dot-form, etc.) and looks up the matching key.  No
+backslash, no quotes — just type the name.  The whole standard
+library — including the `{}` operator helpers — comes with docs
+out of the box.  Try `help text.parse`, `help when`, `help got`,
+or `module_help macro` at the REPL.
 
 Two refinements are on the milestone roadmap:
 

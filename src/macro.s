@@ -14,6 +14,7 @@ export macroexpand 'mexlet' 'let_' 'let' 'default_ret_' 'ret'
        'cons' 'uncons' 'same' 'on'
        'ffi_begin' 'ffi' 'min' 'max' 'swap' 'have' 'source_' 'compile_when' 
        'nullary_' 'hcase' 'hcase_go' 'mac' 'prx' 'mdbg'
+       'help'
 
 
 GExpansionDepth No
@@ -2185,3 +2186,26 @@ prx @P As =
           ;H@T = H^r@T^r
           ; =: )
   : `|` @Bs
+
+
+// `help` macro -- newbie-friendly REPL doc lookup.  Lets users
+// type `help say` or `help int.bump` without remembering atom
+// quoting.  Converts the arg's AST shape into a text key at
+// compile time, then emits a runtime call to `help_lookup_`.
+//
+//   help                    -> help_banner_
+//   help say                -> help_lookup_ 'say'
+//   help int.bump           -> help_lookup_ 'int.bump'
+//   help list.keep          -> help_lookup_ 'list.keep'
+//
+// Walks the dot-form AST: `(`.` A B)` -> "A.B" (recursively).
+ast_key X =
+  if X.is_text then X
+  else if X.is_list and X.n >< 3 and X.0 >< '.'
+    then "[ast_key X.1].[ast_key X.2]"
+    else "[X]"
+
+help @Args = case Args:
+  []  = form: help_banner_
+  [X] = [help_lookup_ [_quote ast_key(X)]]
+  Else = mex_error "help takes 0 or 1 arg"

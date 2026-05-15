@@ -1,7 +1,8 @@
 export say bad new_macro meta methods
        rand_get rand_set rand_push rand_pop zip setters_ getters_ atan2
        btland btjump bterror btrap `..`
-       help help_set help_get help_names ssv_
+       help_set help_get help_names ssv_
+       help_banner_ help_lookup_
 
 _.new_fn_ = No
 
@@ -34,11 +35,24 @@ _.free =
 // definition.  Same backing storage either way.
 Help_Table!  // module-level empty table; key=symbol-name, val=docstring
 
+// Normalise a help-table key.  Atom literals like `\say` already
+// evaluate to text, but `\list.keep` parses as `(`.` list keep)` --
+// an AST form, not text.  Walk the AST recursively to recover the
+// human-readable "list.keep" text.
+help_key_ K =
+| if K.is_text then K
+  else if K.is_list and K.n >< 3 and K.0 >< '.'
+    then "[help_key_ K.1].[help_key_ K.2]"
+    else "[K]"
+
 help_set Sym Doc =
-| Help_Table.Sym = Doc
+| Key help_key_ Sym
+| Help_Table.Key = Doc
 | Doc
 
-help_get Sym = Help_Table.Sym
+help_get Sym =
+| Key help_key_ Sym
+| Help_Table.Key
 
 help_names = Help_Table.l{?0}    // list of documented symbol names
 
@@ -53,26 +67,27 @@ help_names = Help_Table.l{?0}    // list of documented symbol names
 ssv_ Section Sym Value =
 | if Section >< 'docs' then help_set Sym Value else No
 
-help @Args =
-| case Args
-    []
-      | say "Symta REPL help"
-      | say "----------------"
-      | say "  help \\name             -- show docs for a plain function"
-      | say "                            (try: help \\say)"
-      | say "  help 'type.method'     -- show docs for a method"
-      | say "                            (try: help 'int.bump')"
-      | say "  help_names             -- list every documented symbol"
-      | say "  module_exports \\mod    -- list everything exported by a module"
-      | say "                            (try: module_exports \\core_)"
-      | say "  module_help \\mod       -- list a module's exports with one-line docs"
-      | say "  usage                  -- list command-line arguments"
-      | say "  exit / quit            -- leave the REPL"
-    [Sym]
-      | Doc help_get Sym
-      | if Doc
-          then say Doc
-          else say "No documentation for `[Sym]`.  Try `help_names` for the list."
+// Runtime backends for the `help` macro (defined in src/macro.s).
+// `help_banner_` is what the macro emits when called with no
+// args; `help_lookup_ Key` is what it emits when called with one
+// arg (after rewriting the arg's AST shape into a text key).
+help_banner_ =
+| say "Symta REPL help"
+| say "----------------"
+| say "  help <name>            -- show docs for `<name>`"
+| say "                            (try: help say, help int.bump)"
+| say "  help_names             -- list every documented symbol"
+| say "  module_exports <mod>   -- list everything exported by a module"
+| say "                            (try: module_exports core_)"
+| say "  module_help <mod>      -- list a module's exports with one-line docs"
+| say "  usage                  -- list command-line arguments"
+| say "  exit / quit            -- leave the REPL"
+
+help_lookup_ Key =
+| Doc help_get Key
+| if Doc
+    then say Doc
+    else say "No documentation for `[Key]`.  Try `help_names` for the list."
 
 //No acts as an identity element in arithmetics
 no.`+` B = B
