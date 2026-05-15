@@ -30,8 +30,33 @@ i7-12700H / w64devkit):
 | after reader-consolidation (`2129767`) | 38-40 s | C reader wins ~25 % |
 | after `_.><`/`_.<>` C builtin (`a341309`) | 20-23 s | dispatch chain win |
 
-The remaining items in **OP-** and **NATIVE-** are the path
-toward sub-10 s cold compile.
+The remaining items chain together as
+
+```
+  OP-2, OP-3, OP-4         (small wins, no schema change)
+    ↓
+  RT-4, RT-6               (cache locality, no schema change)
+    ↓
+  TYPE-1, TYPE-2, TYPE-3   (parser + registry + inference, no
+                            codegen change)
+    ↓
+  TYPE-4                   (unboxed locals + opcodes -- the
+                            biggest single schema move)
+    ↓
+  TYPE-5, TYPE-6, TYPE-7   (each shippable on its own)
+    ↓
+  NATIVE-PRE               (freeze schema)
+    ↓
+  NATIVE-1, NATIVE-2       (x86 + ARM AOT in SBC)
+    ↓
+  NATIVE-3                 (optional JIT layer on top)
+```
+
+The OP-* and RT-* items are sub-10 s territory (the engine
+runs faster on the same opcodes).  TYPE-4 + NATIVE land near
+C99 latency on numeric loops.  See
+[`docs/type-system.md`](docs/type-system.md) for the type
+system design.
 
 ---
 
@@ -395,9 +420,108 @@ inline slot layout, and replaced both stb_ds backings with
 
 ---
 
+## Type system (TYPE-*) — prerequisite for serious NATIVE speedup
+
+See [`docs/type-system.md`](docs/type-system.md) for the full
+design exploration.  TL;DR: a gradual, layered type system in
+the mould of TypeScript + F\* + Common Lisp declarations.
+Three goals -- optimisation, correctness defence beyond runtime
+tag tests, and unboxed primitives that don't fit in a 64-bit
+tagged dyn (`I64`, `F64`, SIMD vectors).
+
+Without TYPE-4 the NATIVE roadmap only buys a 1.5-2× win on
+MCALL-heavy code (saving dispatch overhead).  *With* TYPE-4's
+unboxed locals + arithmetic opcodes, NATIVE buys 5-20× on
+numeric loops -- the actual "near C99 latency" claim.
+
+### \[P1\] **TYPE-1** Declaration syntax (parser only)
+
+> **Effort:** weekend.
+> **Where:** [`runtime/reader.c`](runtime/reader.c) +
+> [`src/macro.s`](src/macro.s).
+> **Adds:** `Var:Type` in arg lists, `Fn args -> RetType`,
+> `type alias Name = ...`.  No runtime / compile-time check at
+> this stage -- types live in the AST and are ignored by
+> macroexpand.  Required substrate; nothing else lands without
+> this.
+
+### \[P1\] **TYPE-2** Built-in type registry + runtime introspection
+
+> **Effort:** afternoon.
+> Define `Int`, `I64`, `U64`, `F32`, `F64`, `Bool`, `Text`,
+> `Tag`, `Byte`, `Dyn`, `List<_>`, `Fn<_,_>` as first-class
+> runtime type objects.  `typeof X` and `X :> T` queries.
+> Foundation for inference and reflection.
+
+### \[P1\] **TYPE-3** Local Hindley-Milner inference for typed regions
+
+> **Effort:** 1-2 weeks.
+> HM-style inference within function bodies when some args are
+> typed; propagation through `=` bindings, `case` patterns, and
+> method calls (using the dispatch table to narrow result types).
+> Flow narrowing in `case` arms.  Compile-time errors for
+> mismatches in fully-typed regions; silent dyn-coerce in
+> partial regions.
+
+### \[P1\] **TYPE-4** Unboxed primitive locals + arithmetic opcodes
+
+> **Effort:** 3-4 weeks.
+> The big lever.  Extend `frame_t` with `I[]` (int64) and `F[]`
+> (float64) lanes alongside the existing `L[]` (dyn) lane.
+> Compiler tracks each local's lane.  New SBC opcodes
+> `SBC_I64ADD`, `SBC_F64ADD`, `SBC_BOX_I64`, `SBC_UNBOX_I64`,
+> etc.  Auto-box at the typed→untyped boundary, auto-unbox the
+> other way.
+> **Schema change:** this is the biggest single bytecode-format
+> move.  Must land BEFORE `NATIVE-PRE` freezes the ABI.
+> **Payoff in isolation:** ~5-10× on arithmetic-heavy loops
+> even without NATIVE, because the interpreter dispatch can
+> skip MCALL on typed ops.
+
+### \[P2\] **TYPE-5** Typed arrays + tensor zero-copy
+
+> **Effort:** 2-3 weeks.
+> New `Array<T>` built-in, layout-compatible with C arrays.
+> Bounds-checked subscripts (elidable per TYPE-6).  FFI / GPU
+> kernels receive `&array[0]` and `n` directly -- no marshalling.
+> Existing `bytes` type subsumed as `Array<Byte>`.  This is what
+> makes "say tensors onto GPU" practical without round-tripping
+> every element through a dyn.
+
+### \[P2\] **TYPE-6** Refinement types + bounds-check elision
+
+> **Effort:** 4-8 weeks.
+> Predicate-attached types: `Int{Me > 0}`, `Index<n>`.  Most
+> checks run at runtime initially; cheap compile-time cases
+> (constant predicates, simple range narrowing) elide.  Catches
+> off-by-one bugs at compile time, eliminates ~10-20 % of
+> runtime checks on array-heavy code.
+
+### \[P2\] **TYPE-7** Generic + sum types
+
+> **Effort:** 2-3 weeks each.
+> `type Pair<A B>: ...` (generics, compile-time substitution),
+> `type Color: Rgb(r:Byte g:Byte b:Byte) | Hsv(...)` (tagged
+> unions with exhaustive pattern matching checks).
+
+### \[P3\] **TYPE-8** Type classes — *deferred*
+
+> Likely unnecessary given Symta's existing multi-dispatch via
+> `cls`.  Revisit when a concrete use case demands ad-hoc
+> polymorphism the current dispatch can't express.
+
+### \[P3\] **TYPE-9** Effect system — *research*
+
+> Track allocation, GC-triggering, error-throwing, mutability
+> in the type.  Useful for proving hot loops are alloc-free.
+> No path to landing yet; speculative.
+
+---
+
 ## Native code generation (NATIVE-*) — the big multiplier
 
-The five-year bet, gated behind a bytecode-stability promise.
+The five-year bet, gated behind TYPE-4 + the
+bytecode-stability promise.
 
 The vision: each `.sbc` file carries one or more **native
 sections** alongside its bytecode.  At load time the runtime
@@ -436,9 +560,9 @@ indefinitely.
 > load time, so the ABI it was compiled against has to still
 > exist when it runs.
 > **Fix:** freeze the opcode set, `api_t` layout, calling
-> convention, frame layout, and `gc_head_t` shape under
-> `SBC_REVISION = 2` once the remaining OP-* and RT-* perf
-> items have landed.  Document each opcode with its inputs,
+> convention, frame layout (including TYPE-4's `I[]` and `F[]`
+> lanes), and `gc_head_t` shape under `SBC_REVISION = 2` once
+> the remaining OP-*, RT-*, and TYPE-1..4 items have landed.  Document each opcode with its inputs,
 > outputs, side effects, and exception behaviour.  Document
 > the runtime services native code can call into: `gc_alloc`,
 > MCACHE miss handler, type-system queries, FFI marshalling.
