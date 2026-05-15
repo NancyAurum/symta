@@ -61,8 +61,12 @@ say ""
 
 // ----------------------------------------------------------------
 // 3. Filter: keep rows where age >= 28.
+//    `&fn` is the C-style address-of: it lifts a named function
+//    into a lambda value.  Cleaner than `(| X => fn X)` when the
+//    predicate already exists.
 // ----------------------------------------------------------------
-Older Body.keep(| [N A C S] => A.int >> 28)
+old_enough [N A C S] = A.int >> 28
+Older Body.keep(&old_enough)
 say "rows with age >= 28:"
 for Row Older: say "  [Row]"
 say ""
@@ -96,3 +100,21 @@ Hdr2 [@Hdr \tax]
 Lines [Hdr2.text(',') @Taxed{Row = Row{"[?]"}.text(',')}]
 say "--- re-emitted CSV ---"
 say Lines.text('\n')
+say ""
+
+
+// ----------------------------------------------------------------
+// 7. `{}` cheat sheet -- six forms in one place.
+//    All of these are valid bodies of the same construct.
+// ----------------------------------------------------------------
+Xs [3 1 4 1 5 9 2 6]
+sq X = X * X
+say "map (?-form):              " Xs{?+10}
+say "map (named fn via &):      " Xs{&sq}
+say "filter (:Cond):            " Xs{:?>3}     // keep where ?>3
+say "drop (Cond=):              " Xs{?<<3=}    // drop where ?<=3 (same result)
+say "pairwise rewrite (A B=):   " Xs{A B = A+B}
+say "destructure pair list:     " Xs.i{[I X] = "[I]:[X]"}
+say "auto-closure freq table:   " "hello world"{~D.?+}
+say "multi-clause REFAL:        " [:15]{~?%15=\FizzBuzz; ~?%3=\Fizz; ~?%5=\Buzz}
+say "empty body -> getter fn:   " Xs{}(3)

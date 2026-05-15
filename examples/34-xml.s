@@ -88,7 +88,7 @@ xml_of V =
   if V.is_list and V.n >< 2 and V.1.is_text
     then '<' + V.0 + '>' + V.1 + '</' + V.0 + '>'
     else if V.is_list
-      then '<' + V.0 + '>' + V.tail{? ^ xml_of}.text('') + '</' + V.0 + '>'
+      then '<' + V.0 + '>' + V.tail{&xml_of}.text('') + '</' + V.0 + '>'
       else "[V]"
 
 say "--- re-emitted XML ---"
@@ -104,7 +104,7 @@ say ""
 // ----------------------------------------------------------------
 all_text V =
   if V.is_text then [V]
-  else if V.is_list then V.tail{? ^ all_text}.j
+  else if V.is_list then V.tail{&all_text}.j
   else []
 
 Texts all_text T3

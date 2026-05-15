@@ -464,6 +464,24 @@ Higher-order functions take lambdas just like any other value:
 The bare `?` inside a `{}` body is shorthand for "the current
 element", so `[10 20 30]{?/10}` is the same thing.
 
+When the function you want is *already named*, use `&name` to
+lift it into a lambda value — like C's address-of:
+
+```symta
+sq X = X * X
+say [1 2 3 4]{&sq}              // (1 4 9 16)  -- map via &fn
+say [1 2 3 4].map(&sq)          // same thing, via the method
+
+is_positive X = X > 0
+say [-2 1 0 3].keep(&is_positive)   // (1 3) -- filter via &fn
+```
+
+`{&fn}` is the cleanest way to map a named function over a list.
+It replaces the longer `{? ^ fn}` or `(| X => fn X)` forms.
+For filtering, use `.keep(&fn)`; for in-`{}` filtering the
+shorter `{:Cond}` form is usually clearer than naming a
+predicate.
+
 ## Multiple return values
 
 A function can return a list and the caller can destructure it

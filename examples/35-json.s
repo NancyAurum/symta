@@ -48,8 +48,8 @@ say ""
 clean V =
   if V.is_list
     then if V.0 >< `[]`
-           then V.tail{? ^ clean}
-           else V{? ^ clean}
+           then V.tail{&clean}
+           else V{&clean}
     else if V.is_table
       then V.l{[K Val] = [K (Val ^ clean)]}.t
       else V
@@ -90,7 +90,7 @@ bump_age U =
   R.role = U.role
   R
 
-Updated T.users{? ^ bump_age}
+Updated T.users{&bump_age}
 say "after a year:"
 for U Updated: say "  [U.name]: age [U.age]"
 say ""
@@ -106,7 +106,7 @@ json_of V =
   if V.is_int then "[V]"
   else if V.is_text then quote V
   else if V.is_list
-    then "\[" + V{? ^ json_of}.text(',') + "\]"
+    then "\[" + V{&json_of}.text(',') + "\]"
     else if V.is_table
       then "{" + V.l{[K Val] = (quote K) + ":" + (json_of Val)}.text(',') + "}"
       else "null"
