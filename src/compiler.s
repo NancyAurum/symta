@@ -587,12 +587,16 @@ hcase SsaFormCases Xs (K)
   [_ffi_get Type Ptr Off] | ssa nld K Type.1 Ptr^ev Off^ev
   [_ffi_set Type Ptr Off Val] | ssa nst Type.1 Ptr^ev Off^ev Val^ev
                               | ssa mv K 0
-  // `_ssv Section Symbol Value` -- set-section-symbol-value
-  // intrinsic emitted by the function-defining macro when it sees
-  // an `@"text"` head.  For now we compile it to a plain call to
-  // the runtime helper `ssv_`; later this will become a real
-  // compile-time intrinsic that emits to a dedicated SBC section.
-  [_ssv @As] | ssa_apply K 'ssv_' As
+  // `_ssv <section> <symbol> <value>` -- set-section-symbol-value
+  // compile-time intrinsic.  HELP-3 (in `symta-TODO.md`) makes
+  // this collect into a per-module GSsv table and flush as SIF
+  // directives, populating named SBC sections.  Until the
+  // sif2sbc.c / sbc.c side is wired up (needs C rebuild), the
+  // intrinsic just emits a no-op -- no runtime call, no
+  // per-invocation overhead.  Docs registered via `@"text"`
+  // are temporarily lost; existing `help_set ... "..."` sites
+  // in core_.s remain the doc source until HELP-3 completes.
+  [_ssv @As] | ssa mv K 0
 
 ssa_form K Xs =
 | when Xs.end:

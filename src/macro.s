@@ -1634,7 +1634,7 @@ maybe_doc X =
 //   ((stmt1))               -- single-expr body, 1-elem outer
 //   (stmt1 stmt2 ...)       -- flat multi-stmt (method-style)
 build_ssv Name T =
-  [ssv_ [_quote 'docs'] [_quote Name] [_quote T]]
+  [_ssv [_quote 'docs'] [_quote Name] [_quote T]]
 
 prefix_doc Body Name =
 | less Body.is_list and Body.n > 0: ret Body
