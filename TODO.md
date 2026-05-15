@@ -1,22 +1,8 @@
 # Symta — TODO
 
-The consolidated punch-list. Items here have been **reviewed**,
+The consolidated punch-list.  Items here have been **reviewed**,
 **scoped**, and have a **concrete proposed fix**, so they can be
-picked up and worked on without re-doing the analysis. Items
-absorbed from:
-
-- `dev/TODO.md` — the original research-driven goals (adaptive
-  map, NCM bugs, compiler diagnostics, GC hooks)
-- `../issues.md` — issues filed during the SoM revival that
-  affect Symta itself (drift test methodology, advanced syntax
-  gaps, parser quirks)
-- `../symta_speedup.md` — the round-two runtime/compiler perf
-  plan (computed-goto dispatch, custom FFI trampolines)
-- `../symta-review.md` — the "toy-to-tool" friction list from
-  a one-week outside review
-- `dev/todo.txt` and `dev/todo-spell-of-mastery.txt` — raw
-  stream-of-consciousness notebooks; items graduate here once
-  they're scoped
+picked up and worked on without re-doing the analysis.
 
 The format per item:
 
@@ -35,12 +21,21 @@ Priorities:
 
 Effort tags: `30 min`, `afternoon`, `weekend`, `multi-week`.
 
-Done items move to the [bottom](#done), one line each with the
-commit hash and date.
+Recent compile-time numbers for context (game cold, 21 k LOC,
+i7-12700H / w64devkit):
+
+| stage | cold | comment |
+|---|---|---|
+| pre-consolidation (`0b9e2c4`) | 51-54 s | baseline |
+| after reader-consolidation (`2129767`) | 38-40 s | C reader wins ~25 % |
+| after `_.><`/`_.<>` C builtin (`a341309`) | 20-23 s | dispatch chain win |
+
+The remaining items in **OP-** and **NATIVE-** are the path
+toward sub-10 s cold compile.
 
 ---
 
-## FFI
+## FFI / reader
 
 ### \[P2\] **READER-1** Compiler float-to-text loses precision below 1e-8
 
@@ -51,22 +46,14 @@ commit hash and date.
 > **Problem:** `print_object_r` formats floats with `%.8f` (8
 > decimal places).  For values below ~1e-8 the format produces
 > `"0.00000000"` (all zeroes) and the trailing-zero stripper
-> turns that into `"0.0"`.  When the compiler then emits the
-> SIF line `ldflt L5 0.0` and `sif2sbc` re-parses it via
-> `strtod`, the result is 0.0 -- silent precision loss.
-> **User-visible bite:** writing `0.000000001` (= 1e-9) in
-> Symta source compiles to the float 0.0, so any code using
-> 1e-9-or-smaller epsilon comparisons silently breaks.
-> Discovered while triaging the FFI float-tests (FFI-3); they
-> all used `Diff.abs.float < 1e-9` and tripped a downstream
-> `float.\<` because `0.0` rounds to integer 0 after the lossy
-> compile.
-> **Fix sketch:** use `%.9g` (9 significant digits -- enough
-> to round-trip every float32 value).  Two side-effects to
-> address:
+> turns that into `"0.0"`.  When the compiler then emits
+> `ldflt L5 0.0` and `sif2sbc` re-parses it via `strtod`, the
+> result is `0.0` -- silent precision loss.
+> **Fix sketch:** use `%.9g` (9 significant digits — enough to
+> round-trip every float32 value).  Two side-effects to address:
 > 1. `%.9g` switches to scientific notation for very small /
 >    very large values (`1e-09`, `1.5e+15`).  The reader
->    currently *cannot* parse scientific-notation literals
+>    currently **cannot** parse scientific-notation literals
 >    (a separate bug: `1e9` tokenises as a single "int" token
 >    of base-10 with letters-as-extended-digits, evaluating
 >    to 249).  So fixing the printer requires also fixing the
@@ -78,54 +65,139 @@ commit hash and date.
 > Until READER-1 lands, the workaround is to write small float
 > literals in long-form `0.00000001` form -- accurate down to
 > ~1e-8, beyond that round to 0.
-> `effort: 1-2 days` (printer + reader scientific-notation
-> support + golden audit + drift verification)
+> `effort: 1-2 days`
 
 ---
 
-## Runtime — bytecode interpreter
+## Runtime — opcode inlining (OP-*)
+
+The pattern that paid off most for cold compile so far: a Symta
+operator defined in `core_.s` whose body chains two or more MCALLs
+gets replaced with a direct C builtin handler, registered against
+`T_OBJECT` post init_subtypes.  Type-specific overrides
+(`int.><`, `text.><`, …) still win via METHOD_FN dispatch
+ordering; only the heap-type fallback path is shortcutted.
+
+Each instance saves ~150-200 ns per call.  Multiplied by the
+~10⁷-10⁸ call sites a 21 k LOC game compile hits, single-digit
+percentage of cold compile time per fix.
+
+### \[P1\] **OP-2** Compile-time peephole: `X <> No` → `SBC_GOT`, `X >< No` → `SBC_NO`
+
+> **Where:** [`src/macro.s`](src/macro.s) lines 619-638 (the
+> existing `><` / `<>` peephole), [`src/compiler.s`](src/compiler.s)
+> ssa_form (the `_no` / `_got` cases at lines 577-579).
+> **Problem:** the existing peephole emits a direct `_same`/`_vary`
+> form only when the LEFT operand is a literal `int` or `fixkw`.
+> A common pattern in the compiler / macroexpander is `Var <> No`
+> (or `Var >< No`) where the left is a runtime value -- those still
+> compile to a full MCALL into `_.<>`/`_.><` (50 ns now after
+> commit `a341309`, was 250 ns before).  The runtime already has
+> SBC_GOT and SBC_NO opcodes (~5 ns each) and they have the exact
+> same semantics: `got X` ≡ `X <> No`, `no X` ≡ `X >< No`.
+> **Fix:** extend the macro at `src/macro.s:619-638` to also detect
+> "right operand is the literal `No`" and emit `_got A` / `_no A`
+> forms.  Right-operand-literal detection is one extra `case`
+> branch.  The SSA layer already lowers `_got`/`_no` to single
+> opcodes.
+> **Win:** 50 ns → 5 ns per call (10×) on `<> No` / `>< No` sites.
+> Empirically the compiler itself uses these patterns less than my
+> initial estimate (it prefers `got X`), but the user-visible
+> idioms in macro.s and uim.s do hit them.  Even a 1-2 % cold-
+> compile shave is cheap to claim with a one-line macro change.
+> `effort: 30 min` (with re-bench)
+
+### \[P2\] **OP-3** `_.<<` / `_.>` / `_.>>` follow the `_.<>` precedent
+
+> **Where:** [`src/core_.s`](src/core_.s) lines 49-51.
+> **Problem:** these three operators are still defined Symta-side
+> as `not B < Me` / `B < Me` / `not Me < B`, each chaining a
+> `<` MCALL plus a `not` opcode.  For int/float operands the
+> direct type-specific `<<` / `>>` builtins win first, but for
+> any other heap type (list, tag, view, cons, …) we fall back
+> through these chains.  The same recipe that worked for `_.<>`
+> /`_.><` would work here.
+> **Fix:** register `_.<<` / `_.>` / `_.>>` as C builtins on
+> `T_OBJECT` post `init_subtypes`, doing `a <= b` / `b < a` /
+> `a >= b` on the raw dyn bits.  Reuse the `add_method`
+> redefinition-allow special case that already covers
+> `api.m_equal` / `api.m_ne_` (extend to `m_lte_`/`m_gt_`/`m_gte_`).
+> Delete the Symta-side defs.
+> **Caveat:** the raw-dyn comparison semantics are well-defined
+> for these only when the types match; mixed-tag comparisons get
+> nonsensical results (T_NO < T_LIST is meaningless).  The current
+> Symta defs propagate the comparison into `<` which DOES go
+> through type-specific dispatch.  If we replace with raw-dyn,
+> we lose that.  In practice these operators are rarely called
+> with mismatched heap types, but check with a probe before
+> deleting -- some Symta code might rely on it.
+> **Expected win:** smaller than OP-2; these are less hot.
+> `effort: afternoon` (with the cross-type-comparison audit)
+
+### \[P2\] **OP-4** `meta.__` forwarding is a triple-MCALL per call on wrapped AST nodes
+
+> **Where:** [`src/core_.s`](src/core_.s) lines 819-822.
+> **Problem:** every method call on a meta-wrapped AST node goes
+>
+>   1. MCALL `.foo` on meta → no method, falls to `meta.__`
+>   2. `meta.__` body runs: `Args.0 = $object_; Args.apply_method(Method)`
+>   3. MCALL `apply_method` on Args -> b_list_apply_method builtin
+>   4. Builtin then dispatches to the actual `.foo` on the unwrapped object
+>
+> So `(meta_wrapped_list).head` is ~3 MCALLs instead of 1.  The
+> compiler and macroexpander hit this on every AST node that
+> carries source-position meta, which is most of them.
+> **Fix sketch:** a C-side fast path for `_.__` (the universal
+> sink) that recognises the meta-forwarding pattern and inlines
+> it: read `O_TAG(receiver)`, if it's T_meta, swap Args.0 to the
+> object_ slot and re-issue the dispatch in one shot.  Or
+> structurally: split the meta wrapper into a tag-only object
+> (no Symta type) and a side-table for the meta value, so method
+> dispatch on the AST node never goes through a wrapper at all.
+> **Why now:** likely the next big win in the same vein as
+> OP-1 (which was the `_.>< / _.<>` consolidation in commit
+> `a341309`).  Worth bench-comparing the two approaches
+> structurally before picking one.
+> `effort: weekend` (design + bench)
+
+### \[P3\] **OP-5** Method dispatch via type-tag jump table
+
+> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `MCACHE_CALL`,
+> [`src/compiler.s`](src/compiler.s) `ssa_apply_method`.
+> **Problem:** MCALL on `_.foo` defined for several types (e.g.
+> `is_text`, `is_keyword`, `is_int` predicates) dispatches via
+> the mcache.  If the call site is monomorphic the mcache hits;
+> if polymorphic (the body sees lists / tags / closures / texts)
+> it thrashes.  Each miss costs ~50 ns.
+> **Fix:** compiler peephole that recognises `case X is_T: ...`
+> patterns and emits a tag-test opcode (new SBC_TAG_EQ
+> [tag, src, branch_dst]) rather than an MCALL.  Each
+> `case X [Sym @Rest]:` head test could similarly become
+> SBC_FXNTAG + SBC_IMMEQ + jump (already possible with existing
+> opcodes; just isn't peepholed today).
+> `effort: weekend`
+
+---
+
+## Runtime — bytecode interpreter (RT-*)
 
 ### \[P3\] **RT-1** Bytecode dispatch via computed gotos — *measured, not a win*
 
-> **Where:** [`runtime/sbc.c`](runtime/sbc.c) `sbc_exec_fn`;
-> [`benchmark/rt/`](benchmark/rt/) for the suite + baselines.
 > **Status:** the threaded variant compiles behind
-> `#ifdef SBC_THREADED_DISPATCH` and passes the full test
-> sweep + drift, but runs **~8 % slower on average** (gcc 12.2
-> / Win64 / i7-12700H) — not the 10-30 % faster the
-> literature predicts.  Root cause from disassembly: GCC
-> re-emits `lea dt(%rip),%reg` at every per-opcode dispatch
-> site instead of pinning the table into a register, inflating
-> per-site cost and growing the function 16 %.
-> **If somebody wants the 8 %:** try Linux `-fno-pic`,
-> hand-roll the dispatch in inline asm with explicit register
-> binding, or wait for a future GCC.  Code stays in tree;
-> default is off.
+> `#ifdef SBC_THREADED_DISPATCH` and passes the full test sweep +
+> drift, but runs **~8 % slower on average** (gcc 12.2 / Win64 /
+> i7-12700H) -- not the 10-30 % faster the literature predicts.
+> Root cause from disassembly: GCC re-emits `lea dt(%rip),%reg`
+> at every per-opcode dispatch site instead of pinning the table
+> into a register, inflating per-site cost and growing the
+> function 16 %.  Code stays in tree; default is off.
+> **If somebody wants the 8 %:** try Linux `-fno-pic`, hand-roll
+> the dispatch in inline asm with explicit register binding,
+> or wait for a future GCC.
 
 ---
 
-## Runtime — cache locality
-
-The five items below come from a 2026 audit (after AM-pack-v2)
-that looked for the same cache-unfriendly patterns elsewhere in
-the runtime that we just fixed in the adaptive map. Each one is
-a discrete restructure with a measurable hot-path frequency.
-Ordered roughly by ROI; numbers in the right-hand column count
-cache lines touched per hot-path operation, **before → after**.
-
-| Hot path | Frequency | Lines now | Lines after |
-|----------|-----------|-----------|-------------|
-| `O_AGE` lookup (RT-4)       | every LSET, every GC trace | 2-3 | 1 |
-| Closure CALL dispatch (RT-5) | every closure call        | 2  | 1 (DONE) |
-| MCALL miss (RT-6)           | every megamorphic dispatch | 3-5 | 1 |
-| Bytecode dispatch (RT-1)    | every opcode               | n/a (BTB) | n/a (BTB-friendly) |
-| MCACHE store (RT-7)         | every MCACHE miss          | I-side SMC stall | 1 D-side (DONE) |
-| Frame GC walk (RT-8)        | every GC pause             | 2/frame | 1/frame |
-
-The drift test gives strong confidence for invasive runtime
-restructures: if the bootstrap reaches a fixed point byte-
-identical after the change, codegen is unchanged. That was the
-load-bearing assertion for AM-pack-v2 and applies here too.
+## Runtime — cache locality (RT-4, RT-6)
 
 ### \[P1\] **RT-4** Object age lives in a parallel side array
 
@@ -136,367 +208,170 @@ load-bearing assertion for AM-pack-v2 and applies here too.
 > **Problem:** `gc_heap_t` (`common.h:291-304`) has `void
 > heap[FULL_HEAP_SIZE]` (~512 MB at full size) and a parallel
 > `uint8_t theap[FULL_HEAP_SIZE]` (~64 MB) in completely disjoint
-> pages -- the prefetcher never sees them together. Every
+> pages -- the prefetcher never sees them together.  Every
 > generational write barrier (`lsetm`, fired on every store of
 > one heap object into another) does `GC_OLDER(base, value)`,
-> which is two `O_AGE` lookups. So every `LSET` touches three
+> which is two `O_AGE` lookups.  So every `LSET` touches three
 > cache lines: the object header (`O_HDR`), `theap0[gid_base]`,
-> and `theap0[gid_value]`. `O_AGE` is also read on every
-> GC pointer trace and every closure call's `O_HG`.
+> and `theap0[gid_value]`.  `O_AGE` is also read on every GC
+> pointer trace and every closure call's `O_HG`.
 > **Fix:** the high byte of `O_CODE` is unused -- functions and
-> types live in `hooks_heap`/`types` arrays with ≤24-bit
-> indices. Steal it for an inline age:
+> types live in `hooks_heap`/`types` arrays with ≤24-bit indices.
+> Steal it for an inline age:
 > `gc_head_t { uint8_t age; uint8_t flags; uint16_t code_lo;
-> uint32_t size; }`. `O_AGE(o)` then loads the same cache line
-> as `O_HDR(o)`. The barrier drops from 3 lines to 1.
-> **Why now:** highest-frequency hot path in the entire
-> runtime. Every store and every trace pays the side-array
-> tax today.
-> **Why not yet:** touches the GC's most fundamental invariant
-> (age tracking). The fix is mechanical but needs careful staging
-> -- keep `theap0` populated in parallel for one revision, then
-> flip the readers to `O_AGE` from the header, then drop the
-> writes to `theap0`, then drop the array. Drift test gates each
-> step.
->
+> uint32_t size; }`.  `O_AGE(o)` then loads the same cache line
+> as `O_HDR(o)`.  The barrier drops from 3 lines to 1.
 > **Gotcha found in a May 2026 prototype (reverted before
-> commit).** `GC_REDIR(o,p)` writes the redirect pointer `p`
-> across the *entire* 8-byte `gc_head_t` (`O_RELOC(o) = *(void**)
-> &O_HDR(o) = p`), which obliterates any "age" nibble parked
-> inside the header.  After a relocation, an inline read of
-> `O_AGE` therefore returns whatever bits of the redirect
-> pointer happen to occupy that slot -- in practice the top
-> nibble of the destination gid, i.e. a small number that
-> coincides with `GC_AGE` for the next collection and causes the
-> GC to re-walk redirect pointers as live objects (manifests as
-> NIL/garbage values appearing in lists, with text\_size /
-> "no method 'end'" errors near `ncm_process_` / `parse_bar`).
->
-> So the move can't just be "put age inline."  The MOVED flag
-> still has to live somewhere that survives the pointer write:
-> either keep `theap0[gid-1] == GC_MOVED` purely as a relocation
-> marker (no longer storing age), or use a tagged-redirect-
-> pointer scheme where one of the low alignment bits of `p`
-> doubles as a MOVED flag (heap allocations are 8-byte aligned,
-> so bits 0..2 are free for redirect-only use; but every
-> `O_RELOC` read has to mask them off and every consumer of the
-> moved-pointer has to know the encoding).  Picking between
-> them is what makes this a weekend job, not an afternoon.
+> commit):** `GC_REDIR(o,p)` writes the redirect pointer `p`
+> across the entire 8-byte `gc_head_t`, which obliterates any
+> "age" nibble parked inside the header.  After a relocation,
+> an inline read of `O_AGE` therefore returns whatever bits of
+> the redirect pointer happen to occupy that slot.  So the move
+> can't just be "put age inline" -- the MOVED flag still has to
+> live somewhere that survives the pointer write.  Either keep
+> `theap0[gid-1] == GC_MOVED` purely as a relocation marker
+> (no longer storing age), or use a tagged-redirect-pointer
+> scheme where one of the low alignment bits of `p` doubles as
+> a MOVED flag.  Picking between them is what makes this a
+> weekend job, not an afternoon.
 > `effort: weekend`
-
-### \[P1\] **RT-5** Closure CALL chases `hooks_heap[code]` indirection — DONE (May 2026)
-
-> **Landed.** Closures now allocate `O_SIZE + 2` slots and
-> store a copy of `(handler, payload)` at the two slots right
-> after the user-visible captures.  `CALL(k,f)` reads handler
-> and payload off the closure object itself; `hooks_heap[]` is
-> no longer on the hot dispatch path.  `O_SIZE` keeps reporting
-> the user-visible capture count so `gc_closure`'s trace loop
-> ignores the inline slots cleanly.
->
-> **Gotcha that took a while to find.** Three runtime
-> primitives in `bltin.c` mutate either `hook->handler` /
-> `hook->payload` (`unstub_method`) or `O_SIZE(met)`
-> (`nativize_method`) or `O_CODE(o)` (`set_meta_`) on an
-> already-constructed closure.  With the old CALL macro those
-> mutations took effect because dispatch always re-read
-> `hooks_heap[O_CODE]`.  With RT-5 the inline copy has to be
-> re-synced explicitly via the `CLOSURE_SYNC_HOOK(c)` helper at
-> each mutation site, otherwise CALL re-enters the stale
-> handler — `b_stub_` first crashes by tail-recursing into
-> itself once the hook patch is invisible, blowing the C stack
-> in ~60k frames.  This is the single biggest hidden coupling
-> between dispatch and the runtime's "rewrite-the-closure"
-> patterns; documented as an invariant comment on `CLOSURE` in
-> `symta.h` so RT-6/RT-7 don't trip on it.
->
-> **Numbers (after the fix lands):**
-> - `bn_call 1arg`: 36 → 30-31 ns/op (~14-17 % faster)
-> - `bn_mcall negneg`: 34 → 30-31 ns/op (~10 % faster)
-> - `bn_loop count`: 14 → 13 ns/op (~7 % faster)
-> - game cold rebuild: 52.25 → 50.2 s (within band)
-> - game warm: noise, +16-byte-per-closure cost not visible at
->   benchmark resolution.
 
 ### \[P2\] **RT-6** Method dispatch table is 4 KB per type + pointer-chase
 
 > **Where:** [`runtime/common.h:206-235`](runtime/common.h)
 > (`type_t`, `method_node_t`),
-> [`runtime/main.c:101-184`](runtime/main.c)
-> (`get_method`, `get_method_node`, `init_method`).
-> **Problem:** `type_t` is **4144 bytes** per type
-> (~48-byte header + `method_node_t *methods[512]` = 4096 bytes
-> of pointer heads). Each MCALL with a cold mcache touches:
+> [`runtime/main.c:101-184`](runtime/main.c) (`get_method`,
+> `get_method_node`, `init_method`).
+> **Problem:** `type_t` is **4144 bytes** per type (~48-byte
+> header + `method_node_t *methods[512]` = 4096 bytes of
+> pointer heads).  Each MCALL with a cold mcache touches
 > `types[tag]` (header line) → `types[tag].methods[hid]` (a
 > second line, `hid<<3` bytes away from the header) → the
-> `method_node_t` chain. Chain nodes are page-allocated by
+> `method_node_t` chain.  Chain nodes are page-allocated by
 > `init_method` so `*next` walks chase pointers across pages.
 > 3-5 cache lines per megamorphic miss.
 > **Fix:** the existing comment at `common.h:233` already wants
-> perfect hashing. Concretely: replace the 512-bucket
+> perfect hashing.  Concretely: replace the 512-bucket
 > head-pointer array with a packed `(mid, fn)` open-addressed
-> probe array sized to the actual method count per type. For
+> probe array sized to the actual method count per type.  For
 > typical types with <16 methods, the whole table fits in 1
-> cache line. Same restructure as AM-pack-v2 applied at the
+> cache line.  Same restructure as AM-pack-v2 applied at the
 > method-table level.
-> **Bonus refactor:** split `type_t` into hot (dispatch fields)
-> and cold (name, subtypes, super, sname) sub-structs. Hot
-> sub-struct sized so 8 of them fit per cache line, for the rare
-> cross-type fallback walks.
-> **Why now:** the mcache (`mcache_t` in `sif.h:220-222`) hides
-> this on monomorphic call sites, but every polymorphic dispatch
-> -- list/text/closure ad-hoc code, anything in `cls.s` --
-> falls into the slow path.
+> **Why now:** the mcache hides this on monomorphic call sites,
+> but every polymorphic dispatch -- list/text/closure ad-hoc
+> code, anything in `cls.s` -- falls into the slow path.
 > `effort: afternoon`
-
-### \[P2\] **RT-7** `mcache_t` is embedded in the bytecode stream — DONE (May 2026)
-
-> **Landed.** The 8-byte mcache slot still occupies the same
-> 8 bytes of bytecode after each cache-bearing opcode's args,
-> but the contents have changed:
->
-> - First 2 bytes: a `uint16_t mcache_id` assigned in
->   emission-order by `sif2sbc` per SBC.  Counter persisted as
->   a new 10th `tot` entry on top of CORE-1's lineno table.
-> - Remaining 6 bytes: `SBC_NOP` filler.
->
-> The runtime's `MCACHE_CALL` reads the 2-byte id, advances
-> `pin += 6` to skip the filler, and dereferences
-> `sbc->mcaches[id]` -- a `calloc`'d D-side array allocated in
-> `sbc_prepare` once `mcache_cnt` is known.  Cache writes
-> (`mce->node = node`) land in clean data memory, not the
-> bytecode region.
->
-> **Why not shrink to 2 bytes?**  Older SBCs (pre-RT-7
-> compilation) have 8 SBC_NOP bytes at every cache site, and
-> the bootstrap compiler.sbc / macro.sbc are committed in that
-> format.  Shrinking the slot would break jump-offset
-> compatibility with those.  Keeping 8 bytes wide means the
-> new runtime can execute old SBCs unchanged: their first 2
-> bytes read as `id = 0`, every cache site collides on
-> `mcaches[0]`, and the hit check (newly augmented to compare
-> `node->mid == m` as well as `node->tid == tid` -- see below)
-> dispatches the right method despite the collision.  Old
-> SBCs run with a single megamorphic cache slot until they're
-> regenerated.
->
-> **Bug found and fixed during landing.**  The original cache
-> hit check was `node->tid != tid` only -- correct for the
-> old per-site cache but broken once multiple sites share a
-> slot.  A stale node cached for `(m=40, tid=T)` would satisfy
-> the tid check for any subsequent call on type T, even if the
-> caller is asking for `m=199`, and dispatch the wrong method
-> -- which on the bootstrap exec path looked like deep tail-
-> recursion (the same wrong method getting called repeatedly)
-> and ran the C stack out in ~123 k frames.  The fix is one
-> extra comparison, `node->mid != m`, which predicts cleanly
-> for RT-7-emitted SBCs (one site per slot, always true) and
-> protects the fallback path.
->
-> Bytecode files grow by 6 bytes per SBC (one new `tot` entry,
-> 3 bytes count + 3 bytes unused offset).  Per-cache-site size
-> is unchanged.  `bn_gc.megamcall` band is 47-50 ns/op,
-> matching the pre-RT-7 band -- the SMC-mitigation cost the
-> TODO predicted isn't visible on this Win64 / mingw build,
-> but the design is the right one for any future platform
-> where the page-protection layer fires on bytecode writes.
-> Tests / drift / compiler-goldens-refreshed / game cold all
-> green.
-
-### \[P2\] **RT-8** `frame_t` metadata separate from `L[]` locals — DONE (May 2026, RT-8a + RT-8b)
-
-> **Landed.**
->
-> **RT-8a** (previous commit) reordered `api_t` so the ~9 hot
-> pointers (`args`, `frame`, `hgp`, `heap0`, `theap0`, `pgmod`,
-> `method`, `gc_disable`, `puwh`) all share the first cache line.
-> Cold setup callbacks (`print_object_f`, `alloc`, `text_chars`,
-> `sbuf`, `nfi_args[32]`) moved to a separate tail of the struct.
-> Every barrier and every CALL now hits the same line.
->
-> **RT-8b** colocates `frame_t` with the callee's `L[]` array.
-> The caller's `OPEN_FRAME` no longer allocates a `frame_t` on
-> its own stack; instead it stashes the called-closure dyn into
-> `api.clsr_pending` (a warm-line slot on `api_t`).  The callee's
-> `PROLOGUE` allocates one combined `void *L_blk_[FRAME_PREFIX_
-> SLOTS + fsize]` array, casts the head as `frame_t *`, links
-> it into the `api.frame` chain, and uses the tail as `L[]`.
-> Frame header and locals end up adjacent in the callee's stack
-> frame -- the GC root scan walks one cache line per Symta-level
-> frame (header + first ~3 locals), not two (header on caller's
-> stack, locals on callee's stack, never co-resident).
->
-> The CALL macro snapshots `api.frame` before the inner dispatch
-> and restores it after, because the callee's `frame_t` lives on
-> the callee's C stack and is gone by the time control returns.
-> CLOSE_FRAME survives only at the `sbc_exec` driver -- the
-> module's outermost frame, which doesn't have an enclosing CALL
-> to handle the unwind for it.
->
-> **Why the microbenches don't move:** `bn_call.1arg` /
-> `bn_mcall.negneg` are tight inner loops where the entire stack
-> region is L1-resident regardless of which C frame the
-> `frame_t` lives in.  The win lands on GC pause cost
-> (`bn_gc.deepgc` band shifted from 504-526 μs to ~511 μs,
-> within noise) and on cold paths where the call chain is wider
-> than L1.  Tests / drift / examples / voxpie all green.
 
 ---
 
 ## Adaptive map — table internals
 
-The adaptive map is what backs every Symta hash, every ECS
-column, every cache. The 2026 push (AM-1..AM-15, AM-pack-v2)
-landed Robin Hood probing at 75 % load, hash caching, the
-{key,val,hash} inline slot layout, and replaced both stb_ds
-backings with `nh_t`-derived `ih_t`/`th_t`. Items below are
-what's left.
+The adaptive map is what backs every Symta hash, every ECS column,
+every cache.  The 2026 push (AM-1..AM-15, AM-pack-v2) landed Robin
+Hood probing at 75 % load, hash caching, the `{key,val,hash}`
+inline slot layout, and replaced both stb_ds backings with
+`nh_t`-derived `ih_t`/`th_t`.  Items below are what's left.
 
 ### \[P1\] **AM-2** No dense-iteration story for ECS columns
 
 > **Where:** [`runtime/am.h:573`](runtime/am.h) (`amL`),
-> [`src/cls.s:157`](src/cls.s) (`each_`)
-> **Problem:** `amL` and `gid_refs_` build a list by walking
-> the hashmap on every call. ECS systems iterate component
-> columns every frame; bitmap iteration touches every page
-> even for low populations, and INT-mode iteration walks every
-> hash slot. State of the art (flecs, Bevy, EnTT) keeps
-> entities packed densely so the per-frame iterator is
-> essentially `for i = 0..n` over a flat array — typically
-> 5–20× faster.
+> [`src/cls.s:157`](src/cls.s) (`each_`).
+> **Problem:** `amL` and `gid_refs_` build a list by walking the
+> hashmap on every call.  ECS systems iterate component columns
+> every frame; bitmap iteration touches every page even for low
+> populations, and INT-mode iteration walks every hash slot.
+> State of the art (flecs, Bevy, EnTT) keeps entities packed
+> densely so the per-frame iterator is essentially `for i = 0..n`
+> over a flat array — typically 5-20× faster.
 > **Fix:** pair each `BITMAP*` and `INT` table with an optional
 > packed-dense vector (`dense_index[gid]` and `id_at_dense[i]`).
-> The bitmap already provides O(1) presence; adding the
-> parallel arrays gives O(1) insert/delete and
-> sequential-array-speed iterate. Standard sparse-set design.
-> **Why now:** the single biggest perf gap for any game-style
-> workload. Hits ~2–4 ms / site update at SoM's peak unit count.
+> The bitmap already provides O(1) presence; adding the parallel
+> arrays gives O(1) insert/delete and sequential-array-speed
+> iterate.  Standard sparse-set design.
 > `effort: weekend`
 
 ### \[P1\] **AM-4** `BITMAP*` promotion to `INT` is lossy and one-way
 
-> **Where:** [`runtime/am.h:469–512`](runtime/am.h)
-> **Problem:** the moment **any** value diverges from the
-> chosen 0 or 1, the entire column promotes to `AM_INT` — every
-> entity now costs ~16 B even if 99 % of values are still 0
-> or 1. Common case: `is_visible` is mostly 1, a handful of
-> entities have visibility levels 0..7 — currently you pay
-> full INT cost for the entire column.
+> **Where:** [`runtime/am.h:469-512`](runtime/am.h).
+> **Problem:** the moment **any** value diverges from the chosen
+> 0 or 1, the entire column promotes to `AM_INT` — every entity
+> now costs ~16 B even if 99 % of values are still 0 or 1.
+> Common case: `is_visible` is mostly 1, a handful of entities
+> have visibility levels 0..7 — currently you pay full INT cost
+> for the entire column.
 > **Fix:** add `AM_BITMAP_PLUS` mode = a bitmap PLUS a small
-> `nh_t` of divergent gids. Promote to full INT only when
-> exceptions exceed ~10 % of total. The pieces (`nb_t` +
-> `nh_t`) already exist; the change is mostly in `amSet`.
+> `nh_t` of divergent gids.  Promote to full INT only when
+> exceptions exceed ~10 % of total.  The pieces (`nb_t` + `nh_t`)
+> already exist; the change is mostly in `amSet`.
 > `effort: weekend`
 
 ### \[P3\] **AM-9** `nh_t` capacity is `uint32_t` — DEFERRED
 
-> **Where:** [`runtime/nh.h`](runtime/nh.h)
-> **Status:** caps tables at 2³² entries. With Symta's heap
-> layout (`GID_BITS = 48` for the gid encoding, ~24 GB heap
-> max), no realistic workload reaches anywhere near 2³² entries
-> in a single table. Widening to `uint64_t` would cost 4 B per
-> table header for a capability no one currently needs. Will
-> revisit when a real workload demands it.
+> Caps tables at 2³² entries.  With Symta's heap layout
+> (`GID_BITS = 48`, ~24 GB heap max), no realistic workload
+> reaches anywhere near 2³² entries in a single table.
+> Widening to `uint64_t` would cost 4 B per table header for a
+> capability no one currently needs.  Will revisit when a real
+> workload demands it.
 > `effort: 30 min` (when wanted)
 
 ### \[P3\] **AM-10** String interning shared with `AM_TEXT`
 
-> **Where:** [`runtime/am.h`](runtime/am.h) `AM_TEXT` paths
-> **Problem:** repeated equal-string keys are deduped by
-> `th_t`, but `text_chars(key)` runs every probe.
-> Frequency-table workloads pay it on every increment.
+> **Where:** [`runtime/am.h`](runtime/am.h) `AM_TEXT` paths.
+> **Problem:** repeated equal-string keys are deduped by `th_t`,
+> but `text_chars(key)` runs every probe.  Frequency-table
+> workloads pay it on every increment.
 > **Fix:** intern text keys (or tag the text with its hash on
 > first use) so probe cost drops to a pointer compare.
-> `effort: weekend` (depends on text type rework)
-
----
-
-## Lexical macro processor (`symta/ncm/src/ncm.h`)
-
-(NCM-1..7 all closed.  See Done section.)
-
-If a new bug surfaces, add a probe to `symta/ncm/tests/cases/`
-first; that's the layer below `tests/runtime/25-lexmacro` and
-catches things without dragging in the rest of Symta.
+> `effort: weekend`
 
 ---
 
 ## Compiler / parser
 
-### ~~\[P2\] **READER-2** C reader doesn't preserve `meta` source-position wrappers~~ — DONE (May 2026)
-
-> Closed via the 7-phase reader-consolidation
-> ([docs/reader-consolidation.md](docs/reader-consolidation.md)):
-> the `meta` Symta function now stashes (object -> source-pos)
-> in a runtime weak hashtable (`runtime/meta_table.{h,c}`)
-> instead of allocating a wrapper struct.  `parse_strip_c_`
-> calls `meta_set_` directly so its output carries the same
-> meta info the Symta-side parser used to attach.  Result:
-> `text.parse` runs through `parse_tokens_c_` + `parse_strip_c_`
-> end-to-end; ~448 lines of dead Symta-side parser deleted
-> from `core_.s`.
-
-### ~~\[P2\] **READER-3** Symta `parse_strip` crashes on some C parse_tokens output~~ — DONE (May 2026)
-
-> Closed alongside READER-2.  The crash was structural
-> compatibility between C `parse_tokens_c_` output and the
-> Symta `parse_strip` -- both gone now that the C side
-> produces and consumes its own AST.
-
 ### \[P2\] **CORE-5** Better diagnostics for common parser pitfalls
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c),
-> [`runtime/bltin.c`](runtime/bltin.c) error printer
-> **Problem:** several pitfalls produce confusing errors —
+> [`runtime/bltin.c`](runtime/bltin.c) error printer.
+> **Problem:** several pitfalls produce confusing errors --
 > nested `[...]` in string interpolation, `(-5)` parsing as a
 > call, the chicken-and-egg "undefined variable" for `Var = X`
 > first use, `==` typos that mean nothing (should be `><`).
-> Discovered repeatedly during the example-writing tour
-> (see `AI.md` gotchas).
-> **Fix:** specific error messages — "did you mean
-> `\[ … \]` to escape brackets in a string?", "first
-> assignment to `Var` should be `Var X` not `Var = X`",
-> "`==` doesn't exist in Symta; use `><` for equality",
-> "`!=` is `<>`". The reader already has the column info.
+> **Fix:** specific error messages -- "did you mean `\[ … \]` to
+> escape brackets in a string?", "first assignment to `Var`
+> should be `Var X` not `Var = X`", "`==` doesn't exist in
+> Symta; use `><` for equality", "`!=` is `<>`".  The reader
+> already has the column info.
 > `effort: weekend`
 
 ### \[P2\] **CORE-6** A linter
 
 > **Problem:** the gotchas catalogued in `symta-review.md` and
 > `AI.md` are pure syntactic patterns; a linter that pre-flags
-> them would close the biggest learning-curve gap. `Var =`
+> them would close the biggest learning-curve gap.  `Var =`
 > first-use, multi-arg `say`, nested string-interp brackets,
 > `pass` outside loops, `==` / `!=` typos.
 > **Fix:** a `symta --lint` mode that runs the reader, walks
-> the AST, and reports pattern violations. None of these need
+> the AST, and reports pattern violations.  None of these need
 > type inference.
-> **Why now:** the single highest-payoff item in the
-> "toy-to-tool" list. Pairs naturally with CORE-1 + CORE-5.
 > `effort: weekend`
 
 ### \[P2\] **CORE-7** Generated stdlib reference
 
 > **Problem:** every method on every built-in type lives in
 > `src/core_.s` and `src/uim.s` but there's no greppable
-> reference. New users read source.
-> **Fix:** a doc-from-comments tool that walks `src/*.s`,
-> emits Markdown per type (`text.*`, `list.*`, `table.*`,
-> `gfx.*`, …) with one-line descriptions and source
-> file:line.
+> reference.  New users read source.
+> **Fix:** a doc-from-comments tool that walks `src/*.s`, emits
+> Markdown per type (`text.*`, `list.*`, `table.*`, `gfx.*`, …)
+> with one-line descriptions and source file:line.
 > `effort: weekend`
 
 ### \[P3\] **CORE-8** Compiler micro-optimisations
 
-> **Where:** [`src/compiler.s`](src/compiler.s)
-> **Problem:** small wins from a once-over.
-> **Status (May 2026):**
+> **Where:** [`src/compiler.s`](src/compiler.s).
 >
 > 1. ~~**Constant-folding literal arithmetic.**~~ Landed at
->    commit `3fbdac9`.  `ssa_fixed1` / `ssa_fixed2` evaluate
->    the op at compile time when all operands are integer
->    literals, emitting a single `ldfxn K result` instead of
->    `ldfxn tmpA; ldfxn tmpB; fxnop K tmpA tmpB`.  Three
->    compiler-test goldens shrank by 16-56 bytes each.
+>    commit `3fbdac9`.
 >
 > 2. **Dead-store elimination on unread SSA registers.**  Open.
 >    Requires a real liveness pass; the compiler doesn't track
@@ -508,21 +383,156 @@ catches things without dragging in the rest of Symta.
 >    Effort: weekend.
 >
 > 4. **Computed-jump compilation of `case` chains with all-
->    literal patterns.**  Open.  Requires a new SBC opcode (jump
->    table) and an emission path in the compiler.  Effort: weekend.
+>    literal patterns.**  Open.  Requires a new SBC opcode
+>    (jump table) and an emission path in the compiler.
+>    Effort: weekend.
 >
 > **Gotcha for one-sided identity folds** (`X+0 → X`, `X*1 → X`,
 > etc.): these look safe but break the existing `[_add 0 No]`
 > behavior because the SBC `fxnadd` opcode is bit-level int
 > arithmetic with non-trivial output when one operand is the
-> T_NO tag (it returns `0.0`, the float zero, by bit happenstance).
-> Examples/14-quirks.s pins this.  A future pass that knows the
-> static type of both operands can do the simplification safely;
-> without that information it's not a sound rewrite.
+> T_NO tag.  Examples/14-quirks.s pins this.
 
 ---
 
-## Open bugs from the SoM revival (issues.md)
+## Native code generation (NATIVE-*) — the big multiplier
+
+The five-year bet, gated behind a bytecode-stability promise.
+
+The vision: each `.sbc` file carries one or more **native
+sections** alongside its bytecode.  At load time the runtime
+picks the section that matches the host CPU (x86-64 or ARM64),
+applies relocations, and dispatches functions straight to native
+code with no interpretation overhead.  The bytecode section
+stays as the universal fallback for unrecognised architectures
+and for debugging.
+
+Why this is the next-biggest lever: today every Symta-level op
+goes through an opcode dispatch (~3 ns inner loop) plus the
+work of the opcode itself (~20-50 ns for simple ones, ~100 ns
+for MCALL).  A native compile in-lines the dispatch entirely
+and exposes the actual work to gcc-level register allocation
+and the host's branch predictor.  Conservatively 2-5× on
+compute-heavy code; the interpreter dispatch and MCALL
+indirection vanish for monomorphic call sites.
+
+CPU landscape over the project's relevant horizon: x86-64
+(Intel + AMD, with the recent x86 ecosystem alliance) and
+ARM64 (Apple Silicon, AWS Graviton, Windows on ARM).  Shipping
+both sections in the same SBC covers >99 % of dev machines
+indefinitely.
+
+### \[P1\] **NATIVE-PRE** Bytecode + ABI stability promise
+
+> **Where:** [`runtime/sif.h`](runtime/sif.h) opcode enum,
+> [`runtime/symta.h`](runtime/symta.h) ABI (`api_t`, calling
+> conventions, `frame_t` layout, `gc_head_t` layout).
+> **Problem:** the SBC layout has been moving steadily (CORE-1
+> v2 lineno side table, RT-7 mcache D-side, RT-8b frame-and-locals
+> colocation, SBC_MAGIC + SBC_REVISION 1).  None of this matters
+> as long as bytecode is the only consumer -- the runtime
+> regenerates SBCs on every source change.  Native code can't:
+> a 100 KB AOT-compiled function blob can't be regenerated at
+> load time, so the ABI it was compiled against has to still
+> exist when it runs.
+> **Fix:** freeze the opcode set, `api_t` layout, calling
+> convention, frame layout, and `gc_head_t` shape under
+> `SBC_REVISION = 2` once the remaining OP-* and RT-* perf
+> items have landed.  Document each opcode with its inputs,
+> outputs, side effects, and exception behaviour.  Document
+> the runtime services native code can call into: `gc_alloc`,
+> MCACHE miss handler, type-system queries, FFI marshalling.
+> Bump `SBC_REVISION` only when the freeze breaks; old SBCs
+> get a clean "recompile against revision N" error.
+> **Why now / why not:** the bytecode is too in-flux to commit
+> a native compiler to it yet.  Targets RT-4, RT-6, OP-2, OP-3,
+> OP-4 should land first; THEN freeze.  Until then, native
+> compilation is risky -- every bytecode change invalidates
+> every native section.
+> `effort: weekend` (spec writing + audit) + indefinite
+> stability commitment
+
+### \[P3\] **NATIVE-1** x86-64 AOT code generator
+
+> **Where:** new directory `runtime/native/x64/`,
+> [`src/compiler.s`](src/compiler.s) post-SSA emission stage,
+> [`runtime/sbc.c`](runtime/sbc.c) load path.
+> **Approach:** add a code generator that consumes the same SSA
+> representation the existing bytecode emitter uses and writes
+> raw x86-64 machine bytes into a new `nat_x64` section of the
+> SBC.  Function entry is a `Closure(handler=&native_disp,
+> payload=&nat_blob[offset])`-style descriptor; the dispatch
+> handler is one indirect jump.
+> **Code generation choice:** three options.
+>
+> 1. **Hand-rolled emitter** -- a few hundred lines of C that
+>    knows how to encode the ~30 hot opcodes (FXNADD, MCALL,
+>    JMP, BZ, MOVE, LIST, LGET, …).  No external dependency.
+>    Manageable.  Cold opcodes can fall back to a "call into
+>    the interpreter for this op" trampoline.
+> 2. **DynASM** (LuaJIT's macro-assembler).  Battle-tested,
+>    cross-arch (x86 + ARM with shared macros), small.
+>    Adds a build-time Lua dependency.
+> 3. **MIR** (V. Makarov's minimal JIT toolchain).  Real
+>    register allocator and basic optimisations.  Self-contained
+>    C source.  Larger up-front integration work.
+>
+> The project ethos points at option 1 (no external deps, stays
+> in tree) with the understanding that option 3 is the
+> long-term destination if/when scalar perf matters more than
+> code size.
+> **Calling convention:** stick to System V on Linux/macOS,
+> Win64 on Windows.  Symta dyns fit naturally in `rdi`/`rsi`
+> argument registers.  Stack frame layout matches RT-8b's
+> co-allocated `frame_t + locals` block.
+> **GC integration:** native code maintains the same `api.frame`
+> chain it does in the interpreter (one store per CALL); the
+> existing GC root walker keeps working.  Native code calling
+> into the runtime (alloc, MCALL miss) goes through the same
+> entry points the bytecode interpreter uses.
+> **Expected gains:** 2-5× on compute-bound code.  Mixed code
+> dominated by MCALL stays at ~1.5× because the dispatch
+> already routes through cache-friendly mcache.
+> `effort: multi-week` (4-6 weeks for the MVP, plus
+> bench/maintenance)
+
+### \[P3\] **NATIVE-2** ARM64 AOT code generator
+
+> **Where:** new directory `runtime/native/arm64/`, same
+> integration points as NATIVE-1.
+> **Approach:** same as NATIVE-1 but emitting AArch64.  Most of
+> the integration code (section format, dispatch wrapper, GC
+> hooks) is shared with NATIVE-1; only the opcode-emission
+> tables differ.  If DynASM is the chosen route (option 2 in
+> NATIVE-1), one .dasc source covers both archs.
+> **Why both:** shipping only x86 would leave Apple Silicon /
+> Graviton / Windows-on-ARM developers on the interpreter.
+> The user-facing perf story should not depend on the host's
+> ISA.
+> `effort: multi-week` (concurrent with NATIVE-1 if DynASM,
+> sequential if hand-rolled)
+
+### \[P3\] **NATIVE-3** JIT fallback (alternative to AOT)
+
+> **Variation on NATIVE-1/2.**  Instead of baking native code
+> into the SBC at compile time, compile lazily at first call:
+> the closure's `handler` field initially points at a "compile
+> me" trampoline that emits native code, patches the closure,
+> and resumes.  Lower SBC file size; higher startup latency;
+> simpler distribution (one SBC works on any arch, no need to
+> regenerate for new platforms).
+> **Why we might prefer AOT instead:** the cold compile of a
+> 21 k LOC project is dominated by the compiler itself, which
+> would benefit from being native-compiled.  AOT means the
+> compiler's SBC ships with native sections built in; JIT
+> means cold compile pays the JIT-warmup tax too.
+> **Decision:** revisit after NATIVE-PRE and NATIVE-1 land.
+> The two aren't mutually exclusive -- JIT for everything
+> with no native section, AOT for shipped libraries.
+
+---
+
+## Open bugs from the SoM revival
 
 These were filed during the May 2026 reading-the-game pass.
 None block the runtime / compiler tests; all surface as
@@ -532,12 +542,9 @@ example-writers.
 ### \[P2\] **B10** `[@list]` inside string splice triggers `_insert` bug
 
 > **Where:** [`runtime/reader.c`](runtime/reader.c) or
-> [`src/compiler.s`](src/compiler.s)
+> [`src/compiler.s`](src/compiler.s).
 > **Reproducer:** `Words [a b c]; say "x [@Words]"` →
 > `unknown symbol _insert (compiler bug)`.
-> **Problem:** `@`-spread inside an outer `[...]` splice
-> emits an `_insert` reference that the SSA stage doesn't
-> handle.
 > **Workaround for users:** build the list into a variable or
 > call `.text` before interpolating.
 > `effort: afternoon`
@@ -546,31 +553,27 @@ example-writers.
 
 > **Where:**
 > [`tests/macros/cases/idioms.s`](tests/macros/cases/idioms.s)
-> header
+> header.
 > **Problem:** `L(:@_ -P&=0)`, `L(/~ P @_)`, `L(@_ ~<P @_)`,
-> and `10{&1*2:}` all fail at macroexpand. Each is documented
+> and `10{&1*2:}` all fail at macroexpand.  Each is documented
 > in `sbe.txt` as a working idiom.
-> **Fix:** four separate macroexpander fixes; see issues.md
-> B11 for the per-case analysis.
 > `effort: weekend`
 
 ### \[P2\] **B12** Three `Xs[...]` subscript ops are broken
 
-> **Where:**
-> [`examples/29-subscript.s`](examples/29-subscript.s) header
+> **Where:** [`examples/29-subscript.s`](examples/29-subscript.s)
+> header.
 > **Problem:** `Xs[-I]` (negative index from end),
 > `"(...)"[0!'{' ~!'}']` (replacement on a fixtext), `Xs[3!]`
 > (locate-by-value).
-> **Fix:** see issues.md B12.
 > `effort: weekend`
 
 ### \[P2\] **B13** Anaphoric-loop `l~^` source form is broken
 
-> **Where:**
-> [`examples/30-anaphoric.s`](examples/30-anaphoric.s) header
+> **Where:** [`examples/30-anaphoric.s`](examples/30-anaphoric.s)
+> header.
 > **Problem:** `l~^[…]` errors with `undefined variable I__N`.
 > Users have to bind to a named list variable first.
-> **Fix:** see issues.md B13.
 > `effort: afternoon`
 
 ---
@@ -579,13 +582,10 @@ example-writers.
 
 ### \[P3\] **UI-1** `examples/26-fact-engine/` project
 
-> **Problem:** the current `21-inference` example is good but
-> uses a simplified table-of-tables design. The real
-> `som_src/fact.s` uses `cls fact_symbol` + interned ids +
-> `cls_tbl_`. That's the production pattern and it's nowhere
-> in the examples.
-> **Fix:** new project example with the cls-based engine, plus
-> a larger fact set so query performance is observable.
+> **Problem:** the current `21-inference` example uses a
+> simplified table-of-tables design.  The real `som_src/fact.s`
+> uses `cls fact_symbol` + interned ids + `cls_tbl_`.
+> **Fix:** new project example with the cls-based engine.
 > `effort: afternoon`
 
 ### \[P3\] **UI-2** Sparse-set / dense-iteration cookbook
@@ -593,63 +593,41 @@ example-writers.
 > **Problem:** users wanting to write fast ECS systems on top
 > of `cls` need to know how to keep their own dense indices.
 > Until AM-2 lands, that's the only path.
-> **Fix:** `dev/cookbook-ecs.md` with a worked example: pair
-> `cls foo bar` with a manually-maintained `dense_foo[]` for
-> the hot iteration loop.
+> **Fix:** `dev/cookbook-ecs.md` with a worked example.
 > `effort: afternoon`
 
-### \[P3\] **UI-3** A working REPL
+### \[P3\] **UI-3** REPL polish
 
-> **Problem:** the existing REPL handles one-liners but
-> doesn't support multi-line input gracefully, doesn't
-> preserve state usefully across error retries, doesn't
-> support inspection (show me the parts of this `cls`, show
-> me the methods on this type, what's in `$pic`?). For a
-> language with such powerful runtime introspection
-> (the ECS column tables are *right there*), the REPL leaves
-> them locked up.
-> **Fix:** a proper readline-style multi-line input, plus an
-> `:i Object` inspection command that walks the object's
-> cls / type and prints its parts / methods.
+> **Status:** the basic REPL works again as of commits
+> `03dc45e` + `57f94d4`.  Multi-line input, history, and
+> introspection commands (`:i Object`, `:methods Type`) are
+> not yet implemented.
+> **Fix:** proper readline-style multi-line input, plus an
+> `:i Object` inspection command.
 > `effort: weekend`
 
 ### \[P3\] **UI-4** Editor integration
 
 > **Problem:** every Symta user writes in vanilla Notepad with
-> a Lisp-mode that gets parens wrong. The Notepad++ language
+> a Lisp-mode that gets parens wrong.  The Notepad++ language
 > definition in `dev/npp_symta.xml` is the only checked-in
 > support.
-> **Fix:** Tree-sitter grammar (for syntax highlighting in
-> modern editors); an LSP that does completion, jump-to-
-> definition, and basic linting (depends on CORE-7).
+> **Fix:** Tree-sitter grammar; LSP for completion / jump-to-def
+> / basic linting (depends on CORE-7).
 > `effort: multi-week`
 
 ### \[P3\] **UI-5** Flaky `tests/uim/buttons.png` byte-size jitter
 
 > **Where:** `tests/uim/baselines/buttons.png` vs the rendered
-> actual; the `--pngcmp` decoded-pixel check in
-> `tests/uim/run.sh`.
-> **Problem:** the buttons-test (and occasionally lists)
-> renders to a PNG that varies by ~10 bytes run-to-run on the
-> same binary.  Sizes seen so far: 19358, 19362, 19367, 19369.
-> A single pixel at (38,2) shifts between `0x10101A`
-> (background) and `0x333336` (some glyph antialiasing
-> remnant), tripping the `tolerance=32` threshold in
-> `--pngcmp` once in every ~5-10 runs.  Other UIM tests are
-> stable.
-> **Likely cause:** glyph rasterization output depends on the
-> order chars enter the font's glyph atlas, which in turn
-> depends on a hash-table iteration order somewhere.  The
-> em-dash in `"btn — three different widths"` is the most
-> likely trigger -- it was effectively skipped before FFI-4
-> (single_chars 128..255 → empty fixtext) and now reaches the
-> renderer, but the renderer's atlas slot for it isn't
-> deterministically positioned.
-> **Fix sketch:** force a stable atlas seed by pre-allocating
-> slots for the printable ASCII + common Latin-1 range at
-> font load time, in deterministic order.  Cheap (one new
-> loop in the ttf plugin's font init).
-> **Workaround:** rerun the test; it passes ~9 out of 10 runs.
+> actual.
+> **Problem:** the buttons-test renders to a PNG that varies by
+> ~10 bytes run-to-run on the same binary.  A single pixel at
+> (38,2) shifts between background and glyph-antialiasing
+> remnant.  Likely cause: glyph atlas slot order depends on
+> hash-table iteration order somewhere.
+> **Fix sketch:** pre-allocate atlas slots for printable ASCII
+> + common Latin-1 in deterministic order at font load time.
+> **Workaround:** rerun the test; passes ~9 / 10 runs.
 > `effort: afternoon`
 
 ---
@@ -658,49 +636,59 @@ example-writers.
 
 ### \[P3\] **R-1** Second implementation
 
-> **Problem:** any one-author language is a single point of
-> failure for everyone who depends on it. An MVP-quality
-> second implementation — even a slow one — proves the spec
-> is the spec, not "whatever Nancy's compiler does this week".
-> **Fix:** a tree-walking interpreter, written in Rust or C++,
-> that consumes the same `.s` source and produces the same
-> stdout on every example. ~1–2 person-months for the
-> language surface that the existing test suite covers.
+> A tree-walking interpreter in Rust / C++ that consumes the
+> same `.s` source and produces the same stdout on every example.
+> Proves the spec is the spec, not "whatever Nancy's compiler
+> does this week".  ~1-2 person-months.
 > `effort: multi-week`
 
 ### \[P3\] **R-2** Package manager
 
-> **Problem:** there's no way to share code between Symta
-> projects today. Reusable libraries become "copy `src/foo.s`
-> into your project".
-> **Fix:** even a minimal `symta install <repo-url>` that
-> fetches and compiles. Bonus: a discovery index, even if
-> hand-curated, of what people have written.
-> `effort: weekend` for MVP, more for polish
+> Minimal `symta install <repo-url>` that fetches and compiles.
+> `effort: weekend` for MVP
 
 ### \[P3\] **R-3** A debugger
 
-> **Problem:** set a breakpoint, step, inspect locals,
-> continue — none of this exists today. Symta has decent
-> runtime introspection underneath (the GC walks objects with
-> size info, every `cls` instance knows its parts); exposing
-> that to a `sym-gdb` would be a few weeks of work, not a
-> year.
-> **Fix:** an out-of-process debug protocol over a Unix
-> socket; the runtime breakpoints at SBC-instruction
-> granularity; introspection via the existing reflection
-> built-ins.
+> Out-of-process debug protocol over a Unix socket; runtime
+> breakpoints at SBC-instruction granularity; introspection via
+> the existing reflection built-ins.
 > `effort: multi-week`
 
 ### \[P3\] **R-4** SoM-feedback ergonomic wishlist
 
-> **Where:** [`dev/todo-spell-of-mastery.txt`](dev/todo-spell-of-mastery.txt)
-> **Problem:** ~70 small ergonomic gaps catalogued during the
-> SoM build: `iround` / `floor` / `ceil` returning floats,
-> `txt_input` memory leak, no `.divide` / `.bins` partition
-> helpers, no destructive multivar assignment, no do-while
-> loop, no method-reference-with-bound-object…
-> **Fix:** triage by user-impact and bundle into language
-> revisions. Most are syntax sugar that doesn't change the
-> evaluation model.
+> **Where:** [`dev/todo-spell-of-mastery.txt`](dev/todo-spell-of-mastery.txt).
+> ~70 small ergonomic gaps catalogued during the SoM build.
+> Most are syntax sugar that doesn't change the evaluation model.
 > `effort: ongoing`
+
+---
+
+<a name="done"></a>
+## Done (recent — kept as one-liners for findability)
+
+- **OP-1** `_.><` / `_.<>` as direct C-builtins on T_OBJECT —
+  `a341309` (May 2026).  Cold compile 38-40 s → 20-23 s.
+- **Reader consolidation** — `2129767` (May 2026).  C reader is
+  production; `meta` allocated in C via `intern("meta")` +
+  `OBJECT`; ~448 lines deleted from `core_.s`.  Game cold
+  51-54 s → 38-40 s.  See [docs/reader-consolidation.md].
+- **READER-2 / READER-3** — closed alongside reader-consolidation
+  (May 2026).
+- **CORE-8 #1** constant-folding literal fxn arithmetic —
+  `3fbdac9` (May 2026).
+- **CORE-4** else/elif at body indent works in the C reader —
+  `929c52e` (May 2026).
+- **RT-5** closure CALL inlined `(handler, payload)` — `f4e73ff`
+  (May 2026).
+- **RT-7** mcache moved from bytecode stream to D-side array —
+  `a304504` (May 2026).
+- **RT-8a/b/c** `api_t` hot-line packing + `frame_t + locals`
+  co-allocation — `ffe3053` … `14115ee` (May 2026).
+- **SBC magic + revision header** — `b4222ba` (May 2026).
+- **NCM-1..7** — see prior versions of TODO.md.
+- **Bootstrap REPL fix + REPL test suite** — `03dc45e`,
+  `57f94d4` (May 2026).
+- **FFI make.exe locator on Windows** — `8f34041` (May 2026).
+- **Weak hashtable + GC-invariant test suite + adversarial
+  bench** — `8f8ff63` (May 2026).  Now kept as a tested
+  primitive for any identity-keyed metadata use case.
