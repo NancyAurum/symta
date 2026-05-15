@@ -77,8 +77,10 @@ for m in $WATCHED; do
 done
 
 # Force each subsequent bootstrap to actually re-run by touching
-# the source the first time around.
-touch "$ROOT/src/reader.s"
+# the source the first time around.  `src/reader.s` retired in the
+# reader consolidation, so touch `src/core_.s` -- a clean rebuild
+# of core_ pulls everything downstream with it.
+touch "$ROOT/src/core_.s"
 
 for stage in $(seq 1 "$ROUNDS"); do
   echo
@@ -106,15 +108,15 @@ for stage in $(seq 1 "$ROUNDS"); do
     sz=$(wc -c < "$STAGES_DIR/stage${stage}/$m" | tr -d ' ')
     printf "  %-15s %10s B  md5=%s\n" "$m" "$sz" "$h"
   done
-  # Touch reader.s so the next round actually re-compiles.
+  # Touch core_.s so the next round actually re-compiles.
   # On filesystems with 1-second mtime granularity (Windows
   # NTFS / FAT32), the sbc we just wrote may have the same mtime
   # as the source we're about to touch. Use a forward timestamp
   # via `-d "1 second"` if the system supports it; otherwise
   # sleep briefly.
-  if ! touch -d "1 second" "$ROOT/src/reader.s" 2>/dev/null; then
+  if ! touch -d "1 second" "$ROOT/src/core_.s" 2>/dev/null; then
     sleep 1
-    touch "$ROOT/src/reader.s"
+    touch "$ROOT/src/core_.s"
   fi
 done
 
