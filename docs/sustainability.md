@@ -344,25 +344,14 @@ network, and intro-to-publisher pipeline.
   - Useful as a network multiplier when Spell of Mastery is
     in Phase 1 (release prep).
 
-### NL-5.  Academic affiliation -- CWI Amsterdam
+### NL-5.  CWI Amsterdam -- *probably not applicable*
 
-Centrum Wiskunde & Informatica is the national research institute
-for math and CS.  Their Software Analysis & Transformation
-group (SWAT) and the Programming Languages group have hosted:
-
-  - Python (Guido van Rossum, 1989-1995)
-  - Algol-68 (Adriaan van Wijngaarden)
-  - More recently: Rascal (metaprogramming DSL)
-
-  A visiting-researcher arrangement is plausible: bring Symta
-  as a case study in self-hosted Lisp dialect + AI-assisted
-  language development.  Visiting positions at CWI typically
-  pay €40-60 k/year for 1-2 year contracts.
-
-  Path: email Jurgen Vinju (Rascal lead) or Davy Landman with
-  a one-page pitch.  Symta's "small, well-documented, modern,
-  self-hosted" angle is the kind of substrate CWI students like
-  to do research on.
+CWI is the national CS research institute (where Python was born).
+A visiting-researcher arrangement would be useful but CWI
+typically wants PhD-equivalent published research as an entry
+condition.  Set aside; revisit only if a researcher there
+proactively reaches out after seeing the Symta work, which is
+not a path to plan around.
 
 ### NL-6.  Tax structure choice -- ZZP vs Stichting
 
@@ -401,6 +390,107 @@ For year 1 with revenue under €60 k:
     Belastingdienst portal.  Below €10 k cross-border EU sales
     you can use NL VAT rates; above that, OSS uses the
     customer's country rate.
+
+### NL-7b.  Credentials, age, identity -- what matters and what doesn't
+
+Three concerns worth addressing directly before they distort the
+analysis:
+
+**Self-taught vs formally credentialed.**  In programming-language
+work specifically, self-taught is the norm rather than the
+exception.  Track record is the credential.  Symta (working
+compiler, working type-system roadmap, working game on it,
+committed perf history) demonstrates more technical depth than
+most CS Masters theses ever do.  Reviewers for WBSO, NLnet,
+and Stimuleringsfonds read your project artefacts, not your
+CV.  When the application form asks about background, "10+
+years of self-directed language design with the working compiler
+and 25 k-LOC reference application available to inspect" is
+exactly the kind of credential they're looking for.
+
+  Some self-taught contemporaries in PL / systems work who
+  built funded careers without conventional credentials:
+
+  - **Salvatore Sanfilippo** (Redis): Italian high-school
+    background, fully self-taught.  Redis funded by Pivotal,
+    later Redis Labs.
+  - **Anders Hejlsberg** (Turbo Pascal → C# → TypeScript):
+    never finished his TU Denmark degree.
+  - **Linus Torvalds** had a degree but Linux was a self-
+    taught hobby project.
+  - **DHH** (Rails): self-taught.
+  - Most Lisp/Scheme implementers post-1990 are self-taught
+    relative to their actual deliverables.
+
+  These are the people whose work the funders cite as
+  inspiration.  You're applying in the same lineage.
+
+**Age 41.**  This is mid-career for language designers, not
+late.
+
+  - **Rich Hickey** was 42 when Clojure shipped.
+  - **John McCarthy** was 31 when he invented Lisp, then kept
+    contributing into his 80s.
+  - **Tarn Adams** has been working on Dwarf Fortress for 20+
+    years and is in his 50s; funded entirely by sales /
+    Patreon.
+  - **Andrew Kelley** started Zig in his 30s.
+  - Bjarne Stroustrup, Guy Steele, Niklaus Wirth -- all did
+    significant PL work into their 60s and beyond.
+
+  "Young professional" grants don't exist in the NL grants
+  Symta is targeting.  WBSO has no age limit.  NLnet has no
+  age limit.  Stimuleringsfonds has no age limit.  The
+  Dutch funding ecosystem reads merit-based; the application
+  form doesn't ask your age.  This concern doesn't apply to
+  the actual grant landscape.
+
+**Identity.**  The Netherlands has strong legal protections
+(Algemene wet gelijke behandeling) and the grant programs
+listed don't ask about identity.  This is purely a question
+of application merit.
+
+If you want to layer identity-specific support on top:
+
+  - **Trans tech communities** exist (Out in Tech, Lesbians
+    Who Tech, Trans*H4CK) but they're mostly US-based
+    networking events; useful for connections, rarely for
+    direct funding.
+  - **Refugee-from-Russia programs** exist in NL via Stichting
+    Vluchtelingenwerk and similar; they fund settlement /
+    integration, not technical R&D, so out of scope here.
+
+  None of these channels are worth competing with the WBSO +
+  NLnet + Stimuleringsfonds path in terms of euros per hour
+  of effort.  Mentioned for completeness.
+
+### NL-7c.  Credential-free funding sources worth knowing about
+
+Beyond the three Dutch heavyweights:
+
+  - **Sovereign Tech Fund** (Germany, but funds EU-wide):
+    specifically targets "underfunded but critical FOSS
+    infrastructure".  €100 k-300 k grants; long process
+    (~6-12 months from application to funding) but excellent
+    fit philosophically for Symta.  No credential requirement;
+    they assess the project.  Application opens roughly
+    quarterly.
+  - **GitHub Maintainer Pilot / GitHub Funds**: explicitly
+    funds OSS maintainers, no academic gate.  Tiers vary; some
+    one-time $5-20 k, some recurring.
+  - **OpenSSF** (Open Source Security Foundation) and
+    **OpenJS Foundation**: security or JS-adjacent; less direct
+    fit but the application processes are credential-blind.
+  - **Open Collective Europe**: not a grant, a *fiscal host*.
+    Lets you receive donations / grants as a "collective"
+    without forming your own Stichting.  Eliminates a lot of
+    legal overhead while still letting you channel money
+    professionally.  Worth setting up early.
+  - **Patreon**: still works as a direct creator-support
+    platform; lower discovery than GitHub Sponsors but a
+    different audience overlap.
+  - **Ko-fi / Liberapay**: smaller-scale tip-jar alternatives;
+    Liberapay specifically doesn't take a cut.
 
 ### NL-8.  Other Dutch funds + sources to watch
 
@@ -486,25 +576,36 @@ value.
    revenue activates within hours of going live; Steam takes
    weeks of pre-launch.
 
-8. **CWI Amsterdam introduction email** (1 hour).
-   Email Jurgen Vinju (j.j.vinju@cwi.nl) or Davy Landman with a
-   one-page sketch: "Self-hosted Lisp dialect Symta, current
-   state, type-system roadmap, would CWI's PL group be
-   interested in a visiting-researcher arrangement?".  CWI
-   already hosts the Rascal metaprogramming DSL group, so the
-   conceptual fit is strong.  Visiting positions at CWI typically
-   pay €40-60 k/year for 1-2 year contracts.
+8. **Sovereign Tech Fund pre-application** (2 hours, deferred 1-2
+   months).  Read https://www.sovereigntechfund.de/ application
+   criteria.  Symta fits their "underfunded but critical FOSS
+   infrastructure" mandate philosophically, although they
+   typically want a project that's already in use by others.
+   Save this for after the SoM launch + HN post when Symta has
+   external traction to cite.  €100-300 k grants are worth the
+   wait.
+
+9. **Open Collective Europe fiscal host setup** (1 hour).
+   Lets you receive donations and small grants under a
+   "collective" umbrella without forming your own Stichting
+   yet.  Eliminates legal overhead while still letting the
+   project receive money professionally.  Convert to Stichting
+   only if grant volume justifies it (probably year 2+).
 
 Items 1-3 are the NL-specific high-impact moves.  Items 4-5
 take an hour total and start the visibility flywheel.  Items
 6-7 are content-driven and lead-generate for everything else.
-Item 8 is a longer shot but has career-changing upside if it
-lands.
+Items 8-9 are infrastructure for year 2.
 
 Total weekend of effort to get items 1-5 in motion.  WBSO + NLnet
 + Stimuleringsfonds together could provide €40-100 k of runway
 in year 1 if even half land -- the difference between "Nancy's
 hobby" and "Symta is Nancy's job".
+
+**None of these require credentials.**  WBSO assesses the
+technical work, NLnet assesses the project, Stimuleringsfonds
+assesses the proposal.  The committed Symta + SoM artefacts are
+exactly the kind of evidence these processes want to see.
 
 ## Risks + open questions
 
