@@ -482,21 +482,28 @@ BUILTIN0("wh_n_",     wh_n_)
 RETURNS(FXN((int64_t)meta_n_()))
 
 
-/* Help system -- HELP-3 final form.  Docstrings live in each
- * loaded SBC's docs section (populated at compile time by the
- * `_ssv` intrinsic; written by sif2sbc.c into a `(sym_ofs:24,
- * val_ofs:24)` flat array; loaded by sbc.c into
- * `sbc->doc_table` / `sbc->doc_sz`).  Lookups scan the loaded
- * SBCs on demand -- no prebuilt `Help_Table`.
+/* Help system -- HELP-3 final form.  Two backing stores, both
+ * scanned lazily by `help_section_lookup_`:
  *
- * The legacy `help_set_`/`help_get_`/`help_names_` API below is
- * still here to keep the existing `help_set` Symta-side callers
- * working during the migration; once core_.s migrates to
- * `@"text"` everywhere this section can be deleted entirely.
+ *   1. SBC docs section -- one per loaded SBC.  Populated at
+ *      compile time by the `_ssv` intrinsic; written by
+ *      sif2sbc.c into a `(sym_ofs:24, val_ofs:24)` flat array;
+ *      loaded by sbc.c into `sbc->doc_table` / `sbc->doc_sz`.
+ *      This is where every Symta-defined function and method
+ *      lives.
  *
- * `help_section_lookup_section_(filename, name)` walks ONE SBC's docs
- * section for a name; returns the doc text or No.
- * `help_section_lookup_(name)` walks ALL loaded SBCs.
+ *   2. `builtin_docs[]` static table below -- linear array of
+ *      `(name, doc)` pairs.  This is where runtime builtins
+ *      (no Symta source body to host an `@"text"` head) live.
+ *
+ * Neither store builds a hashtable; lookups are linear at
+ * `help name`-time and that's fine -- `help` is interactive.
+ *
+ * The legacy `help_set_` / `help_get_` / `help_names_` API
+ * further down is still wired up only for the macros defined
+ * in macro.s (their `=:` defs don't yet flow through
+ * `prefix_doc`).  Once macro-doc support lands the whole
+ * legacy section goes away.
  */
 
 extern sbc_t *sbcs[];
@@ -512,6 +519,69 @@ static char *sbc_data_str(sbc_t *sbc, uint32_t ofs) {
   return (char *)(sbc->code + ofs);
 }
 
+/* HELP-3: static docstring table for runtime builtins.  These
+ * symbols have no Symta source body to host an `@"text"` head,
+ * so their docs live here instead.  Keep entries in alphabetical
+ * order.  Terminate with a `{0, 0}` sentinel.
+ *
+ * Adding a new entry costs nothing at startup -- the array
+ * is read-only data, scanned only when `help foo` is called. */
+typedef struct {
+  const char *name;
+  const char *doc;
+} builtin_doc_t;
+
+static const builtin_doc_t builtin_docs[] = {
+  /* Macros defined in macro.s via the `=:` form.  Those defs do
+   * not flow through `prefix_doc`, so their docs cannot live in
+   * an SBC docs section -- we keep them here alongside the true
+   * runtime builtins. */
+  {"got",        "Test whether a value exists.  Returns 1 if X is anything but No, else 0.\n"
+                 "Distinct from `not X`, which tests for the integer 0.\n"
+                 "See also: not (test for zero), No (the no-value marker)."},
+  {"help",       "Print REPL help (no args) or documentation for a symbol.\n"
+                 "Usage: `help` for the banner; `help say` for one symbol's docs;\n"
+                 "`help_names()` to list every documented symbol."},
+  {"less",       "Inverse of `when`: runs the body when the condition is falsy (zero).\n"
+                 "Idiomatic for guard clauses at the top of a function.\n"
+                 "Example:  less B: bad \"division by zero\""},
+  {"max",        "Maximum of the given values.  Variadic.\n"
+                 "Example: max 3 7 2 8 1 returns 8.\n"
+                 "See also: min, list.max, list.min."},
+  {"min",        "Minimum of the given values.  Variadic.\n"
+                 "Example: min 3 7 2 8 1 returns 1.\n"
+                 "For the minimum element of a list, use `.min` (the method).\n"
+                 "See also: max, list.min, list.max."},
+  {"no",         "Test whether a value is No.  Inverse of `got`.\n"
+                 "Returns 1 if X is No, else 0."},
+  {"not",        "Logical negation.  Returns 1 if X is the integer 0, else 0.\n"
+                 "In Symta the only falsy value is 0; No and atoms and lists are all truthy.\n"
+                 "Use `got` to check for No, `not` for zero."},
+  {"when",       "Conditional execution -- runs the body if the condition is truthy.\n"
+                 "The body is everything indented under the `when:` line.\n"
+                 "Returns No when the condition is falsy (the integer 0).\n"
+                 "See also: less (inverse), if (with else-branch)."},
+
+  /* Genuine runtime builtins. */
+  {"float.int",  "Truncate a float to an integer (toward zero)."},
+  {"int.float",  "Convert an integer to a float."},
+  {"rand_get",   "Return a pseudo-random integer.  Seeded from the random_seed_ table."},
+  {"rand_pop",   "Restore the most recently pushed PRNG state."},
+  {"rand_push",  "Push the current PRNG state on a stack for later restoration."},
+  {"rand_set",   "Set the PRNG seed."},
+  {"say_",       "Print values without appending a newline.  Same argument shape\n"
+                 "as `say`.  Use for assembling text from several calls or for REPL-like prompts.\n"
+                 "Example:  say_ \"> \"; X parse get_line()"},
+  {"text.flt",   "Parse a text as a floating-point number.  Returns No on parse error."},
+  {"text.n",     "Length of a text in characters (codepoints, not bytes)."},
+  {"text.utf8",  "Convert text to its UTF-8 byte sequence as a list of integers."},
+  {"typename",   "Return the type name of a value, as text.\n"
+                 "Example:  typename 42         // \"int\"\n"
+                 "          typename \"abc\"      // \"text\"\n"
+                 "          typename [1 2 3]    // \"list\""},
+  {0, 0}
+};
+
 BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
   /* text_to_cstring returns a pointer into the shared api.sbuf
    * stretchy buffer.  We must finish using `name` before any other
@@ -520,7 +590,9 @@ BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
    * out of the loop, and only then build the result. */
   char *name = text_to_cstring(name_text);
   R = No;
-  char *found_val = 0;
+  const char *found_val = 0;
+
+  /* (1) SBC docs sections. */
   for (int i = 0; i < sbcs_loaded && !found_val; i++) {
     sbc_t *sbc = sbcs[i];
     if (!sbc->doc_table || !sbc->doc_sz) continue;
@@ -537,53 +609,20 @@ BUILTIN1("help_section_lookup_", help_section_lookup_, C_TEXT, name_text)
       }
     }
   }
+
+  /* (2) Static builtin docs. */
+  if (!found_val) {
+    for (const builtin_doc_t *b = builtin_docs; b->name; b++) {
+      if (!strcmp(b->name, name)) { found_val = b->doc; break; }
+    }
+  }
+
   if (found_val) {
     GC_DISABLE();
     TEXT(R, found_val);
     GC_ENABLE();
   }
 RETURNS(R)
-
-/* Legacy `help_set_` / `help_get_` / `help_names_` (in-memory
- * map).  Deprecated once core_.s migrates fully to `@"text"`,
- * but kept here so existing `help_set "..."` calls still work. */
-static struct { char *key; void *value; } *help_map = 0;
-static int help_map_init = 0;
-
-BUILTIN2("help_set_", help_set_, C_TEXT, name_text, C_TEXT, doc_text)
-  if (!help_map_init) { sh_new_arena(help_map); help_map_init = 1; }
-  char *name = text_to_cstring(name_text);
-  shput(help_map, name, doc_text);
-  free(name);
-RETURNS(doc_text)
-
-BUILTIN1("help_get_", help_get_, C_TEXT, name_text)
-  if (!help_map_init) { R = No; goto done; }
-  char *name = text_to_cstring(name_text);
-  int i = shgeti(help_map, name);
-  free(name);
-  R = (i < 0) ? No : (dyn)help_map[i].value;
-done:
-RETURNS(R)
-
-BUILTIN0("help_names_", help_names_)
-  /* Returns a Symta list of every documented symbol name. */
-  int n = help_map_init ? (int)shlen(help_map) : 0;
-  if (n == 0) {
-    R = Empty;
-  } else {
-    GC_DISABLE();
-    LIST(R, n);
-    dyn *dst = &LGET(R, 0);
-    for (int i = 0; i < n; i++) {
-      dyn s;
-      TEXT(s, help_map[i].key);
-      dst[i] = s;
-    }
-    GC_ENABLE();
-  }
-RETURNS(R)
-
 
 BUILTIN1("text.flt",text_flt,C_ANY,o)
   LDFLT(R, atof(text_to_cstring(o)));
@@ -2647,9 +2686,6 @@ static struct {
   B(wh_del_)
   B(wh_clear_)
   B(wh_n_)
-  B(help_set_)
-  B(help_get_)
-  B(help_names_)
   B(help_section_lookup_)
   B(get_meta_)
   B(set_meta_)

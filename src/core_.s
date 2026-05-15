@@ -1,7 +1,7 @@
 export say bad new_macro meta methods
        rand_get rand_set rand_push rand_pop zip setters_ getters_ atan2
        btland btjump bterror btrap `..`
-       help_set help_get help_names ssv_
+       help_get
        help_banner_ help_lookup_
 
 _.new_fn_ = No
@@ -10,30 +10,14 @@ _.free =
 
 
 //===========================================================================
-// Documentation / help system
+// Documentation / help system  (HELP-3 final form)
 //===========================================================================
-// Symbol-keyed runtime map of `Name -> Docstring`.  Populated by
-// `help_set` calls (typically at module load), read by `help`
-// from the REPL.
-//
-// This is the *user-facing* layer.  When SBC docstring sections
-// land (see the roadmap milestone), each loaded SBC will
-// populate this map automatically from its own embedded doc
-// section, so users never call `help_set` directly.  Until then,
-// docstrings are added by hand inside source via:
-//
-//    help_set \my_function
-//      "The doc string for my_function.
-//       Use \\n to embed newlines."
-//
-// The planned `doc` macro will let you write the same thing as:
-//
-//    doc "The doc string for my_function."
-//    my_function ... = ...
-//
-// which auto-attaches the docstring to the next top-level
-// definition.  Same backing storage either way.
-Help_Table!  // module-level empty table; key=symbol-name, val=docstring
+// All docs come from `help_section_lookup_` (C builtin), which
+// scans two stores on demand: (1) each loaded SBC's docs section
+// -- populated at compile time from `@"text"` heads via the `_ssv`
+// intrinsic; (2) the static `builtin_docs[]` table in
+// `runtime/bltin.c` for macros and runtime builtins that have no
+// Symta source body.  No prebuilt hashtable lives at module load.
 
 // Normalise a help-table key.  Atom literals like `\say` already
 // evaluate to text, but `\list.keep` parses as `(`.` list keep)` --
@@ -45,49 +29,12 @@ help_key_ K =
     then "[help_key_ K.1].[help_key_ K.2]"
     else "[K]"
 
-help_set Sym Doc =
-| @"Attach a docstring to a name, so `help name` can read it back.
-Legacy entry-point that populates the runtime Help_Table.  New code
-should use `@\"text\"` heads in function bodies instead -- those write
-into the SBC docs section and avoid any prebuilt hashtable."
-| Key help_key_ Sym
-| Help_Table.Key = Doc
-| Doc
-
-// HELP-3: `help_get` now scans the loaded SBCs' docs sections
-// FIRST (built into the SBCs at compile time by `@"text"` /
-// `_ssv`); falls back to the legacy `Help_Table` only if
-// nothing is found there.  Once core_.s migrates all
-// `help_set` calls to `@"text"` heads, the legacy fallback
-// goes away.
 help_get Sym =
 | @"Look up the docstring registered for a name.  Returns No if undocumented.
-Tries the SBC docs sections (populated at compile time) first, falls back
-to the legacy in-memory Help_Table for symbols not yet migrated."
+Scans the SBC docs sections (compile-time `@\"text\"` heads) and the static
+C-side builtin docs table -- no module-load-time hashtable involvement."
 | Key help_key_ Sym
-| Doc help_section_lookup_ Key
-| if got Doc then Doc else Help_Table.Key
-
-help_names =
-| @"Return the list of every documented symbol name in the legacy Help_Table.
-Does NOT include symbols whose docs live in SBC docs sections."
-| Help_Table.l{?0}
-
-// `ssv_ Section Symbol Value` -- "set section symbol value".  The general
-// intrinsic emitted by the function/method-defining macros for any side-
-// data attached to a definition.  Today only `docs` is recognised
-// (delegated to `help_set`); future sections will cover type annotations,
-// graphical asset blobs, audio data, etc.  Eventually the compiler will
-// recognise `ssv_` as a compile-time intrinsic and route each section into
-// its own area of the SBC file, with lazy on-demand load -- this Symta-
-// side stub keeps the user-facing API identical until that lands.
-ssv_ Section Sym Value =
-| @"Set-section-symbol-value.  Legacy Symta-side stub kept only as a no-op
-for very old SBCs that may still invoke it at runtime.  The user-facing
-mechanism is the compile-time `_ssv` intrinsic, which routes docs into
-the SBC docs section instead of a runtime hashtable.
-Args: ssv_ Section Symbol Value -- Section and Symbol are texts."
-| if Section >< 'docs' then help_set Sym Value else No
+| help_section_lookup_ Key
 
 // Runtime backends for the `help` macro (defined in src/macro.s).
 // `help_banner_` is what the macro emits when called with no
@@ -98,7 +45,6 @@ help_banner_ =
 | say "----------------"
 | say "  help <name>            -- show docs for `<name>`"
 | say "                            (try: help say, help int.bump)"
-| say "  help_names             -- list every documented symbol"
 | say "  module_exports <mod>   -- list everything exported by a module"
 | say "                            (try: module_exports core_)"
 | say "  module_help <mod>      -- list a module's exports with one-line docs"
@@ -107,9 +53,9 @@ help_banner_ =
 
 help_lookup_ Key =
 | Doc help_get Key
-| if Doc
+| if got Doc
     then say Doc
-    else say "No documentation for `[Key]`.  Try `help_names` for the list."
+    else say "No documentation for `[Key]`."
 
 //No acts as an identity element in arithmetics
 no.`+` B = B
@@ -986,12 +932,6 @@ Example:  less B: bad 'division by zero'
 See also: btrap (catch), bterror (test for error value)."
 | rterr_ "[Text.text ' ']"
 
-// `say_` is a runtime builtin; its docs will move to a C-side
-// BUILTIN_HELP table in a follow-up.  Leaving the legacy entry for now.
-help_set \say_ 'Print values without appending a newline.  Same argument shape
-as `say`.  Use for assembling text from several calls or for REPL-like prompts.
-Example:  say_ "> "; X parse get_line()'
-
 tbl.__ Method Args =
 | if _gt Args.n 1
   then Args.0.(Method^_method_name.tail) =  Args.1 // strip `assign indicator`
@@ -1501,87 +1441,8 @@ text.sexp Src!'<none>' LexP!No List!0 =
 | if R.end: No else R.0
 
 
-//===========================================================================
-// Legacy `help_set` calls -- shrinking residual.
-//===========================================================================
-// Symbols defined in *Symta source* (functions and methods in this
-// file or its peers) now carry their docstrings as `@"text"` heads
-// on the definition body; those land in the SBC docs section at
-// compile time and are looked up by `help_get` via the C-side
-// `help_section_lookup_` builtin.  See HELP-3 commits.
-//
-// The entries that remain below are the ones that *cannot* yet
-// route through that mechanism:
-//
-//   - macros defined in `macro.s` (`got`, `not`, `when`, `less`,
-//     `min`, `max`, `no`, `help`) -- the `=:` form does not flow
-//     through `prefix_doc`.  Macro-doc support is a planned
-//     follow-up.
-//   - runtime builtins (`rand_get`, `rand_set`, `rand_push`,
-//     `rand_pop`, `say_`, `typename`, `text.n`, `text.flt`,
-//     `text.utf8`, `int.float`, `float.int`) -- these live in
-//     `runtime/bltin.c` with no Symta source body to host an
-//     `@"text"` head.  A C-side `BUILTIN_HELP` static table is
-//     the planned end-state; for now the docs live here.
-//
-// Once both follow-ups land, every entry below disappears and so
-// does `Help_Table`/`help_set` itself.
-
-// --- macros (defined in macro.s) ----------------------------------
-help_set \got 'Test whether a value exists.  Returns 1 if X is anything but No, else 0.
-Distinct from `not X`, which tests for the integer 0.
-See also: not (test for zero), No (the no-value marker).'
-
-help_set \not 'Logical negation.  Returns 1 if X is the integer 0, else 0.
-In Symta the only falsy value is 0; No and atoms and lists are all truthy.
-Use `got` to check for No, `not` for zero.'
-
-help_set \when 'Conditional execution -- runs the body if the condition is truthy.
-The body is everything indented under the `when:` line.
-Returns No when the condition is falsy (the integer 0).
-See also: less (inverse), if (with else-branch).'
-
-help_set \less 'Inverse of `when`: runs the body when the condition is falsy (zero).
-Idiomatic for guard clauses at the top of a function.
-Example:  less B: bad "division by zero"'
-
-help_set \no 'Test whether a value is No.  Inverse of `got`.
-Returns 1 if X is No, else 0.'
-
-help_set \min 'Minimum of the given values.  Variadic.
-Example: min 3 7 2 8 1 returns 1.
-For the minimum element of a list, use `.min` (the method).
-See also: max, list.min, list.max.'
-
-help_set \max 'Maximum of the given values.  Variadic.
-Example: max 3 7 2 8 1 returns 8.
-See also: min, list.max, list.min.'
-
-help_set \help 'Print REPL help (no args) or documentation for a symbol.
-Usage: `help` for the banner; `help say` for one symbols docs;
-`help_names()` to list every documented symbol.'
-
-// --- runtime builtins (defined in runtime/bltin.c) ---------------
-help_set \say_ 'Print values without appending a newline.  Same argument shape
-as `say`.  Use for assembling text from several calls or for REPL-like prompts.
-Example:  say_ "> "; X parse get_line()'
-
-help_set \typename 'Return the type name of a value, as text.
-Example:  typename 42         // "int"
-          typename "abc"      // "text"
-          typename [1 2 3]    // "list"'
-
-help_set \text.n 'Length of a text in characters (codepoints, not bytes).'
-
-help_set \text.flt 'Parse a text as a floating-point number.  Returns No on parse error.'
-
-help_set \text.utf8 'Convert text to its UTF-8 byte sequence as a list of integers.'
-
-help_set \int.float 'Convert an integer to a float.'
-
-help_set \float.int 'Truncate a float to an integer (toward zero).'
-
-help_set \rand_get 'Return a pseudo-random integer.  Seeded from the random_seed_ table.'
-help_set \rand_set 'Set the PRNG seed.'
-help_set \rand_push 'Push the current PRNG state on a stack for later restoration.'
-help_set \rand_pop 'Restore the most recently pushed PRNG state.'
+// All Symta-defined function/method docs now live in their SBC's
+// docs section (compile-time via `@"text"` heads).  All macro and
+// runtime-builtin docs live in the static `builtin_docs[]` table
+// in runtime/bltin.c.  `help_section_lookup_` scans both stores.
+// No prebuilt hashtable, no `help_set` calls anywhere.

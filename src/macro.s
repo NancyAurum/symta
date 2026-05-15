@@ -1604,10 +1604,11 @@ expand_block_item_insert Xs = //insert a `@| ...` style expression
 
 // `@"text"` at the head of a definition's body becomes the
 // definition's docstring.  The function-defining macro prepends
-// the body with `[ssv_ 'docs' Name Text]` -- a compile-time
-// intrinsic (see `src/compiler.s` SsaFormCases) that today
-// compiles to a runtime `ssv_` call, and tomorrow can emit to a
-// dedicated SBC docstring section.  Full pipeline trace in
+// the body with `[_ssv 'docs' Name Text]` -- a compile-time
+// intrinsic (see `src/compiler.s` SsaFormCases) that records the
+// triple in `GSsv`, emits it as a SIF `t doc` directive, and
+// `sif2sbc.c` packs it into the SBC's docs section.  No runtime
+// call happens at definition time.  Full pipeline trace in
 // `../dev/help-pipeline.md`.
 
 // Returns the docstring text if X is `(@ (" Text))`; else No.
@@ -1624,7 +1625,7 @@ maybe_doc X =
 
 // Returns Body unchanged unless its first statement was `@"text"`,
 // in which case the first statement is replaced with a call to
-// `ssv_ 'docs' Name <text>`.  Text args are wrapped in `_quote`
+// `_ssv 'docs' Name <text>`.  Text args are wrapped in `_quote`
 // because docstrings often start with uppercase letters that
 // uniquify would otherwise treat as variable names.
 //
