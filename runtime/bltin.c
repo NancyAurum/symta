@@ -376,6 +376,23 @@ BUILTIN2("no.`><`",no_eq,C_ANY,a,C_ANY,b)
 RETURNS(FXN(a == b))
 BUILTIN2("no.`<>`",no_ne,C_ANY,a,C_ANY,b)
 RETURNS(FXN(a != b))
+
+/* `_.><` / `_.<>` default to identity comparison.  Symta's
+ * `core_.s` used to define these as
+ *
+ *   _.`><` B = same Me B
+ *   _.`<>` B = not Me >< B
+ *
+ * which costs two MCALLs + a `not` opcode per call -- ~200 ns on
+ * a heap value where neither `Me` nor `B` has a type-specific
+ * override.  The C-side handlers below collapse that to a single
+ * builtin invocation = ~50 ns.  Type-specific overrides
+ * (int.><, text.><, float.><, fn.><, no.><) still win via the
+ * usual METHOD_FN dispatch; this is only the fallback. */
+BUILTIN2("_.`><`",any_eq,C_ANY,a,C_ANY,b)
+RETURNS(FXN(a == b))
+BUILTIN2("_.`<>`",any_ne,C_ANY,a,C_ANY,b)
+RETURNS(FXN(a != b))
 BUILTIN1("no.hash",no_hash,C_ANY,a)
 RETURNS(FXN(0x12345678))
 
@@ -437,10 +454,12 @@ BUILTIN1("add_bars_c_", add_bars_c_, C_ANY, xs)
 RETURNS(reader_add_bars(xs))
 BUILTIN1("parse_strip_c_", parse_strip_c_, C_ANY, x)
 RETURNS(reader_parse_strip(x))
-BUILTIN1("parse_table_c_", parse_table_c_, C_ANY, x)
-RETURNS(reader_parse_table(x))
 BUILTIN1("parse_tokens_c_", parse_tokens_c_, C_ANY, x)
 RETURNS(reader_parse_tokens(x))
+/* `reader_parse_table` is still used internally by parse_term's
+ * `@{}` / `${}` cases, but nothing in Symta-side code calls it
+ * any more, so the BUILTIN1 wrapper is gone.  See runtime/reader.c
+ * for the live callers. */
 
 /* Weak hashtable -- single global instance.  Keys are heap-object
  * dyns held weakly: GC drops entries whose key isn't reachable
@@ -2518,7 +2537,6 @@ static struct {
   B(tok_)
   B(add_bars_c_)
   B(parse_strip_c_)
-  B(parse_table_c_)
   B(parse_tokens_c_)
   B(wh_set_)
   B(wh_get_)
@@ -2869,6 +2887,24 @@ void init_builtins(int argc, char **argv) {
   init_types();
   init_builtin_methods();
   init_subtypes();
+
+  /* `_.><` / `_.<>` -- raw-dyn identity comparators on T_OBJECT.
+   * Registered AFTER init_subtypes so add_method propagates them
+   * to every subtype that doesn't already have a type-specific
+   * override (int / text / float / fn / no have their own via
+   * METHOD_FN).  Bootstrap core_.sbc may still carry Symta-side
+   * defs of these methods; add_method allows redefinition for
+   * the two specific method ids (m_equal / m_ne) so the latest
+   * registration wins. */
+  {
+    setup_b_any_eq();
+    setup_b_any_ne();
+    void *met;
+    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_eq)->hook);
+    add_method(T_OBJECT, api.m_equal, met);
+    BUILTIN_CLOSURE(met, ((fn_meta_t*)meta_b_any_ne)->hook);
+    add_method(T_OBJECT, api.m_ne_, met);
+  }
 
   init_args(argc, argv);
   

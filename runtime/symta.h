@@ -328,6 +328,10 @@ struct api_t {
   int m_underscore;
   int m_hash;
   int m_equal;
+  /* `<>` (ne) method id -- needed at init_types time so the C-side
+   * default identity comparator on T_OBJECT can be registered, and
+   * by add_method's redefinition special-case (latest wins). */
+  int m_ne_;
   char* (*print_object_f)(void *object);   /* error/trace path */
   void *(*alloc)(uint32_t tag, uint32_t size);   /* one-time init */
   void (*gc)();          /* explicit-gc builtin (RT-2) */

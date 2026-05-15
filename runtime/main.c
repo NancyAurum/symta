@@ -233,11 +233,21 @@ method_node_t *add_method_r(int depth, int type_id
       if (!s->super) break;
     }
     if (depth) return 0; //subtype already has this method
+    /* `_.><` / `_.<>` get registered both via the C-side init
+     * (fast direct-dispatch handlers) and via the bootstrap SBC's
+     * Symta-side definitions of the same methods.  Allow the
+     * silent override so the latest registration wins.  Any OTHER
+     * method redefinition is still an error -- usually a real
+     * bug. */
+    if (method_id == api.m_equal || method_id == api.m_ne_) {
+      goto replace;
+    }
     rterr("add_method: redefining %s.%s"
          ,t->name, print_object(method_names[method_id]));
   inherited:;
   }
 
+replace:
   init_method(ms+hid, type_id, method_id, handler);
 
   for (int si = t->subtypes; si != END_TAG; si = s->next) {
@@ -612,6 +622,7 @@ void init_types() {
   api.m_underscore = resolve_method("__");
   api.m_hash = resolve_method("hash");
   api.m_equal = resolve_method("><");
+  api.m_ne_ = resolve_method("<>");
 
   intern("int");
   intern("float");
