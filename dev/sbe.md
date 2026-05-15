@@ -73,7 +73,12 @@ core the rest is just standard library.
 A consequence: a one-liner Symta program is a viable replacement
 for an awk / sed / jq pipeline, *and* a viable medium for
 exploratory statistical or scientific work where you'd otherwise
-reach for J, K, or APL.  The same language fits both.
+reach for J, K, or APL.  The same language fits both.  See
+[`examples/33-csv.s`](../examples/33-csv.s),
+[`examples/34-xml.s`](../examples/34-xml.s), and
+[`examples/35-json.s`](../examples/35-json.s) for runnable
+proofs — each handles its respective everyday data format
+*without* a parser library, in well under a hundred lines.
 
 ---
 
