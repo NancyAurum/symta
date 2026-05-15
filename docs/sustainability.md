@@ -6,13 +6,27 @@ projects, not commitments.
 
 ## The constraint
 
-Bare-minimum funding to keep Symta development going.  Calibration:
-a Polish / Russian / Latvian cost-of-living single-developer
-threshold is ~€1.5-2 k/month; a Berlin / Amsterdam threshold is
-~€3-4 k/month.  Symta needs SOME monetary stream to avoid
-becoming "Nancy's hobby that has to compete with a day job for
-attention".  The aim is **a few months of runway, then a recurring
-stream that covers basic costs**, not a startup outcome.
+Bare-minimum funding to keep Symta development going.  Calibration
+for a Netherlands resident as ZZP (eenmanszaak / self-employed)
+working solo:
+
+  - Health insurance (mandatory): ~€140/month.
+  - Modest rent outside Amsterdam (Utrecht / Rotterdam / Eindhoven
+    / Groningen): €800-1200/month for a 1-bedroom.
+  - Utilities + groceries + transport + misc: €700-1300/month.
+  - **Total monthly expenses: €1700-2700.**
+  - Tax overhead (income tax + ZVW health-insurance contribution
+    + own pension allocation): ~25-30 % effective on ZZP income
+    after the standard deductions (zelfstandigenaftrek €3,750,
+    startersaftrek €2,123 for first 3 years, MKB-winstvrijstelling
+    13.31 %).
+  - **Gross target for bare-minimum survival: ~€32-42 k/year**,
+    or roughly €2 700-3 500/month gross.
+
+Symta needs SOME monetary stream to avoid becoming "Nancy's
+hobby that has to compete with a day job for attention".  The
+aim is **a few months of runway, then a recurring stream that
+covers basic costs**, not a startup outcome.
 
 ## What Symta uniquely has as monetisable assets
 
@@ -237,44 +251,260 @@ funds the ramp on a slower-but-larger stream.
     Commercial licensing tier becomes viable for companies that
     embed it.
 
+## Netherlands-specific opportunities
+
+Being a Dutch resident reshapes the analysis significantly.  The
+Netherlands has one of the most generous R&D tax-credit regimes
+in Europe for solo developers, plus several culture / tech
+funds with explicit "experimental tools" remits, plus a research
+institution (CWI Amsterdam) that has literally hosted the birth
+of major programming languages.
+
+### NL-1.  **WBSO** -- the single most underrated solo-dev benefit
+
+The Wet Bevordering Speur- en Ontwikkelingswerk is a national
+R&D tax credit administered by RVO (Rijksdienst voor Ondernemend
+Nederland).  For a ZZP doing technical innovation -- which Symta
+clearly is -- WBSO refunds **a fraction of every R&D hour you
+spend, capped at ~1 800 hours/year**.
+
+  - For ZZP without employees: a **fixed deduction of ~€15 000**
+    against income tax in the year if WBSO-approved (2025
+    figure; check RVO for current).  Plus the "aftrek voor
+    speur- en ontwikkelingswerk" of €14 045 if you log 500+
+    R&D hours.
+  - Application: twice a year (deadline 30 September for next
+    January, 31 January for next quarter, etc.).  Online via
+    RVO portal.  Decision in ~3 months.
+  - Eligibility: technical-innovation work that ISN'T already
+    state-of-the-art for the applicant.  Inventing a new
+    language counts.  Building a new code generator counts.
+    Routine bugfixing doesn't.
+  - **Total annual tax benefit for a Symta-focused ZZP: €15-25 k**
+    against income tax, recurring as long as the R&D work
+    continues.
+
+This is the highest-EV single Dutch-specific item.  It doesn't
+generate revenue, it generates tax-side runway -- but at ~€20 k
+annually it's nearly half a survival budget.  Apply for the
+upcoming WBSO call regardless of every other strategy.
+
+### NL-2.  NLnet is *Dutch*
+
+NLnet is based in Amsterdam.  The NGI Zero Core / NGI Zero
+Commons / NGI Zero PET calls are EU-funded but administered from
+the Netherlands by Dutch staff.  Symta has a quiet home-field
+advantage for two reasons:
+
+  - **Lower communication friction.**  You can apply in English
+    but follow up in Dutch.  Calls and meetups happen in NL.
+  - **Cultural fit.**  NLnet's funded projects show a clear bias
+    toward "small, auditable, sovereign infrastructure" -- a
+    near-perfect description of Symta.
+
+  - The most realistic single application: **NGI Zero Core,
+    €30-50 k**, for "small, auditable self-hosted language
+    runtime with modern tooling".  Approval rate is
+    relatively high (~30-40 %) for technically-credible
+    applications with clear deliverables.
+  - Alternative angle: NGI Zero PET (privacy-enhancing tech)
+    if Symta's small footprint is pitched as enabling on-
+    device computation that doesn't leak data to cloud APIs.
+
+  **Apply now, not later.**  Decision time is ~3 months.
+
+### NL-3.  Stimuleringsfonds Creatieve Industrie
+
+The Creative Industries Fund administers multiple grant lines
+relevant to Symta + SoM:
+
+  - **Toegepast Onderzoek** (Applied Research): €25-80 k for
+    "research projects that push the design discipline forward".
+    Symta's type-system roadmap + the AI-assisted-dev research
+    angle FITS this brief.
+  - **Gamefonds**: €15-45 k for game development with cultural,
+    experimental, or technologically-innovative angles.  Spell
+    of Mastery's "designer wrote her own Lisp to make this"
+    angle is exactly what they fund.
+  - **Open Oproep** calls happen 2-3 times/year on rotating
+    themes.
+
+  Application form is in Dutch; deliverables can be in English.
+  Decisions in 2-3 months.
+
+### NL-4.  Dutch Game Garden
+
+Utrecht-based game-dev incubator with a workspace, mentorship
+network, and intro-to-publisher pipeline.
+
+  - **Bizz Bench / Incubator program**: 1-year program for
+    early-stage game studios.  Workspace + mentorship + intros.
+    Free or symbolic fee.  Doesn't directly fund, but plugs
+    into the Dutch game industry.
+  - Useful as a network multiplier when Spell of Mastery is
+    in Phase 1 (release prep).
+
+### NL-5.  Academic affiliation -- CWI Amsterdam
+
+Centrum Wiskunde & Informatica is the national research institute
+for math and CS.  Their Software Analysis & Transformation
+group (SWAT) and the Programming Languages group have hosted:
+
+  - Python (Guido van Rossum, 1989-1995)
+  - Algol-68 (Adriaan van Wijngaarden)
+  - More recently: Rascal (metaprogramming DSL)
+
+  A visiting-researcher arrangement is plausible: bring Symta
+  as a case study in self-hosted Lisp dialect + AI-assisted
+  language development.  Visiting positions at CWI typically
+  pay €40-60 k/year for 1-2 year contracts.
+
+  Path: email Jurgen Vinju (Rascal lead) or Davy Landman with
+  a one-page pitch.  Symta's "small, well-documented, modern,
+  self-hosted" angle is the kind of substrate CWI students like
+  to do research on.
+
+### NL-6.  Tax structure choice -- ZZP vs Stichting
+
+For year 1 with revenue under €60 k:
+
+  - **ZZP / eenmanszaak** (sole proprietor): simplest.  Income
+    flows through personal tax return.  WBSO, zelfstandigen-
+    aftrek, startersaftrek, MKB-winstvrijstelling all available.
+    BTW (VAT) registration required above €20 k turnover (KOR
+    scheme exempts below €20 k).
+  - **Stichting Symta** (foundation): a separate legal entity
+    that can hold IP, receive grants, accept donations.  If
+    approved as **ANBI** (algemeen nut beogende instelling),
+    donations are tax-deductible for donors -- meaningful for
+    GitHub Sponsors and corporate donors.  More overhead (~€500
+    setup + annual filings) but cleaner separation of "the
+    project" from "Nancy's personal income".
+
+  The pragmatic structure for the first 1-2 years: stay ZZP,
+  receive grants and consulting personally, register WBSO.
+  Convert to BV (private limited company) only when annual
+  revenue clears ~€60-70 k where the BV's flat rates start
+  beating personal income tax brackets.
+
+### NL-7.  Steam / itch.io tax considerations
+
+  - Steam takes 30 %, deducts 30 % US withholding on royalties
+    by default.  File a W-8BEN form via the Steamworks dashboard
+    to claim the US-NL tax treaty rate (0 % on royalties).  This
+    is a one-page tax-treaty claim -- always worth doing.
+  - itch.io: 10 % platform fee, no US withholding (creator
+    handles their own taxation).
+  - Digital products sold to EU consumers: VAT MOSS/OSS scheme
+    -- Steam handles this for you on their platform.  For
+    itch.io / direct sales you can register for **OSS** via the
+    Belastingdienst portal.  Below €10 k cross-border EU sales
+    you can use NL VAT rates; above that, OSS uses the
+    customer's country rate.
+
+### NL-8.  Other Dutch funds + sources to watch
+
+  - **NWO** (Dutch Research Council): KIC (Knowledge and Innovation
+    Covenant) calls, sometimes funds language tooling research.
+    Long-cycle (12+ months from application to funding).
+  - **Eurostars** (EU R&D for SMEs): up to €500 k per project,
+    but needs a partner consortium.  Out of scope for solo dev.
+  - **Innovatiekrediet** (RVO): low-interest loan for R&D,
+    €150 k-€10 M.  Loan, not grant -- mention for completeness.
+  - **Provincial / municipal funds**: depending on which gemeente
+    Nancy lives in.  Utrecht and Eindhoven have active tech-
+    startup funds; Amsterdam less so for solo devs.
+  - **Voordekunst** (cultural crowdfunding): tax-deductible for
+    donors if the campaign is via an ANBI stichting.  €5-50 k
+    typical campaigns.
+
 ## What to do FIRST (this week, if you wanted to)
 
-Ordered by best-effort-per-hour:
+Ordered by **euro-per-hour-of-effort** for an NL resident.  The
+top three are NL-specific and dwarf everything else in expected
+value.
 
-1. **`.github/FUNDING.yml`** (15 minutes).
+1. **WBSO application** (4-6 hours of paperwork, ~€15-25 k/yr
+   recurring tax credit).  Single highest-EV item in this entire
+   doc.  Apply via the **RVO portal** (https://www.rvo.nl/) for
+   the upcoming WBSO cycle.  The application describes your R&D
+   project in plain Dutch / English; "developing a self-hosted
+   AOT-compiled Lisp dialect with a novel type system and native
+   code generation" is exactly the kind of work WBSO funds.  If
+   you don't have a ZZP / eenmanszaak registered at KvK
+   (Chamber of Commerce) yet, do that first (€80 + 30 minutes
+   online).
+   - Realistic outcome: ~€15-20 k/year reduction in income tax,
+     for as long as the R&D continues.
+   - This is recurring, not one-shot.
+
+2. **NLnet pre-application email** (2 hours).
+   The Dutch home-field advantage makes this the most realistic
+   single grant.  Email contact@nlnet.nl with a one-page sketch:
+   "Symta: small, auditable, self-hosted Lisp dialect with AOT
+   compilation; type-system + native-code roadmap; AI-assisted
+   development research substrate".  Reference the existing
+   technical assets: working compiler, working game, existing
+   documentation, recent perf work.  Ask whether the NGI Zero
+   Core or NGI Zero Commons call is the better fit.
+   - Realistic outcome: €30-50 k one-shot grant over 9-12 months
+     for specific deliverables.
+
+3. **Stimuleringsfonds Creatieve Industrie -- Toegepast Onderzoek
+   pre-app** (3-4 hours).  Browse https://stimuleringsfonds.nl/
+   for the current Open Oproep.  The "AI-assisted dev of
+   self-hosted Lisp" research angle fits Toegepast Onderzoek;
+   "ship a strategy game written in a custom language" fits
+   Gamefonds.  Pick whichever has a closer deadline.
+   - Realistic outcome: €25-80 k one-shot project funding.
+
+4. **`.github/FUNDING.yml`** (15 minutes).
    ```yaml
-   github: [NancyAurum]   # or whichever GitHub handle
+   github: [NancyAurum]   # or your actual GH handle
    ko_fi: nancyaurum
    custom: ["https://nancygold.itch.io/edds"]
    ```
-   Zero risk, immediate "tip jar" availability.
+   Zero risk, immediate "tip jar" availability.  Counts as the
+   "Sponsors" link on the GitHub repo automatically.
 
-2. **README.md "Sponsors" section** (30 minutes).
-   Add a one-paragraph section above the License heading
-   pointing at GitHub Sponsors + itch.io + (later) Steam.
+5. **README.md "Sponsors / Funding" section** (30 minutes).
+   One paragraph above the License heading pointing at GitHub
+   Sponsors + itch.io + (later) Steam.  Converts existing repo
+   traffic into trickle income.
 
-3. **HN-ready blog post submission** (1 day).
+6. **HN-ready blog post submission** (1 day).
    The 765-line blog.md is too long for HN.  Cut it down to
    1500-2500 words focused on the most novel angle ("language
    designer + LLM = revived 25 k LOC game").  Submit to HN +
-   lobste.rs + /r/programming.  Time it for Tuesday/Wednesday
-   morning EU time when HN is most active.
+   lobste.rs + /r/programming.  Time it for Tuesday / Wednesday
+   morning EU time when HN is most active.  Drives
+   sponsor / consulting visibility.
 
-4. **NLnet pre-application email** (2 hours).
-   NLnet welcomes pre-applications.  Sketch the angle:
-   "Symta: small, auditable, self-hosted Lisp dialect with
-   AOT compilation -- a research substrate for AI-assisted
-   language design and embedded scripting".  See if they want
-   a full application.
+7. **Spell of Mastery itch.io page polish** (1 week part-time).
+   The page exists at https://nancygold.itch.io/edds.  The
+   marketing copy, screenshots, trailer need attention.  itch.io
+   revenue activates within hours of going live; Steam takes
+   weeks of pre-launch.
 
-5. **Spell of Mastery itch.io page polish** (1 week part-time).
-   The page exists; the marketing copy, screenshots, trailer
-   need attention.  itch.io revenue can be activated quickly
-   compared to Steam.  Use the existing blog screenshots.
+8. **CWI Amsterdam introduction email** (1 hour).
+   Email Jurgen Vinju (j.j.vinju@cwi.nl) or Davy Landman with a
+   one-page sketch: "Self-hosted Lisp dialect Symta, current
+   state, type-system roadmap, would CWI's PL group be
+   interested in a visiting-researcher arrangement?".  CWI
+   already hosts the Rascal metaprogramming DSL group, so the
+   conceptual fit is strong.  Visiting positions at CWI typically
+   pay €40-60 k/year for 1-2 year contracts.
 
-The first four items together are maybe 2 working days.  Even
-a modest result on any one of them is more income than the
-project has today.
+Items 1-3 are the NL-specific high-impact moves.  Items 4-5
+take an hour total and start the visibility flywheel.  Items
+6-7 are content-driven and lead-generate for everything else.
+Item 8 is a longer shot but has career-changing upside if it
+lands.
+
+Total weekend of effort to get items 1-5 in motion.  WBSO + NLnet
++ Stimuleringsfonds together could provide €40-100 k of runway
+in year 1 if even half land -- the difference between "Nancy's
+hobby" and "Symta is Nancy's job".
 
 ## Risks + open questions
 
@@ -310,12 +540,18 @@ project has today.
 
 ## My recommendation in one sentence
 
-**Set up the tip jar this week, ship SoM as the funding engine,
-file the NLnet application as the bridge funding, and let the
-blog content drive the visibility flywheel that makes
-everything else viable.**
+**File WBSO + NLnet + Stimuleringsfonds applications this month,
+ship SoM as the medium-term funding engine, set up the tip jar
++ HN blog post in parallel for visibility, and use whichever of
+those lands first to fund the runway for whichever lands next.**
 
-That's the shape that has worked for a half-dozen comparable
-solo-language projects in the last decade; Symta has the assets
-(working game, working language, current AI-coding story) to
-play the same hand better than most.
+For a Dutch resident, the WBSO tax credit alone is structurally
+worth ~€15-25 k/year recurring -- nearly half a survival budget,
+just for filing the paperwork.  Combined with one Dutch grant
+landing and a modest Spell of Mastery launch, the bare-minimum
+target is within reach in year 1.
+
+The visibility-driven paths (sponsors, book, consulting) are
+year-2 multipliers, not year-1 survival.  The Dutch
+institutional landscape is generous to solo R&D devs in ways
+most countries aren't; use it.
